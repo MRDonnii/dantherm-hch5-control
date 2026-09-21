@@ -48,6 +48,7 @@ class DashboardTests(unittest.TestCase):
             finally: server.stop()
     def test_airflow_theme_and_afterheat_contract(self):
         html = (ROOT / "gateway/webui/index.html").read_text()
+        controller_html = (ROOT / "gateway/webui/controller.html").read_text()
         script = (ROOT / "gateway/webui/dashboard.js").read_text()
         theme = (ROOT / "gateway/webui/theme.css").read_text()
         self.assertNotIn('id="exchanger-supply"', html)
@@ -58,6 +59,10 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("dantherm-theme", script)
         self.assertIn("Frostføler TFAH", html)
         self.assertIn(".bypass-open .coil{opacity:0", theme)
+        self.assertIn('class="tab-link" href="/controller">Teknik</a>', html)
+        self.assertIn('class="tab-link active" href="/controller"', controller_html)
+        self.assertIn('/?tab=history', controller_html)
+        self.assertIn('new URLSearchParams(location.search).get("tab")', script)
     def test_read_only_system_snapshot_has_no_control_surface(self):
         with tempfile.TemporaryDirectory() as tmp:
             server = MODULE.DashboardHttpServer("127.0.0.1", 0, {}, "Test", None, web_root=ROOT / "gateway/webui", history_path=Path(tmp) / "history.sqlite3")
