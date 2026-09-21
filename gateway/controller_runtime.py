@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """Runtime bridge between the live PassiveLink gateway and ControllerEngine.
 
-The controller always computes desired state, but hardware writes are permitted
-only when automatic master arbitration has established Raspberry Pi as master.
-HCP4 always wins if foreign FC06/FC16 traffic is detected.
+The Pi controller is always enabled. Hardware writes are permitted only when
+master arbitration has established Raspberry Pi as master; HCP4 always wins.
+Home Assistant may provide leased room measurements, but the control decision
+and all persistent configuration remain on the Pi.
 """
 from __future__ import annotations
 
 import logging
 import threading
 import time
+from collections import defaultdict, deque
 from pathlib import Path
 
 from controller_core import ControllerEngine, ControllerError, ControllerState, HardwareAdapter
@@ -19,17 +21,16 @@ LOG = logging.getLogger("passivelink-controller")
 
 
 class ControllerRuntime:
-    def __init__(
-        self,
-        *,
-        gateway_state: dict[str, object],
-        hardware: HardwareAdapter,
-        state_path: str | Path | None = None,
-        tick_seconds: float = 2.0,
-        master_config: dict | None = None,
-    ) -> None:
+    def __init__(self, *, gateway_state: dict[str, object], hardware: HardwareAdapter,
+                 state_path: str | Path | None = None, tick_seconds: float = 2.0,
+                 master_config: dict | None = None) -> None:
         self.gateway_state = gateway_state
         self.config = ControllerState(state_path)
+        # Controller enable is no longer a user option. The Pi is always ready
+        # to take over when HCP4 is absent and the bus is healthy.
+        if not self.config.data.get("enabled"):
+            self.config.data["enabled"] = True
+            self.config.save()
         self.engine = ControllerEngine(self.config, hardware)
         self.tick_seconds = max(1.0, float(tick_seconds))
         self.stop_event = threading.Event()
@@ -40,6 +41,13 @@ class ControllerRuntime:
         self.master.configure(master_config)
         self.master_stream = RtuFrameStream()
         self._last_master = self.master.master
+
+        self.smart_rooms: dict[str, dict[str, float]] = {}
+        self.smart_inputs_received_at: float | None = None
+        self.smart_inputs_valid_for = 180
+        self._room_rh_history: dict[str, deque[tuple[float, float]]] = defaultdict(deque)
+        self.smart_demand = "normal"
+        self.smart_reason = "No Home Assistant room data"
 
     @staticmethod
     def _first(state: dict[str, object], *keys: str):
@@ -53,7 +61,6 @@ class ControllerRuntime:
         self.master.configure(config)
 
     def observe_serial_bytes(self, data: bytes) -> None:
-        """Feed every RX chunk into the fail-safe HCP4 detector immediately."""
         if not data:
             return
         previous = self.master.master
@@ -63,7 +70,6 @@ class ControllerRuntime:
             self._on_master_transition(previous, self.master.master)
 
     def note_own_frame(self, frame: bytes) -> None:
-        """Register a Pi FC06/FC16 TX so its response is not mistaken for HCP4."""
         self.master.note_own_frame(frame)
 
     def _bus_healthy(self) -> bool:
@@ -74,8 +80,6 @@ class ControllerRuntime:
 
     def _on_master_transition(self, old: str, new: str) -> None:
         self._last_master = new
-        # When Pi regains the bus, force every desired output through the
-        # verified writer once. HCP4 may have changed values while it was master.
         if new == MasterArbitrator.PI:
             self.engine.last_applied.clear()
             self.engine._failure_values.clear()
@@ -83,26 +87,20 @@ class ControllerRuntime:
             self.engine._retry_at.clear()
             LOG.warning("Raspberry Pi became active master; desired state will be reapplied")
         elif old == MasterArbitrator.PI:
-            # Any queued/next write is blocked again by hardware_writes_allowed
-            # and by the controller-aware gateway's CONTROL write guard.
             self.engine._retry_at.clear()
             LOG.warning("Raspberry Pi released mastership to %s; controller writes paused", new)
 
     def _evaluate_master(self) -> None:
         before = self.master.master
-        self.master.evaluate(
-            controller_enabled=bool(self.config.data.get("enabled")),
-            bus_healthy=self._bus_healthy(),
-        )
+        self.master.evaluate(bus_healthy=self._bus_healthy())
         if self.master.master != before:
             self._on_master_transition(before, self.master.master)
 
     def hardware_writes_allowed(self) -> bool:
         self._evaluate_master()
-        return self.master.writes_allowed(bool(self.config.data.get("enabled")))
+        return self.master.writes_allowed()
 
     def refresh_measurements(self) -> None:
-        """Feed only already decoded/local measurements to Local Auto."""
         state = self.gateway_state
         self.engine.update_measurements(
             rh=self._first(state, "humidity", "relative_humidity"),
@@ -111,15 +109,116 @@ class ControllerRuntime:
             room=self._first(state, "room_temp", "hrc2_t5_temperature", "room_temperature", "extract_temp"),
         )
 
+    @staticmethod
+    def _safe_number(value, low: float, high: float):
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return number if low <= number <= high else None
+
+    def room_inputs(self, payload: dict[str, object]) -> dict[str, object]:
+        """Accept leased room measurements from HA and derive semantic demand."""
+        rooms = payload.get("rooms")
+        if not isinstance(rooms, dict):
+            raise ControllerError("rooms skal være et objekt")
+        try:
+            valid_for = int(payload.get("valid_for_s", 180))
+        except (TypeError, ValueError) as error:
+            raise ControllerError("valid_for_s skal være et heltal") from error
+        if not 30 <= valid_for <= 900:
+            raise ControllerError("valid_for_s skal være 30..900 sekunder")
+
+        now = time.time()
+        sanitized: dict[str, dict[str, float]] = {}
+        for raw_name, raw_values in list(rooms.items())[:32]:
+            if not isinstance(raw_values, dict):
+                continue
+            name = str(raw_name).strip()[:64]
+            if not name:
+                continue
+            values: dict[str, float] = {}
+            temp = self._safe_number(raw_values.get("temperature"), -30, 60)
+            rh = self._safe_number(raw_values.get("humidity"), 0, 100)
+            co2 = self._safe_number(raw_values.get("co2"), 250, 10000)
+            if temp is not None:
+                values["temperature"] = round(temp, 2)
+            if rh is not None:
+                values["humidity"] = round(rh, 2)
+                history = self._room_rh_history[name]
+                history.append((now, rh))
+                while history and now - history[0][0] > 900:
+                    history.popleft()
+            if co2 is not None:
+                values["co2"] = round(co2, 0)
+            if values:
+                sanitized[name] = values
+
+        self.smart_rooms = sanitized
+        self.smart_inputs_received_at = now
+        self.smart_inputs_valid_for = valid_for
+        demand, reason = self._derive_smart_demand(now)
+        self.smart_demand, self.smart_reason = demand, reason
+        self.config.heartbeat(demand)
+        if self.config.data.get("mode") == "smart_auto" and self.hardware_writes_allowed():
+            self.apply_once()
+        return self.snapshot()
+
+    def _derive_smart_demand(self, now: float | None = None) -> tuple[str, str]:
+        now = time.time() if now is None else now
+        d = self.config.data
+        max_co2 = max(((v.get("co2"), name) for name, v in self.smart_rooms.items() if v.get("co2") is not None), default=(None, None))
+        max_rh = max(((v.get("humidity"), name) for name, v in self.smart_rooms.items() if v.get("humidity") is not None), default=(None, None))
+        max_rise = (0.0, None)
+        for name, history in self._room_rh_history.items():
+            fresh = [(ts, value) for ts, value in history if now - ts <= 600]
+            if len(fresh) >= 2:
+                rise = fresh[-1][1] - fresh[0][1]
+                if rise > max_rise[0]:
+                    max_rise = (rise, name)
+
+        if max_rise[0] >= 7.0:
+            return "boost", f"RH rise {max_rise[1]} +{max_rise[0]:.1f}%/10m"
+        co2, co2_room = max_co2
+        rh, rh_room = max_rh
+        if isinstance(co2, (int, float)) and co2 >= int(d["co2_setpoint"]) + 2 * int(d["auto_step_co2"]):
+            return "boost", f"CO2 {co2_room} {co2:.0f} ppm"
+        if isinstance(rh, (int, float)) and rh >= float(d["rh_setpoint"]) + 2 * float(d["auto_step_rh"]):
+            return "boost", f"RH {rh_room} {rh:.1f}%"
+        if isinstance(co2, (int, float)) and co2 > int(d["co2_setpoint"]):
+            return "high", f"CO2 {co2_room} {co2:.0f} ppm"
+        if isinstance(rh, (int, float)) and rh > float(d["rh_setpoint"]):
+            return "high", f"RH {rh_room} {rh:.1f}%"
+        return "normal", "All HA rooms below configured thresholds"
+
+    def _smart_input_snapshot(self) -> dict[str, object]:
+        now = time.time()
+        age = None if self.smart_inputs_received_at is None else max(0.0, now - self.smart_inputs_received_at)
+        fresh = age is not None and age <= self.smart_inputs_valid_for
+        max_co2 = max(((v.get("co2"), n) for n, v in self.smart_rooms.items() if v.get("co2") is not None), default=(None, None))
+        max_rh = max(((v.get("humidity"), n) for n, v in self.smart_rooms.items() if v.get("humidity") is not None), default=(None, None))
+        return {
+            "smart_inputs_online": fresh,
+            "smart_inputs_age_seconds": round(age, 1) if age is not None else None,
+            "smart_inputs_valid_for_seconds": self.smart_inputs_valid_for,
+            "smart_rooms": self.smart_rooms,
+            "smart_demand": self.smart_demand if fresh else "stale",
+            "smart_reason": self.smart_reason if fresh else "HA room data stale; Local Auto fallback",
+            "smart_max_co2": max_co2[0],
+            "smart_max_co2_room": max_co2[1],
+            "smart_max_rh": max_rh[0],
+            "smart_max_rh_room": max_rh[1],
+        }
+
     def snapshot(self) -> dict[str, object]:
         self.refresh_measurements()
         self._evaluate_master()
         result = self.engine.resolve()
+        result["enabled"] = True  # compatibility only; not configurable
         result.update(self.master.snapshot())
-        writes_allowed = self.master.writes_allowed(bool(self.config.data.get("enabled")))
-        if not self.config.data.get("enabled"):
-            control_state = "disabled"
-        elif self.master.master == MasterArbitrator.HCP4:
+        result.update(self._smart_input_snapshot())
+        writes_allowed = self.master.writes_allowed()
+        if self.master.master == MasterArbitrator.HCP4:
             control_state = "paused_hcp4_master"
         elif self.master.master == MasterArbitrator.PI:
             control_state = "active_pi_master"
@@ -136,26 +235,20 @@ class ControllerRuntime:
             "actual_fireplace": self._first(self.gateway_state, "fireplace"),
             "actual_afterheat": self._first(self.gateway_state, "afterheat_active"),
             "actual_afterheat_setpoint": self._first(self.gateway_state, "afterheat_setpoint"),
-            "actual_supply_before_heater_temperature": self._first(
-                self.gateway_state, "supply_temp"
-            ),
-            "actual_supply_air_temperature": self._first(
-                self.gateway_state, "heating_coil_after_temperature", "supply_temp"
-            ),
-            "actual_supply_air_temperature_source": (
-                "hac1_t2ah" if self.gateway_state.get("heating_coil_after_temperature") is not None
-                else "unit_t2"
-            ),
-            "actual_afterheat_frost_temperature": self._first(
-                self.gateway_state, "heating_coil_frost_temperature"
-            ),
+            "actual_supply_before_heater_temperature": self._first(self.gateway_state, "supply_temp"),
+            "actual_supply_air_temperature": self._first(self.gateway_state, "heating_coil_after_temperature", "supply_temp"),
+            "actual_supply_air_temperature_source": "hac1_t2ah" if self.gateway_state.get("heating_coil_after_temperature") is not None else "unit_t2",
+            "actual_afterheat_frost_temperature": self._first(self.gateway_state, "heating_coil_frost_temperature"),
             "rs485_healthy": self._bus_healthy(),
             "last_tick_at": self.last_tick_at,
         })
         return result
 
     def configure(self, patch: dict[str, object], *, apply: bool = True) -> dict[str, object]:
+        if "enabled" in patch:
+            raise ControllerError("Pi-controlleren kan ikke slås fra; HCP4 master-detektion styrer automatisk overtagelse")
         self.config.configure(patch)
+        self.config.data["enabled"] = True
         self._evaluate_master()
         if apply and self.hardware_writes_allowed():
             self.apply_once()
@@ -169,11 +262,10 @@ class ControllerRuntime:
         return self.snapshot()
 
     def apply_once(self) -> dict[str, object]:
-        """Apply changed desired state once, only while Pi is confirmed master."""
         with self.apply_lock:
             self.refresh_measurements()
             self._evaluate_master()
-            if not self.master.writes_allowed(bool(self.config.data.get("enabled"))):
+            if not self.master.writes_allowed():
                 self.engine.resolve()
                 self.last_tick_at = time.time()
                 return self.snapshot()
@@ -184,23 +276,18 @@ class ControllerRuntime:
     def tick(self) -> None:
         self.refresh_measurements()
         self._evaluate_master()
-        if not self.master.writes_allowed(bool(self.config.data.get("enabled"))):
+        if not self.master.writes_allowed():
             self.engine.resolve()
             self.last_tick_at = time.time()
             return
         try:
             self.apply_once()
         except Exception as error:
-            # Engine records the detailed hardware error. Runtime stays alive and
-            # retries only at the bounded tick interval; no tight write loop.
             LOG.error("Controller write failed: %s", error)
             self.last_tick_at = time.time()
 
     def _run(self) -> None:
-        LOG.info(
-            "Local HCH controller runtime started (enabled=%s, master=%s)",
-            self.config.data["enabled"], self.master.master,
-        )
+        LOG.info("Local HCH controller runtime started (automatic master=%s)", self.master.master)
         while not self.stop_event.is_set():
             self.tick()
             self.stop_event.wait(self.tick_seconds)
