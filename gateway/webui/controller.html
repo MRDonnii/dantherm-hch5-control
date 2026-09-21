@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b1118">
+  <title>Dantherm HCH5 · Controller</title>
+  <link rel="stylesheet" href="/assets/dashboard.css">
+  <link rel="stylesheet" href="/assets/theme.css">
+  <link rel="stylesheet" href="/assets/controller.css">
+  <script defer src="/assets/controller.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="brand-mark">D</span><div><b>DANTHERM HCH5</b><small>Local Controller · HCP4 replacement test</small></div></div>
+  <div class="headline-status"><span class="status-dot" id="controller-dot"></span><strong id="controller-status">FORBINDER…</strong><span class="badge" id="source-badge">—</span><a class="controller-back" href="/">← Overblik</a></div>
+</header>
+<main class="controller-main">
+  <section class="controller-hero card">
+    <div>
+      <small>AKTIV STYRING</small>
+      <h1>Ventilation</h1>
+      <p id="effective-reason">Afventer controller…</p>
+    </div>
+    <label class="enable-switch"><input id="controller-enabled" type="checkbox"><span>Controller aktiv</span></label>
+  </section>
+
+  <section class="controller-grid">
+    <article class="card control-card">
+      <div class="section-heading"><div><small>MODE</small><h2>Styring</h2></div><span class="badge" id="ha-badge">HA —</span></div>
+      <div class="mode-buttons">
+        <button data-mode="local_auto">Local Auto</button>
+        <button data-mode="smart_auto">Smart Auto</button>
+        <button data-mode="manual">Manual</button>
+      </div>
+      <dl class="controller-status-list">
+        <dt>Aktiv kilde</dt><dd id="effective-source">—</dd>
+        <dt>Aktuelt niveau</dt><dd id="effective-level">—</dd>
+        <dt>Udsugning / indblæsning</dt><dd id="effective-pair">—</dd>
+        <dt>HA heartbeat</dt><dd id="ha-age">—</dd>
+      </dl>
+    </article>
+
+    <article class="card control-card level-card">
+      <div class="section-heading"><div><small>MANUEL</small><h2>Ventilationsniveau</h2></div><span class="badge">1 → 6</span></div>
+      <div class="level-buttons" id="level-buttons">
+        <button data-level="1"><b>1</b><span>Lav</span></button>
+        <button data-level="2"><b>2</b><span>Lav+</span></button>
+        <button data-level="3"><b>3</b><span>Normal</span></button>
+        <button data-level="4"><b>4</b><span>Høj</span></button>
+        <button data-level="5"><b>5</b><span>Høj+</span></button>
+        <button data-level="6"><b>6</b><span>Boost</span></button>
+      </div>
+      <p class="notice">Et tryk skifter til Manual og vælger niveauet. Niveau 6 er Boost.</p>
+    </article>
+
+    <article class="card control-card">
+      <div class="section-heading"><div><small>LOCAL AUTO</small><h2>Luftkvalitet</h2></div><span class="badge" id="auto-level-badge">—</span></div>
+      <div class="live-air"><div><small>RH</small><strong><span id="live-rh">—</span>%</strong></div><div><small>CO₂</small><strong><span id="live-co2">—</span> ppm</strong></div></div>
+      <div class="form-grid">
+        <label>RH setpunkt<input id="rh-setpoint" type="number" min="25" max="80" step="1"><span>%</span></label>
+        <label>RH hysterese<input id="rh-hysteresis" type="number" min="1" max="10" step="1"><span>%</span></label>
+        <label>CO₂ setpunkt<input id="co2-setpoint" type="number" min="500" max="2000" step="50"><span>ppm</span></label>
+        <label>CO₂ hysterese<input id="co2-hysteresis" type="number" min="25" max="500" step="25"><span>ppm</span></label>
+        <label>Normalniveau<select id="normal-level"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option></select></label>
+        <label>Nedregulering<select id="downshift-delay"><option value="60">1 min</option><option value="180">3 min</option><option value="300" selected>5 min</option><option value="600">10 min</option><option value="900">15 min</option></select></label>
+      </div>
+      <button class="primary-action" id="save-auto">Gem Local Auto</button>
+    </article>
+
+    <article class="card control-card">
+      <div class="section-heading"><div><small>EFTERVARME</small><h2>HAC1 setpunkt</h2></div><span class="badge" id="afterheat-active-badge">—</span></div>
+      <div class="setpoint-row">
+        <button class="step-button" id="afterheat-minus">−</button>
+        <div><strong id="afterheat-display">AUTO</strong><small>°C indblæsning</small></div>
+        <button class="step-button" id="afterheat-plus">+</button>
+      </div>
+      <div class="quick-setpoints"><button data-afterheat="auto">Bevar/Auto</button><button data-afterheat="18">18°</button><button data-afterheat="20">20°</button><button data-afterheat="22">22°</button><button data-afterheat="24">24°</button></div>
+      <p class="notice">Pi'en ændrer kun setpunktet, når du vælger en temperatur. Selve varme-/frostreguleringen forbliver i HCH5/HAC1.</p>
+    </article>
+
+    <article class="card control-card">
+      <div class="section-heading"><div><small>SPECIALMODES</small><h2>Bypass og pejs</h2></div></div>
+      <label class="wide-control">Bypass<select id="bypass-mode"><option value="auto">Auto / bevar</option><option value="open">Åben</option><option value="closed">Lukket</option></select></label>
+      <label class="enable-switch fireplace-switch"><input id="fireplace-toggle" type="checkbox"><span>Pejsetilstand</span></label>
+      <dl class="controller-status-list"><dt>Bypass faktisk</dt><dd id="bypass-actual">—</dd><dt>Pejs faktisk</dt><dd id="fireplace-actual">—</dd><dt>Eftervarme faktisk</dt><dd id="afterheat-actual">—</dd></dl>
+    </article>
+
+    <article class="card control-card profile-card">
+      <div class="section-heading"><div><small>KALIBRERING</small><h2>6 ventilationsprofiler</h2></div><span class="badge">UDSUGNING &gt; INDBLÆSNING</span></div>
+      <div class="profile-table-wrap"><table class="profile-table"><thead><tr><th>Niveau</th><th>Udsugning %</th><th>Indblæsning %</th><th>Forskel</th></tr></thead><tbody id="profile-body"></tbody></table></div>
+      <button class="primary-action" id="save-profiles">Gem fanprofiler</button>
+      <p class="notice">Profilerne skal stige fra niveau 1 til 6, og udsugning skal altid være højere end indblæsning.</p>
+    </article>
+  </section>
+
+  <section class="card controller-diagnostics">
+    <div class="section-heading"><div><small>DIAGNOSTIK</small><h2>Controllerstatus</h2></div><span class="badge" id="write-badge">—</span></div>
+    <dl class="controller-status-list diagnostic-list"><dt>Seneste write</dt><dd id="last-write">—</dd><dt>Write-fejl</dt><dd id="write-failures">—</dd><dt>Seneste fejl</dt><dd id="last-error">—</dd><dt>Controller uptime</dt><dd id="controller-uptime">—</dd></dl>
+    <p class="notice" id="controller-result">Klar.</p>
+  </section>
+</main>
+</body>
+</html>
