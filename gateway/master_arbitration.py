@@ -211,10 +211,20 @@ class MasterArbitrator:
                 self._transition(self.HCP4, "foreign_write_activity", now)
         return "foreign"
 
-    def evaluate(self, *, bus_healthy: bool, now: float | None = None) -> bool:
-        """Choose the only safe active master. Pi cannot be user-disabled."""
+    def evaluate(
+        self, *, bus_healthy: bool, now: float | None = None,
+        controller_enabled: bool | None = None,
+    ) -> bool:
+        """Choose the only safe active master.
+
+        ``controller_enabled`` is retained for older callers and tests. The
+        automatic runtime omits it, so normal Pi master arbitration cannot be
+        disabled from the WebUI.
+        """
         now = time.monotonic() if now is None else float(now)
         self._purge(now)
+        if controller_enabled is False:
+            return self._transition(self.UNKNOWN, "controller_explicitly_disabled", now)
         if not bus_healthy:
             return self._transition(self.UNKNOWN, "bus_unhealthy", now)
         foreign_age = None if self.last_foreign_write is None else now - self.last_foreign_write
@@ -231,7 +241,9 @@ class MasterArbitrator:
         self.reason = "pi_master_bus_healthy"
         return False
 
-    def writes_allowed(self) -> bool:
+    def writes_allowed(self, controller_enabled: bool | None = None) -> bool:
+        if controller_enabled is False:
+            return False
         return self.master == self.PI
 
     def bus_age(self, now: float | None = None):
