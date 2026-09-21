@@ -99,6 +99,8 @@ class ControllerState:
         "ha_timeout_seconds": 300,
         "bypass": "auto",
         "fireplace": False,
+        "fireplace_until": None,
+        "fireplace_duration_minutes": 0,
         "afterheat_setpoint": 20,
         "effective_source": "disabled",
         "effective_level": None,
@@ -155,6 +157,19 @@ class ControllerState:
         )
         if self.data["bypass"] not in VALID_BYPASS:
             self.data["bypass"] = "auto"
+        try:
+            fireplace_until = float(self.data["fireplace_until"]) if self.data.get("fireplace_until") else None
+        except (TypeError, ValueError):
+            fireplace_until = None
+        if fireplace_until is None or fireplace_until <= time.time():
+            self.data["fireplace"] = False
+            self.data["fireplace_until"] = None
+            self.data["fireplace_duration_minutes"] = 0
+        else:
+            self.data["fireplace"] = True
+            self.data["fireplace_until"] = fireplace_until
+            if self.data.get("fireplace_duration_minutes") not in (15, 30):
+                self.data["fireplace_duration_minutes"] = 15
         if self.data["ha_demand"] not in VALID_DEMANDS:
             self.data["ha_demand"] = "normal"
         sp = self.data.get("afterheat_setpoint")
@@ -188,7 +203,7 @@ class ControllerState:
                 "rh_hysteresis", "co2_setpoint", "co2_hysteresis",
                 "auto_step_rh", "auto_step_co2", "downshift_delay_seconds",
                 "boost_hold_seconds", "ha_timeout_seconds", "bypass",
-                "fireplace", "afterheat_setpoint", "profiles",
+                "fireplace", "fireplace_minutes", "afterheat_setpoint", "profiles",
             }
             unknown = set(patch) - allowed
             if unknown:
@@ -237,7 +252,20 @@ class ControllerState:
             if "fireplace" in patch:
                 if not isinstance(patch["fireplace"], bool):
                     raise ControllerError("fireplace skal være boolean")
-                self.data["fireplace"] = patch["fireplace"]
+                minutes = 15 if patch["fireplace"] else 0
+                self.data["fireplace"] = minutes > 0
+                self.data["fireplace_until"] = time.time() + minutes * 60 if minutes else None
+                self.data["fireplace_duration_minutes"] = minutes
+            if "fireplace_minutes" in patch:
+                try:
+                    minutes = int(patch["fireplace_minutes"])
+                except (TypeError, ValueError):
+                    raise ControllerError("Pejsetid skal være 0, 15 eller 30 minutter")
+                if minutes not in (0, 15, 30):
+                    raise ControllerError("Pejsetid skal være 0, 15 eller 30 minutter")
+                self.data["fireplace"] = minutes > 0
+                self.data["fireplace_until"] = time.time() + minutes * 60 if minutes else None
+                self.data["fireplace_duration_minutes"] = minutes
             if "afterheat_setpoint" in patch:
                 value = patch["afterheat_setpoint"]
                 value = int(value)
@@ -278,14 +306,27 @@ class ControllerState:
             self.data["ha_demand"] = demand
             return self.snapshot()
 
+    def _expire_fireplace(self, now: float | None = None) -> None:
+        now = now or time.time()
+        until = self.data.get("fireplace_until")
+        if self.data.get("fireplace") and (until is None or float(until) <= now):
+            self.data["fireplace"] = False
+            self.data["fireplace_until"] = None
+            self.data["fireplace_duration_minutes"] = 0
+            self.data["updated_at"] = now
+            self.save()
+
     def snapshot(self) -> dict[str, object]:
         with self.lock:
+            now = time.time()
+            self._expire_fireplace(now)
             result = dict(self.data)
             result["profiles"] = _copy_profiles(self.data["profiles"])
             seen = result.get("ha_last_seen")
-            now = time.time()
             result["ha_online"] = bool(seen and now - float(seen) <= result["ha_timeout_seconds"])
             result["ha_age_seconds"] = round(now - float(seen), 1) if seen else None
+            until = result.get("fireplace_until")
+            result["fireplace_remaining_seconds"] = max(0, int(float(until) - now)) if until else 0
             level = result.get("effective_level")
             result["effective_profile"] = result["profiles"].get(int(level)) if level else None
             return result
@@ -372,6 +413,7 @@ class ControllerEngine:
     def resolve(self, now: float | None = None) -> dict[str, object]:
         now = now or time.time()
         with self.config.lock, self.lock:
+            self.config._expire_fireplace(now)
             d = self.config.data
             if not d["enabled"]:
                 source, level, reason = "disabled", None, "Controller disabled"
@@ -446,6 +488,13 @@ class ControllerEngine:
         snapshot = self.resolve()
         if not snapshot["enabled"]:
             return snapshot
+        fireplace = bool(snapshot["fireplace"])
+        previous_fireplace = self.last_applied.get("fireplace")
+        self._call("fireplace", fireplace, self.hardware.set_fireplace, fireplace)
+        if previous_fireplace is True and not fireplace:
+            # Fireplace mode temporarily owns the physical fan behaviour. Force
+            # the selected controller profile back after the timer stops.
+            self.last_applied.pop("fan_pair", None)
         profile = snapshot.get("effective_profile")
         if profile:
             pair = (int(profile["extract"]), int(profile["supply"]))
@@ -455,7 +504,6 @@ class ControllerEngine:
         bypass = snapshot["bypass"]
         if bypass in ("open", "closed"):
             self._call("bypass", bypass, self.hardware.set_bypass, bypass)
-        self._call("fireplace", bool(snapshot["fireplace"]), self.hardware.set_fireplace, bool(snapshot["fireplace"]))
         setpoint = int(snapshot["afterheat_setpoint"])
         self._call("afterheat_setpoint", setpoint, self.hardware.set_afterheat_setpoint, setpoint)
         return self.resolve()

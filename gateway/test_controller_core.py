@@ -108,6 +108,35 @@ class ControllerTests(unittest.TestCase):
         with self.assertRaises(ControllerError):
             reloaded.configure({"afterheat_setpoint": 17})
 
+    def test_fireplace_timer_expires_and_restores_selected_fan_profile(self):
+        calls = []
+        state, _ = self.make()
+        engine = ControllerEngine(state, HardwareAdapter(
+            write_fan_pair=lambda extract, supply: calls.append(("fan", extract, supply)),
+            set_fireplace=lambda enabled: calls.append(("fireplace", enabled)),
+            set_afterheat_setpoint=lambda value: None,
+        ))
+        state.configure({"enabled": True, "mode": "manual", "manual_level": 4,
+                         "fireplace_minutes": 15})
+        engine.apply()
+        self.assertTrue(state.snapshot()["fireplace"])
+        self.assertGreater(state.snapshot()["fireplace_remaining_seconds"], 0)
+        state.data["fireplace_until"] = time.time() - 1
+        expired = engine.apply()
+        self.assertFalse(expired["fireplace"])
+        self.assertEqual(expired["fireplace_remaining_seconds"], 0)
+        self.assertEqual(expired["mode"], "manual")
+        self.assertEqual(expired["effective_level"], 4)
+        self.assertEqual(calls.count(("fan", 70, 58)), 2)
+        self.assertEqual(calls[-2:], [("fireplace", False), ("fan", 70, 58)])
+
+    def test_fireplace_timer_only_accepts_predefined_durations(self):
+        state, _ = self.make()
+        for minutes in (0, 15, 30):
+            state.configure({"fireplace_minutes": minutes})
+        with self.assertRaises(ControllerError):
+            state.configure({"fireplace_minutes": 20})
+
     def test_apply_deduplicates_writes(self):
         calls = []
         state, _ = self.make()

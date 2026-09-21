@@ -63,6 +63,10 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('class="tab-link active" href="/controller"', controller_html)
         self.assertIn('/?tab=history', controller_html)
         self.assertIn('new URLSearchParams(location.search).get("tab")', script)
+        self.assertNotIn('id="overview-fireplace" type="checkbox"', html)
+        self.assertIn('data-fireplace-minutes="15"', html)
+        self.assertIn('data-fireplace-minutes="30"', html)
+        self.assertIn("fireplace_remaining_seconds", script)
     def test_read_only_system_snapshot_has_no_control_surface(self):
         with tempfile.TemporaryDirectory() as tmp:
             server = MODULE.DashboardHttpServer("127.0.0.1", 0, {}, "Test", None, web_root=ROOT / "gateway/webui", history_path=Path(tmp) / "history.sqlite3")
