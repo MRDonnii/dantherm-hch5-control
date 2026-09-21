@@ -49,7 +49,7 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
 
             def _read_json(self):
                 try:
-                    length = min(int(self.headers.get("Content-Length", "0")), 65536)
+                    length = min(int(self.headers.get("Content-Length", "0")), 131072)
                     payload = json.loads(self.rfile.read(length) or b"{}")
                     return payload if isinstance(payload, dict) else None
                 except (ValueError, TypeError, json.JSONDecodeError):
@@ -91,15 +91,9 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                     self._file(target, ASSET_TYPES.get(target.suffix))
                     return
                 if not dashboard.auth.configured():
-                    self.send_response(302)
-                    self.send_header("Location", "/setup")
-                    self.end_headers()
-                    return
+                    self.send_response(302); self.send_header("Location", "/setup"); self.end_headers(); return
                 if self._session() is None and dashboard.auth.enabled():
-                    self.send_response(302)
-                    self.send_header("Location", "/login")
-                    self.end_headers()
-                    return
+                    self.send_response(302); self.send_header("Location", "/login"); self.end_headers(); return
 
                 if parsed.path in ("/", "/index.html"):
                     self._file(dashboard.web_root / "index.html", "text/html; charset=utf-8")
@@ -140,11 +134,8 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                 snapshot = dashboard.snapshot()
                 snapshot["controller"] = dashboard.controller_runtime.snapshot()
                 safe_snapshot = {
-                    key: (
-                        "[REDACTED]"
-                        if any(word in key.lower() for word in ("token", "password", "secret", "cookie", "authorization"))
-                        else value
-                    )
+                    key: ("[REDACTED]" if any(word in key.lower() for word in
+                          ("token", "password", "secret", "cookie", "authorization")) else value)
                     for key, value in snapshot.items()
                 }
                 state = json.dumps(safe_snapshot, indent=2, ensure_ascii=False, default=str).encode("utf-8")
@@ -158,8 +149,7 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("X-Content-Type-Options", "nosniff")
                 self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
+                self.end_headers(); self.wfile.write(body)
 
             def do_POST(self):
                 if self.path == "/api/auth/setup":
@@ -186,16 +176,22 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                     sid, csrf = dashboard.auth.session(data["username"], remember=remember)
                     return self._login_reply(sid, csrf)
 
-                if self.path == "/api/controller/heartbeat":
+                # Machine-to-machine endpoints for Home Assistant. HA sends
+                # intent and room measurements only; Pi remains source of truth.
+                if self.path in ("/api/controller/heartbeat", "/api/controller/command", "/api/controller/inputs"):
                     if not self._machine_auth():
                         return self._json_error(401, "Controller token mangler eller er ugyldigt")
                     data = self._read_json() or {}
                     try:
-                        return self._json(
-                            dashboard.controller_runtime.heartbeat(str(data.get("demand", "normal")))
-                        )
+                        if self.path == "/api/controller/heartbeat":
+                            return self._json(dashboard.controller_runtime.heartbeat(str(data.get("demand", "normal"))))
+                        if self.path == "/api/controller/command":
+                            return self._json(dashboard.controller_runtime.configure(data))
+                        return self._json(dashboard.controller_runtime.room_inputs(data))
                     except ControllerError as error:
                         return self._json_error(400, str(error))
+                    except RuntimeError as error:
+                        return self._json_error(503, str(error))
 
                 session = self._require_auth()
                 if session is None:
@@ -203,16 +199,13 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                 if not self._csrf(session):
                     return self._json_error(403, "Ugyldig sikkerhedstoken")
                 if self.path == "/api/auth/logout":
-                    dashboard.auth.logout(self.headers.get("Cookie", ""))
-                    return self._json({"ok": True})
+                    dashboard.auth.logout(self.headers.get("Cookie", "")); return self._json({"ok": True})
                 if self.path == "/api/auth/settings":
                     data = self._read_json() or {}
                     try:
                         dashboard.auth.update(
-                            data.get("current_password", ""),
-                            data.get("username", ""),
-                            data.get("password", ""),
-                            data.get("enabled", True),
+                            data.get("current_password", ""), data.get("username", ""),
+                            data.get("password", ""), data.get("enabled", True),
                         )
                     except PermissionError as error:
                         return self._json_error(401, str(error))
@@ -231,13 +224,8 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                     return self.send_error(405)
                 body = json.dumps(self._read_json() or {}).encode()
                 request = urllib.request.Request(
-                    f"{dashboard.admin_url.rstrip('/')}/action",
-                    data=body,
-                    method="POST",
-                    headers={
-                        "Authorization": f"Bearer {dashboard.admin_token}",
-                        "Content-Type": "application/json",
-                    },
+                    f"{dashboard.admin_url.rstrip('/')}/action", data=body, method="POST",
+                    headers={"Authorization": f"Bearer {dashboard.admin_token}", "Content-Type": "application/json"},
                 )
                 try:
                     with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request, timeout=4) as response:
@@ -249,42 +237,32 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(payload)))
-                self.end_headers()
-                self.wfile.write(payload)
+                self.end_headers(); self.wfile.write(payload)
 
             def _login_reply(self, sid, csrf):
                 max_age = dashboard.auth.session_max_age(sid)
                 body = json.dumps({"ok": True, "csrf": csrf, "max_age": max_age}).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
-                self.send_header(
-                    "Set-Cookie",
-                    f"dantherm_session={sid}; Path=/; HttpOnly; SameSite=Strict; Max-Age={max_age}",
-                )
+                self.send_header("Set-Cookie", f"dantherm_session={sid}; Path=/; HttpOnly; SameSite=Strict; Max-Age={max_age}")
                 self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
+                self.end_headers(); self.wfile.write(body)
 
             def _json_error(self, status, message):
                 body = json.dumps({"error": message}).encode()
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
+                self.end_headers(); self.wfile.write(body)
 
             def _json(self, payload):
-                self._body(
-                    json.dumps(payload, separators=(",", ":"), default=str).encode(),
-                    "application/json",
-                )
+                self._body(json.dumps(payload, separators=(",", ":"), default=str).encode(), "application/json")
 
             def _file(self, path, content_type):
                 try:
                     body = path.read_bytes()
                 except OSError:
-                    self.send_error(404)
-                    return
+                    self.send_error(404); return
                 self._body(body, content_type)
 
             def _body(self, body, content_type):
@@ -292,21 +270,15 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                 self.send_header("Content-Type", content_type)
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("X-Content-Type-Options", "nosniff")
-                self.send_header(
-                    "Content-Security-Policy",
-                    "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:",
-                )
+                self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:")
                 self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
+                self.end_headers(); self.wfile.write(body)
 
             def log_message(self, format_, *args):
                 LOG.debug(format_, *args)
 
         self.server = ThreadingHTTPServer((self.host, self.port), Handler)
-        self.thread = threading.Thread(
-            target=self.server.serve_forever, name="dashboard-http", daemon=True
-        )
+        self.thread = threading.Thread(target=self.server.serve_forever, name="dashboard-http", daemon=True)
         self.thread.start()
 
         def record_history():
@@ -315,8 +287,6 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                 self.history_stop.wait(self.history.sample_seconds)
 
         self.history_stop.clear()
-        self.history_thread = threading.Thread(
-            target=record_history, name="dashboard-history", daemon=True
-        )
+        self.history_thread = threading.Thread(target=record_history, name="dashboard-history", daemon=True)
         self.history_thread.start()
         LOG.info("Controller WebUI listening on %s:%s", self.host, self.port)
