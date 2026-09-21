@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/assets/theme.css">
   <link rel="stylesheet" href="/assets/controller.css">
   <script defer src="/assets/controller.js"></script>
+  <script defer src="/assets/master_status.js"></script>
 </head>
 <body>
 <header class="topbar">
@@ -28,8 +29,23 @@
     <label class="enable-switch"><input id="controller-enabled" type="checkbox"><span>Controller aktiv</span></label>
   </section>
 
-  <section class="controller-grid">
+  <section class="card controller-diagnostics master-card">
+    <div class="section-heading"><div><small>RS485 MASTER</small><h2>Automatisk HCP4-beskyttelse</h2></div><span class="badge" id="master-badge">AFVENTER</span></div>
+    <dl class="controller-status-list diagnostic-list">
+      <dt>Aktiv master</dt><dd id="active-master">—</dd>
+      <dt>Pi hardware-writes</dt><dd id="hardware-writes-allowed">—</dd>
+      <dt>Controllerstatus</dt><dd id="hardware-control-state">—</dd>
+      <dt>HCP4 registreret</dt><dd id="hcp4-detected">—</dd>
+      <dt>Seneste HCP4-write</dt><dd id="hcp4-write-age">—</dd>
+      <dt>HCP4 writes 10 s / 60 s</dt><dd id="hcp4-write-rate">—</dd>
+      <dt>Pi egne writes / echoes</dt><dd id="pi-write-count">—</dd>
+      <dt>Master siden</dt><dd id="master-age">—</dd>
+      <dt>Årsag</dt><dd id="master-reason">—</dd>
+    </dl>
+    <p class="notice" id="master-note">Pi skriver aldrig til RS485, før den med sikkerhed er aktiv master. HCP4 har altid prioritet.</p>
+  </section>
 
+  <section class="controller-grid">
     <article class="card control-card">
       <div class="section-heading"><div><small>LOCAL AUTO</small><h2>Luftkvalitet</h2></div><span class="badge" id="auto-level-badge">—</span></div>
       <div class="live-air"><div><small>RH</small><strong><span id="live-rh">—</span>%</strong></div><div><small>CO₂</small><strong><span id="live-co2">—</span> ppm</strong></div></div>
