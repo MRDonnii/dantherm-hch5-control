@@ -117,6 +117,40 @@ class ControllerRuntime:
             return None
         return number if low <= number <= high else None
 
+    def _rooms_with_unit_sensors(self) -> dict[str, dict[str, float]]:
+        """Combine HA rooms with the unit's own local indoor sensors.
+
+        The HCH/HAC1 CO2 sensor remains part of Smart Auto even when HA sends
+        extra room sensors, so a good bedroom reading can never mask poor air
+        quality at the unit sensor (or vice versa).
+        """
+        combined = {name: dict(values) for name, values in self.smart_rooms.items()}
+        local: dict[str, float] = {}
+        co2 = self._safe_number(self._first(self.gateway_state, "co2"), 250, 10000)
+        rh = self._safe_number(
+            self._first(self.gateway_state, "humidity", "relative_humidity"), 0, 100
+        )
+        temp = self._safe_number(
+            self._first(
+                self.gateway_state,
+                "room_temp",
+                "hrc2_t5_temperature",
+                "room_temperature",
+                "extract_temp",
+            ),
+            -30,
+            60,
+        )
+        if co2 is not None:
+            local["co2"] = round(co2, 0)
+        if rh is not None:
+            local["humidity"] = round(rh, 2)
+        if temp is not None:
+            local["temperature"] = round(temp, 2)
+        if local:
+            combined["HCH5 / spisestue"] = local
+        return combined
+
     def room_inputs(self, payload: dict[str, object]) -> dict[str, object]:
         """Accept leased room measurements from HA and derive semantic demand."""
         rooms = payload.get("rooms")
@@ -167,8 +201,15 @@ class ControllerRuntime:
     def _derive_smart_demand(self, now: float | None = None) -> tuple[str, str]:
         now = time.time() if now is None else now
         d = self.config.data
-        max_co2 = max(((v.get("co2"), name) for name, v in self.smart_rooms.items() if v.get("co2") is not None), default=(None, None))
-        max_rh = max(((v.get("humidity"), name) for name, v in self.smart_rooms.items() if v.get("humidity") is not None), default=(None, None))
+        rooms = self._rooms_with_unit_sensors()
+        max_co2 = max(
+            ((v.get("co2"), name) for name, v in rooms.items() if v.get("co2") is not None),
+            default=(None, None),
+        )
+        max_rh = max(
+            ((v.get("humidity"), name) for name, v in rooms.items() if v.get("humidity") is not None),
+            default=(None, None),
+        )
         max_rise = (0.0, None)
         for name, history in self._room_rh_history.items():
             fresh = [(ts, value) for ts, value in history if now - ts <= 600]
@@ -189,19 +230,27 @@ class ControllerRuntime:
             return "high", f"CO2 {co2_room} {co2:.0f} ppm"
         if isinstance(rh, (int, float)) and rh > float(d["rh_setpoint"]):
             return "high", f"RH {rh_room} {rh:.1f}%"
-        return "normal", "All HA rooms below configured thresholds"
+        return "normal", "All unit and HA rooms below configured thresholds"
 
     def _smart_input_snapshot(self) -> dict[str, object]:
         now = time.time()
         age = None if self.smart_inputs_received_at is None else max(0.0, now - self.smart_inputs_received_at)
         fresh = age is not None and age <= self.smart_inputs_valid_for
-        max_co2 = max(((v.get("co2"), n) for n, v in self.smart_rooms.items() if v.get("co2") is not None), default=(None, None))
-        max_rh = max(((v.get("humidity"), n) for n, v in self.smart_rooms.items() if v.get("humidity") is not None), default=(None, None))
+        rooms = self._rooms_with_unit_sensors()
+        max_co2 = max(
+            ((v.get("co2"), n) for n, v in rooms.items() if v.get("co2") is not None),
+            default=(None, None),
+        )
+        max_rh = max(
+            ((v.get("humidity"), n) for n, v in rooms.items() if v.get("humidity") is not None),
+            default=(None, None),
+        )
         return {
             "smart_inputs_online": fresh,
             "smart_inputs_age_seconds": round(age, 1) if age is not None else None,
             "smart_inputs_valid_for_seconds": self.smart_inputs_valid_for,
-            "smart_rooms": self.smart_rooms,
+            "smart_rooms": rooms,
+            "smart_ha_rooms": self.smart_rooms,
             "smart_demand": self.smart_demand if fresh else "stale",
             "smart_reason": self.smart_reason if fresh else "HA room data stale; Local Auto fallback",
             "smart_max_co2": max_co2[0],
