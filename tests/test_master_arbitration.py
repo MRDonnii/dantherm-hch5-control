@@ -1,6 +1,10 @@
-import time
+import sys
+from pathlib import Path
 
-from gateway.master_arbitration import MasterArbitrator, RtuFrameStream, crc16
+ROOT = Path(__file__).parents[1]
+sys.path.insert(0, str(ROOT / "gateway"))
+
+from master_arbitration import MasterArbitrator, RtuFrameStream, crc16
 
 
 def fc06(slave, register, value):
@@ -56,7 +60,12 @@ def test_own_echo_does_not_mark_hcp4():
 
 
 def test_hcp4_release_requires_quiet_timeout():
-    arb = MasterArbitrator(detection_window=2, detection_min_foreign_writes=2, release_timeout=5, startup_observation=3)
+    arb = MasterArbitrator(
+        detection_window=2,
+        detection_min_foreign_writes=2,
+        release_timeout=5,
+        startup_observation=3,
+    )
     t0 = arb.started_monotonic
     arb.observe_frame(fc06(1, 67, 43), now=t0 + 0.2)
     arb.observe_frame(fc06(1, 66, 55), now=t0 + 0.5)
