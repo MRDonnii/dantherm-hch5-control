@@ -64,6 +64,19 @@ class ControllerRuntime:
             "actual_fireplace": self._first(self.gateway_state, "fireplace"),
             "actual_afterheat": self._first(self.gateway_state, "afterheat_active"),
             "actual_afterheat_setpoint": self._first(self.gateway_state, "afterheat_setpoint"),
+            "actual_supply_before_heater_temperature": self._first(
+                self.gateway_state, "supply_temp"
+            ),
+            "actual_supply_air_temperature": self._first(
+                self.gateway_state, "heating_coil_after_temperature", "supply_temp"
+            ),
+            "actual_supply_air_temperature_source": (
+                "hac1_t2ah" if self.gateway_state.get("heating_coil_after_temperature") is not None
+                else "unit_t2"
+            ),
+            "actual_afterheat_frost_temperature": self._first(
+                self.gateway_state, "heating_coil_frost_temperature"
+            ),
             "rs485_healthy": self.gateway_state.get("bus_traffic") is True,
             "last_tick_at": self.last_tick_at,
         })

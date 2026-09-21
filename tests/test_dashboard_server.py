@@ -52,11 +52,11 @@ class DashboardTests(unittest.TestCase):
         theme = (ROOT / "gateway/webui/theme.css").read_text()
         self.assertNotIn('id="exchanger-supply"', html)
         self.assertNotIn('id="exchanger-extract"', html)
-        self.assertLess(html.index("AFKAST"), html.index("UDELUFT"))
+        self.assertLess(html.index("UDELUFT"), html.index("AFKAST"))
         self.assertIn('supplyFlow:"M35 285 H858"', script)
         self.assertIn('extractFlow:"M858 135 H35"', script)
         self.assertIn("dantherm-theme", script)
-        self.assertIn("TFAH er vand-/frostføler", html)
+        self.assertIn("Frostføler TFAH", html)
         self.assertIn(".bypass-open .coil{opacity:0", theme)
     def test_read_only_system_snapshot_has_no_control_surface(self):
         with tempfile.TemporaryDirectory() as tmp:

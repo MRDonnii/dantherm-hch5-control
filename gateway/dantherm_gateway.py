@@ -1661,6 +1661,13 @@ class Gateway:
             self.publish("mk1_block_1032", ",".join(map(str, main1032)))
         if hac205 is not None:
             self.publish("hac1_block_205", ",".join(map(str, hac205)))
+            # Register 205 is T2AH: air temperature after the HAC1 heating
+            # coil. Ordinary unit T2 (supply_temp) is the temperature before
+            # the coil, so together they form the valid air-side delta.
+            if len(hac205) == 5 and 500 <= hac205[0] <= 4000:
+                self.publish("heating_coil_after_temperature", hac205[0] / 100.0)
+            if len(hac205) == 5 and 500 <= hac205[1] <= 6000:
+                self.publish("heating_coil_frost_temperature", hac205[1] / 100.0)
             # Same verified register-209 semantics as decode(): 0 is inactive
             # and 16 is active when words 207/208 contain the HAC1 markers.
             if len(hac205) == 5 and hac205[2:4] == [0x8000, 0x8000]:
