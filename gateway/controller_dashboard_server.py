@@ -65,6 +65,9 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
 
             def do_GET(self):
                 parsed = urlparse(self.path)
+                if parsed.path == "/api/controller/state" and self._machine_auth():
+                    self._json(dashboard.controller_runtime.snapshot())
+                    return
                 if parsed.path == "/api/auth/status":
                     session = self._session()
                     self._json({

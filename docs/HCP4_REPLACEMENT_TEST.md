@@ -57,7 +57,7 @@ All values are persistent and editable in the WebUI.
 
 ## Afterheat
 
-The WebUI exposes the HAC1 supply-air afterheat setpoint. `None/Auto` means the controller does not force a value. An explicit value is restricted to 5..40 °C and is written only when changed.
+The WebUI exposes a persistent HAC1 supply-air afterheat setpoint from 18..30 °C (default 20 °C). The gateway reads the current five-word HAC1 block first and sends FC16 only when the setpoint actually changes.
 
 The controller must reuse the physically observed/verified HAC1 FC16 setpoint write sequence from the local gateway/captures. It must not invent a new afterheat register write.
 
@@ -139,7 +139,7 @@ The test page already contains:
 - RH setpoint/hysteresis
 - CO2 setpoint/hysteresis
 - normal local level and downshift delay
-- afterheat setpoint Auto/18/20/22/24 and +/-
+- afterheat setpoint 18/20/22/24 and +/- within 18..30 °C
 - bypass Auto/Open/Closed
 - fireplace toggle
 - editable extract/supply percentages for all six levels

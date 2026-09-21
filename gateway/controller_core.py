@@ -99,8 +99,7 @@ class ControllerState:
         "ha_timeout_seconds": 300,
         "bypass": "auto",
         "fireplace": False,
-        # None = preserve the unit/HAC1's current supply-air setpoint.
-        "afterheat_setpoint": None,
+        "afterheat_setpoint": 20,
         "effective_source": "disabled",
         "effective_level": None,
         "effective_reason": "Controller disabled",
@@ -159,14 +158,11 @@ class ControllerState:
         if self.data["ha_demand"] not in VALID_DEMANDS:
             self.data["ha_demand"] = "normal"
         sp = self.data.get("afterheat_setpoint")
-        if sp is not None:
-            try:
-                sp = int(sp)
-            except (TypeError, ValueError):
-                sp = None
-            if sp is not None and not 5 <= sp <= 40:
-                sp = None
-            self.data["afterheat_setpoint"] = sp
+        try:
+            sp = int(sp) if sp is not None else 20
+        except (TypeError, ValueError):
+            sp = 20
+        self.data["afterheat_setpoint"] = min(30, max(18, sp))
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -176,6 +172,7 @@ class ControllerState:
                 json.dump(self.data, handle, indent=2, sort_keys=True)
                 handle.flush()
                 os.fsync(handle.fileno())
+            os.chmod(tmp, 0o600)
             os.replace(tmp, self.path)
         finally:
             try:
@@ -185,8 +182,21 @@ class ControllerState:
 
     def configure(self, patch: dict[str, object]) -> dict[str, object]:
         with self.lock:
+            allowed = {
+                "enabled", "mode", "manual_level", "local_normal_level",
+                "local_min_level", "local_max_level", "rh_setpoint",
+                "rh_hysteresis", "co2_setpoint", "co2_hysteresis",
+                "auto_step_rh", "auto_step_co2", "downshift_delay_seconds",
+                "boost_hold_seconds", "ha_timeout_seconds", "bypass",
+                "fireplace", "afterheat_setpoint", "profiles",
+            }
+            unknown = set(patch) - allowed
+            if unknown:
+                raise ControllerError(f"Ukendt controller-felt: {sorted(unknown)[0]}")
             if "enabled" in patch:
-                self.data["enabled"] = bool(patch["enabled"])
+                if not isinstance(patch["enabled"], bool):
+                    raise ControllerError("enabled skal være boolean")
+                self.data["enabled"] = patch["enabled"]
             if "mode" in patch:
                 if patch["mode"] not in VALID_MODES:
                     raise ControllerError("Ugyldig controller-mode")
@@ -225,16 +235,15 @@ class ControllerState:
                     raise ControllerError("Ugyldig bypass-mode")
                 self.data["bypass"] = patch["bypass"]
             if "fireplace" in patch:
-                self.data["fireplace"] = bool(patch["fireplace"])
+                if not isinstance(patch["fireplace"], bool):
+                    raise ControllerError("fireplace skal være boolean")
+                self.data["fireplace"] = patch["fireplace"]
             if "afterheat_setpoint" in patch:
                 value = patch["afterheat_setpoint"]
-                if value in (None, "", "auto"):
-                    self.data["afterheat_setpoint"] = None
-                else:
-                    value = int(value)
-                    if not 5 <= value <= 40:
-                        raise ControllerError("Eftervarme-setpunkt skal være 5..40 °C")
-                    self.data["afterheat_setpoint"] = value
+                value = int(value)
+                if not 18 <= value <= 30:
+                    raise ControllerError("Eftervarme-setpunkt skal være 18..30 °C")
+                self.data["afterheat_setpoint"] = value
             if "profiles" in patch:
                 incoming = patch["profiles"]
                 if not isinstance(incoming, dict):
@@ -300,6 +309,11 @@ class ControllerEngine:
         self.last_error: str | None = None
         self.write_failures = 0
         self.started_at = time.time()
+        self.retry_limit = 3
+        self.retry_base_seconds = 5.0
+        self._failure_values: dict[str, object] = {}
+        self._failure_counts: dict[str, int] = {}
+        self._retry_at: dict[str, float] = {}
 
     def update_measurements(self, *, rh=None, co2=None, outdoor=None, room=None) -> None:
         with self.lock:
@@ -388,24 +402,44 @@ class ControllerEngine:
                 "last_write_at": self.last_write_at,
                 "last_error": self.last_error,
                 "write_failures": self.write_failures,
+                "retry_limit": self.retry_limit,
+                "next_retry_at": min(self._retry_at.values(), default=None),
                 "controller_uptime_seconds": round(now - self.started_at, 1),
             }
 
     def _call(self, key: str, value: object, fn: Callable | None, *args) -> None:
         if self.last_applied.get(key) == value:
             return
+        if self._failure_values.get(key) != value:
+            self._failure_values[key] = value
+            self._failure_counts[key] = 0
+            self._retry_at[key] = 0.0
+        now = time.time()
+        if self._failure_counts.get(key, 0) >= self.retry_limit:
+            return
+        if now < self._retry_at.get(key, 0.0):
+            return
         if fn is None:
-            raise RuntimeError(f"Hardware binding mangler: {key}")
+            error = RuntimeError(f"Hardware binding mangler: {key}")
+            self.last_error = str(error)
+            self.write_failures += 1
+            self._failure_counts[key] = self._failure_counts.get(key, 0) + 1
+            self._retry_at[key] = now + self.retry_base_seconds * 2 ** (self._failure_counts[key] - 1)
+            raise error
         try:
             fn(*args)
         except Exception as error:  # Hardware boundary: preserve service and report.
             self.last_error = f"{key}: {error}"
             self.write_failures += 1
+            self._failure_counts[key] = self._failure_counts.get(key, 0) + 1
+            self._retry_at[key] = now + self.retry_base_seconds * 2 ** (self._failure_counts[key] - 1)
             raise
         else:
             self.last_applied[key] = value
             self.last_write_at = time.time()
             self.last_error = None
+            self._failure_counts[key] = 0
+            self._retry_at.pop(key, None)
 
     def apply(self) -> dict[str, object]:
         """Apply only changed desired values; never create an aggressive write loop."""
@@ -422,7 +456,6 @@ class ControllerEngine:
         if bypass in ("open", "closed"):
             self._call("bypass", bypass, self.hardware.set_bypass, bypass)
         self._call("fireplace", bool(snapshot["fireplace"]), self.hardware.set_fireplace, bool(snapshot["fireplace"]))
-        setpoint = snapshot.get("afterheat_setpoint")
-        if setpoint is not None:
-            self._call("afterheat_setpoint", int(setpoint), self.hardware.set_afterheat_setpoint, int(setpoint))
+        setpoint = int(snapshot["afterheat_setpoint"])
+        self._call("afterheat_setpoint", setpoint, self.hardware.set_afterheat_setpoint, setpoint)
         return self.resolve()

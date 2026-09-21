@@ -105,8 +105,8 @@ class ControllerTests(unittest.TestCase):
         state.configure({"afterheat_setpoint": 22})
         reloaded = ControllerState(state.path)
         self.assertEqual(reloaded.data["afterheat_setpoint"], 22)
-        reloaded.configure({"afterheat_setpoint": "auto"})
-        self.assertIsNone(reloaded.data["afterheat_setpoint"])
+        with self.assertRaises(ControllerError):
+            reloaded.configure({"afterheat_setpoint": 17})
 
     def test_apply_deduplicates_writes(self):
         calls = []
@@ -114,6 +114,7 @@ class ControllerTests(unittest.TestCase):
         adapter = HardwareAdapter(
             write_fan_pair=lambda extract, supply: calls.append(("fan", extract, supply)),
             set_fireplace=lambda enabled: calls.append(("fireplace", enabled)),
+            set_afterheat_setpoint=lambda value: calls.append(("afterheat", value)),
         )
         engine = ControllerEngine(state, adapter)
         state.configure({"enabled": True, "mode": "manual", "manual_level": 3})
@@ -135,6 +136,24 @@ class ControllerTests(unittest.TestCase):
         engine.apply()
         engine.apply()
         self.assertEqual(calls, [21])
+
+    def test_failed_write_has_bounded_retries(self):
+        calls = []
+        state, _ = self.make()
+        def fail(extract, supply):
+            calls.append((extract, supply))
+            raise OSError("bus unavailable")
+        engine = ControllerEngine(state, HardwareAdapter(
+            write_fan_pair=fail, set_fireplace=lambda enabled: None,
+            set_afterheat_setpoint=lambda value: None,
+        ))
+        engine.retry_base_seconds = 0
+        state.configure({"enabled": True, "mode": "manual", "manual_level": 3})
+        for _ in range(10):
+            try: engine.apply()
+            except OSError: pass
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(engine.write_failures, 3)
 
     def test_persistent_configuration(self):
         state, _ = self.make()
