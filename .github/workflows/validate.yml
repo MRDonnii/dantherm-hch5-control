@@ -16,3 +16,4 @@ jobs:
       - run: node --check gateway/webui/dashboard.js
       - run: node --check gateway/webui/auth.js
       - run: node --check gateway/webui/controller.js
+      - run: node --check gateway/webui/master_status.js
