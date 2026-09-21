@@ -1,37 +1,39 @@
 #!/usr/bin/env python3
 """Controller-aware entry point for the monolithic Dantherm gateway.
 
-This subclasses the hardware-verified gateway committed by Codex and adds only
-master arbitration hooks. The large gateway implementation stays untouched.
+This subclasses the hardware-verified gateway and adds fail-safe master
+arbitration. HCP4 always wins. Normal Pi active reads are also suppressed while
+HCP4 is active so the RS485 segment never has two routine masters.
 """
 from __future__ import annotations
 
 import argparse
 import logging
 import signal
+import time
 from pathlib import Path
 
 import serial
 import yaml
 
 from dantherm_gateway import Gateway as BaseGateway
+from master_arbitration import MasterArbitrator
 
 LOG = logging.getLogger("dantherm_controller_gateway")
 
 
 class Gateway(BaseGateway):
-    """Base gateway plus immediate HCP4 detection and hard CONTROL write gate."""
+    """Base gateway plus immediate HCP4 detection and hard bus-master gate."""
 
     def __init__(self, config: dict):
         super().__init__(config)
         master_cfg = config.get("controller", {}).get("master_arbitration", {})
         self.controller.configure_master(master_cfg)
 
-        # The new ControllerRuntime is the only Pi-side controller in this
-        # entrypoint. Disable the older experimental MQTT/manual control loop so
-        # it can never compete with ControllerRuntime or HCP4. The verified
-        # low-level functions (write_pair/fireplace/afterheat) remain available
-        # and are still called by HardwareAdapter through controller_hardware_queue.
+        # ControllerRuntime is the only Pi-side controller in this entrypoint.
+        # Disable the older experimental MQTT/manual loop so it can never
+        # compete with ControllerRuntime or HCP4. The verified low-level
+        # functions remain available through controller_hardware_queue.
         self.control_enabled = False
         self.fireplace_enabled = False
         self.override_mode = None
@@ -40,19 +42,52 @@ class Gateway(BaseGateway):
 
     def serial_read(self, ser: serial.Serial, size: int) -> bytes:
         data = super().serial_read(ser, size)
-        # Feed all bus traffic immediately, including reads performed inside
-        # control sequences. This lets HCP4 pre-empt Pi between two writes.
+        # Feed every received frame into arbitration, including traffic seen
+        # while a control sequence is in progress. This lets HCP4 pre-empt Pi
+        # between individual writes.
         self.controller.observe_serial_bytes(data)
         return data
 
+    def _active_read_allowed(self) -> bool:
+        """Allow active reads only when Pi owns the bus or a takeover probe is due.
+
+        During startup Pi listens passively for the complete observation
+        window. While HCP4 is active Pi remains passive. Once HCP4 has been
+        quiet for the configured release timeout, one normal read transaction
+        may probe that the unit still answers; the response makes bus health
+        true and allows arbitration to promote Pi to master.
+        """
+        master = self.controller.master
+        now = time.monotonic()
+        if master.master == MasterArbitrator.PI:
+            return True
+        if master.master == MasterArbitrator.UNKNOWN:
+            if now - master.started_monotonic < master.startup_observation:
+                return False
+            age = None if master.last_foreign_write is None else now - master.last_foreign_write
+            return age is None or age > master.release_timeout
+        if master.master == MasterArbitrator.HCP4:
+            age = None if master.last_foreign_write is None else now - master.last_foreign_write
+            return age is not None and age > master.release_timeout
+        return False
+
     def serial_write(self, ser: serial.Serial, data: bytes, reason: str) -> int:
         is_control = str(reason).startswith("CONTROL")
+        is_active_read = str(reason) == "ACTIVE_READ"
+
         if is_control and not self.controller.hardware_writes_allowed():
             state = self.controller.master.snapshot()
             raise RuntimeError(
                 f"RS485 control write blocked: active_master={state['active_master']} "
                 f"reason={state['hcp4_detection_reason']}"
             )
+
+        if is_active_read and not self._active_read_allowed():
+            # Returning zero makes the existing bounded read helpers time out
+            # harmlessly without putting a request on the wire. Passive RX and
+            # HCP4 detection continue through serial_read().
+            return 0
+
         written = super().serial_write(ser, data, reason)
         if is_control and written:
             # FC06 echoes and FC16 acknowledgements are consumed as our own
