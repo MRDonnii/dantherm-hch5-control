@@ -1,5 +1,5 @@
 [Unit]
-Description=Dantherm PassiveLink receive-only gateway and WebUI
+Description=Dantherm HCH5 PassiveLink controller gateway and WebUI
 After=network-online.target
 Wants=network-online.target
 
@@ -11,7 +11,7 @@ SupplementaryGroups=dialout video
 WorkingDirectory=/opt/dantherm-passivelink-webui
 EnvironmentFile=/etc/dantherm-passivelink-webui/gateway.env
 ExecStartPre=/bin/sh -c 'test -e "$RS485_DEVICE"'
-ExecStart=/opt/dantherm-passivelink-webui/venv/bin/python /opt/dantherm-passivelink-webui/passivelink_webui_gateway.py --device ${RS485_DEVICE}
+ExecStart=/opt/dantherm-passivelink-webui/venv/bin/python /opt/dantherm-passivelink-webui/dantherm_controller_gateway.py -c /etc/dantherm-passivelink-webui/controller.yaml
 Restart=always
 RestartSec=3
 NoNewPrivileges=true
