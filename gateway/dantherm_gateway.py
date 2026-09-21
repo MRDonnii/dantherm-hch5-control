@@ -1661,6 +1661,10 @@ class Gateway:
             self.publish("mk1_block_1032", ",".join(map(str, main1032)))
         if hac205 is not None:
             self.publish("hac1_block_205", ",".join(map(str, hac205)))
+            # Same verified register-209 semantics as decode(): 0 is inactive
+            # and 16 is active when words 207/208 contain the HAC1 markers.
+            if len(hac205) == 5 and hac205[2:4] == [0x8000, 0x8000]:
+                self.publish("afterheat_active", hac205[4] == 16)
         if any(value is not None for value in (temperatures, status, hac200)):
             self.last_bus_frame = time.monotonic()
         self.last_master_poll = time.monotonic()
