@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Fail-safe RS485 master arbitration between HCP4 and Raspberry Pi.
 
-The Raspberry Pi may write only while PI_MASTER is established. Any valid
-foreign FC06/FC16 write immediately yields the bus when Pi is master. HCP4 is
-released only after a quiet timeout while the bus remains healthy.
+Raspberry Pi is the automatic controller whenever the bus is healthy and HCP4
+is not active. Any valid foreign FC06/FC16 write immediately yields the bus
+when Pi is master. HCP4 is released only after a quiet timeout while the bus
+remains healthy. There is intentionally no user-facing controller disable.
 """
 from __future__ import annotations
 
@@ -36,8 +37,6 @@ def write_signature(frame: bytes):
     if fn == 6 and len(frame) == 8:
         return (6, frame[0], int.from_bytes(frame[2:4], "big"), int.from_bytes(frame[4:6], "big"))
     if fn == 16:
-        # FC16 request and response share slave/start/count. This deliberately
-        # treats the response echo as the same transaction signature.
         return (16, frame[0], int.from_bytes(frame[2:4], "big"), int.from_bytes(frame[4:6], "big"))
     return None
 
@@ -109,16 +108,12 @@ class MasterArbitrator:
     HCP4 = "hcp4"
     PI = "pi"
 
-    def __init__(
-        self,
-        *,
-        detection_window: float = 2.0,
-        detection_min_foreign_writes: int = 2,
-        release_timeout: float = 10.0,
-        startup_observation: float = 10.0,
-        own_echo_ttl: float = 2.0,
-        foreign_echo_dedupe: float = 0.12,
-    ):
+    def __init__(self, *, detection_window: float = 2.0,
+                 detection_min_foreign_writes: int = 2,
+                 release_timeout: float = 10.0,
+                 startup_observation: float = 10.0,
+                 own_echo_ttl: float = 2.0,
+                 foreign_echo_dedupe: float = 0.12):
         self.detection_window = max(0.5, float(detection_window))
         self.detection_min_foreign_writes = max(1, int(detection_min_foreign_writes))
         self.release_timeout = max(3.0, float(release_timeout))
@@ -199,22 +194,15 @@ class MasterArbitrator:
             return "read_or_response"
         if self._consume_own(signature, now):
             return "own"
-
-        # External request and its Modbus response look identical for FC06 and
-        # share the same signature for FC16. Count that pair as one transaction.
         if signature == self._last_foreign_signature and now - self._last_foreign_signature_at <= self.foreign_echo_dedupe:
             self.last_foreign_write = now
             return "foreign_echo"
-
         self._last_foreign_signature = signature
         self._last_foreign_signature_at = now
         self.last_foreign_write = now
         self.foreign_write_count += 1
         self.foreign_events.append((now, signature))
         self._purge(now)
-
-        # Once Pi owns the bus, one valid foreign write is enough to fail safe
-        # immediately. During startup we debounce to avoid one stray transaction.
         if self.master == self.PI:
             self._transition(self.HCP4, "foreign_write_while_pi_master", now)
         else:
@@ -223,24 +211,19 @@ class MasterArbitrator:
                 self._transition(self.HCP4, "foreign_write_activity", now)
         return "foreign"
 
-    def evaluate(self, *, controller_enabled: bool, bus_healthy: bool, now: float | None = None) -> bool:
+    def evaluate(self, *, bus_healthy: bool, now: float | None = None) -> bool:
+        """Choose the only safe active master. Pi cannot be user-disabled."""
         now = time.monotonic() if now is None else float(now)
         self._purge(now)
         if not bus_healthy:
             return self._transition(self.UNKNOWN, "bus_unhealthy", now)
-
         foreign_age = None if self.last_foreign_write is None else now - self.last_foreign_write
         if foreign_age is not None and foreign_age <= self.release_timeout:
             if self.master == self.HCP4:
                 self.reason = "hcp4_recent_foreign_writes"
             return False
-
-        if not controller_enabled:
-            return self._transition(self.UNKNOWN, "controller_disabled", now)
-
         if now - self.started_monotonic < self.startup_observation:
             return self._transition(self.UNKNOWN, "startup_observation", now)
-
         if self.master == self.HCP4:
             return self._transition(self.PI, "hcp4_quiet_timeout_bus_healthy", now)
         if self.master == self.UNKNOWN:
@@ -248,8 +231,8 @@ class MasterArbitrator:
         self.reason = "pi_master_bus_healthy"
         return False
 
-    def writes_allowed(self, controller_enabled: bool) -> bool:
-        return bool(controller_enabled and self.master == self.PI)
+    def writes_allowed(self) -> bool:
+        return self.master == self.PI
 
     def bus_age(self, now: float | None = None):
         now = time.monotonic() if now is None else float(now)
