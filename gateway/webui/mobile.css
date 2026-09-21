@@ -12,6 +12,8 @@
 .setting-card h2{margin:0 0 6px}.setting-card p{margin:0;color:var(--muted);font-size:12px;line-height:1.5}
 .setting-card button{border:1px solid #5ac8e84a;background:#5ac8e812;color:var(--cyan);border-radius:11px;padding:11px 14px;font:inherit;font-weight:750;cursor:pointer}
 .setting-card>span{grid-column:1/-1;color:var(--muted);font-size:11px}
-/* Pi controller is automatic: HCP4 owns the bus when present, otherwise Pi does. */
-.control-enable{display:none!important}
 @media(max-width:600px){.setting-card{grid-template-columns:1fr}.setting-card button{justify-self:start}}
+
+/* Safety: the Pi controller is automatic and bypass forcing is not hardware-verified. */
+.control-enable{display:none!important}
+#overview-bypass{display:none!important}
