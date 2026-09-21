@@ -27,6 +27,17 @@ class Gateway(BaseGateway):
         master_cfg = config.get("controller", {}).get("master_arbitration", {})
         self.controller.configure_master(master_cfg)
 
+        # The new ControllerRuntime is the only Pi-side controller in this
+        # entrypoint. Disable the older experimental MQTT/manual control loop so
+        # it can never compete with ControllerRuntime or HCP4. The verified
+        # low-level functions (write_pair/fireplace/afterheat) remain available
+        # and are still called by HardwareAdapter through controller_hardware_queue.
+        self.control_enabled = False
+        self.fireplace_enabled = False
+        self.override_mode = None
+        self.startup_mode = None
+        LOG.info("Legacy gateway control loop disabled; ControllerRuntime owns Pi control")
+
     def serial_read(self, ser: serial.Serial, size: int) -> bytes:
         data = super().serial_read(ser, size)
         # Feed all bus traffic immediately, including reads performed inside
