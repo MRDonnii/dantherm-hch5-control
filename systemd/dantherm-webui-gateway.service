@@ -10,9 +10,12 @@ Group=passivelink-webui
 SupplementaryGroups=dialout video
 WorkingDirectory=/opt/dantherm-passivelink-webui
 EnvironmentFile=/etc/dantherm-passivelink-webui/gateway.env
+UMask=0027
 ExecStartPre=/bin/sh -c 'test -e "$RS485_DEVICE"'
-# Repair the persistent state directory before the unprivileged gateway starts.
-# This prevents stale/root-owned SQLite/auth files from breaking history or login.
+# Persistent runtime state is prepared explicitly before privilege drop. Do not
+# put /var/lib/dantherm-hch5-ha behind an additional systemd mount namespace:
+# older Pi/systemd combinations have made the otherwise writable state path
+# unavailable to SQLite/auth while the same path worked from the host shell.
 ExecStartPre=+/usr/bin/install -d -o passivelink-webui -g passivelink-webui -m 0750 /var/lib/dantherm-hch5-ha
 ExecStartPre=+/bin/chown -R passivelink-webui:passivelink-webui /var/lib/dantherm-hch5-ha
 ExecStartPre=/bin/sh -c 'test -w /var/lib/dantherm-hch5-ha'
@@ -24,10 +27,6 @@ RestartSec=3
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
-ProtectSystem=strict
-StateDirectory=dantherm-hch5-ha
-StateDirectoryMode=0750
-ReadWritePaths=/var/lib/dantherm-hch5-ha
 
 [Install]
 WantedBy=multi-user.target
