@@ -70,7 +70,10 @@ class ModernAutomationTests(unittest.TestCase):
         engine.update_measurements(rh=70, co2=1600)
         engine.current_auto_level = 5
         result = engine.resolve(now=time.time())
-        self.assertGreaterEqual(result["effective_level"], 5)
+        # Air quality may lift night mode, but the configured night ceiling
+        # prevents the two policies from fighting all the way to full boost.
+        self.assertEqual(result["effective_level"], 4)
+        self.assertEqual(result["effective_source"], "night_air_quality")
 
     def test_schedule_accepts_week_and_raises_baseline_inside_window(self):
         engine = self.make_engine()

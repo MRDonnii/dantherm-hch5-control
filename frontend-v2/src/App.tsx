@@ -1,27 +1,11 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
+import { DiagnosticsPage } from "./pages/DiagnosticsPage";
 import { HistoryPage } from "./pages/HistoryPage";
+import { HomeAssistantPage } from "./pages/HomeAssistantPage";
 import { OverviewPage } from "./pages/OverviewPage";
-import { PlaceholderPage } from "./pages/PlaceholderPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { SystemPage } from "./pages/SystemPage";
 import { TechniquePage } from "./pages/TechniquePage";
 import { UpdatesPage } from "./pages/UpdatesPage";
-
-export function App() {
-  return (
-    <AppShell>
-      <Routes>
-        <Route path="/" element={<Navigate to="/overview" replace />} />
-        <Route path="/overview" element={<OverviewPage />} />
-        <Route path="/history" element={<HistoryPage />} />
-        <Route path="/technique" element={<TechniquePage />} />
-        <Route path="/system" element={<SystemPage />} />
-        <Route path="/home-assistant" element={<PlaceholderPage eyebrow="Home Assistant" title="Integration" description="Forbindelse, entities og smart-data præsenteres uden at blande sig i den lokale sikkerhedsstyring." />} />
-        <Route path="/diagnostics" element={<PlaceholderPage eyebrow="Diagnostik" title="Fejlsøgning" description="Rå data, busstatus, logs og sikre værktøjer samlet i en teknisk men overskuelig visning." />} />
-        <Route path="/updates" element={<UpdatesPage />} />
-        <Route path="/settings" element={<PlaceholderPage eyebrow="Indstillinger" title="Udseende og adgang" description="Tema, navigation, login og lokale præferencer med persistens på tværs af opdateringer." />} />
-        <Route path="*" element={<Navigate to="/overview" replace />} />
-      </Routes>
-    </AppShell>
-  );
-}
+export function App(){return <AppShell><Routes><Route path="/" element={<Navigate to="/overview" replace/>}/><Route path="/overview" element={<OverviewPage/>}/><Route path="/history" element={<HistoryPage/>}/><Route path="/technique" element={<TechniquePage/>}/><Route path="/system" element={<SystemPage/>}/><Route path="/home-assistant" element={<HomeAssistantPage/>}/><Route path="/diagnostics" element={<DiagnosticsPage/>}/><Route path="/updates" element={<UpdatesPage />}/><Route path="/settings" element={<SettingsPage/>}/><Route path="*" element={<Navigate to="/overview" replace/>}/></Routes></AppShell>}

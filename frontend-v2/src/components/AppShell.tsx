@@ -71,6 +71,17 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [theme, effectiveTheme]);
 
   useEffect(() => {
+    const syncPreferences = () => {
+      setTheme(readTheme());
+      setCollapsed(readStored("hch5-v2-sidebar", "0") === "1");
+      document.documentElement.dataset.motion = readStored("hch5-v2-motion", "normal");
+    };
+    syncPreferences();
+    window.addEventListener("hch5-ui-preferences", syncPreferences);
+    return () => window.removeEventListener("hch5-ui-preferences", syncPreferences);
+  }, []);
+
+  useEffect(() => {
     document.body.dataset.sidebar = collapsed ? "collapsed" : "expanded";
     try { localStorage.setItem("hch5-v2-sidebar", collapsed ? "1" : "0"); } catch {}
   }, [collapsed]);

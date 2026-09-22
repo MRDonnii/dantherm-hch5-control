@@ -60,7 +60,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Filter · udeluft", diagram)
         self.assertIn("Filter · udsugning", diagram)
         self.assertLess(diagram.index("Filter · udeluft"), diagram.index("Filter · udsugning"))
-        self.assertIn("Eftervarme · vandflade", diagram)
+        self.assertIn("Ekstern eftervarme · HAC1", diagram)
         self.assertIn("Bypass-spjæld", diagram)
         self.assertIn("afterheat_setpoint", overview)
         self.assertNotIn("afterheat_valve", overview)

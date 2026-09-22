@@ -218,12 +218,28 @@ class ControllerRuntime:
                 raise ControllerError(f"enabled/control for {name} skal være boolean")
             if priority not in VALID_PRIORITIES:
                 raise ControllerError(f"Ugyldig priority for {name}")
+            room_type = str(raw_values.get("room_type", "auto")).strip().lower()
+            if room_type not in {"auto", "normal", "bathroom"}:
+                raise ControllerError(f"Ugyldig room_type for {name}")
             values: dict[str, object] = {
                 "enabled": enabled,
                 "control": control,
                 "priority": priority,
                 "source": source.strip(),
+                "room_type": room_type,
             }
+            if "rh_setpoint" in raw_values and raw_values.get("rh_setpoint") is not None:
+                values["rh_setpoint"] = self._measurement(raw_values, "rh_setpoint", 35, 90)
+            if "rh_hysteresis" in raw_values and raw_values.get("rh_hysteresis") is not None:
+                values["rh_hysteresis"] = self._measurement(raw_values, "rh_hysteresis", 1, 20)
+            if "max_level" in raw_values and raw_values.get("max_level") is not None:
+                try:
+                    max_level = int(raw_values["max_level"])
+                except (TypeError, ValueError) as error:
+                    raise ControllerError(f"max_level for {name} skal være 1..6") from error
+                if not 1 <= max_level <= 6:
+                    raise ControllerError(f"max_level for {name} skal være 1..6")
+                values["max_level"] = max_level
             temp = self._measurement(raw_values, "temperature", -30, 60)
             rh = self._measurement(raw_values, "humidity", 0, 100)
             co2 = self._measurement(raw_values, "co2", 250, 10000)
@@ -281,6 +297,16 @@ class ControllerRuntime:
             return max(1, normal - max(1, int((distance + step - 0.0001) // step)))
         return normal
 
+    @staticmethod
+    def _is_bathroom(name: str, values: dict[str, object]) -> bool:
+        room_type = str(values.get("room_type", "auto")).lower()
+        if room_type == "bathroom":
+            return True
+        if room_type == "normal":
+            return False
+        folded = name.casefold()
+        return any(marker in folded for marker in ("bad", "bath", "shower", "brus"))
+
     def _derive_smart_decision(
         self, now: float | None = None
     ) -> tuple[int, str, str, str | None, str | None]:
@@ -293,17 +319,29 @@ class ControllerRuntime:
             if not values.get("enabled", True) or not values.get("control", True):
                 continue
             priority = str(values.get("priority", "auto"))
-            for metric, setpoint, step, hysteresis, label in (
-                ("co2", float(d["co2_setpoint"]), float(d["auto_step_co2"]), float(d["co2_hysteresis"]), "CO2"),
-                ("humidity", float(d["rh_setpoint"]), float(d["auto_step_rh"]), float(d["rh_hysteresis"]), "RH"),
-            ):
-                value = values.get(metric)
-                if not isinstance(value, (int, float)):
-                    continue
-                raw = self._metric_level(float(value), setpoint, step, hysteresis, normal)
+            bathroom = self._is_bathroom(name, values)
+
+            co2 = values.get("co2")
+            if isinstance(co2, (int, float)):
+                raw = self._metric_level(
+                    float(co2), float(d["co2_setpoint"]), float(d["auto_step_co2"]),
+                    float(d["co2_hysteresis"]), normal,
+                )
                 adjusted = self._priority_level(raw, priority)
-                reason = f"{label} {name} {float(value):.1f} ({priority})"
-                candidates.append((adjusted, raw, float(value), name, label.lower(), reason))
+                candidates.append((adjusted, raw, float(co2), name, "co2", f"CO2 {name} {float(co2):.0f} ({priority})"))
+
+            humidity = values.get("humidity")
+            if isinstance(humidity, (int, float)):
+                rh_setpoint = float(values.get("rh_setpoint") or (d["bathroom_rh_setpoint"] if bathroom else d["rh_setpoint"]))
+                rh_hysteresis = float(values.get("rh_hysteresis") or (d["bathroom_rh_hysteresis"] if bathroom else d["rh_hysteresis"]))
+                raw = self._metric_level(
+                    float(humidity), rh_setpoint, float(d["auto_step_rh"]), rh_hysteresis, normal,
+                )
+                adjusted = self._priority_level(raw, priority)
+                if bathroom:
+                    adjusted = min(adjusted, int(values.get("max_level") or d["bathroom_max_level"]))
+                label = "Badeværelse RH" if bathroom else "RH"
+                candidates.append((adjusted, raw, float(humidity), name, "humidity", f"{label} {name} {float(humidity):.1f}% / {rh_setpoint:.0f}% ({priority})"))
 
         for name, history in self._room_rh_history.items():
             values = rooms.get(name, {})
@@ -313,13 +351,14 @@ class ControllerRuntime:
             if len(fresh) >= 2:
                 rise = fresh[-1][1] - fresh[0][1]
                 if rise >= 7.0:
-                    # A shower-like rise is intentionally stronger than the
-                    # same room's still-moderate absolute RH reading.
                     raw = min(6, normal + 3 + int((rise - 7.0) // 5.0))
                     priority = str(values.get("priority", "auto"))
+                    adjusted = self._priority_level(raw, priority)
+                    if self._is_bathroom(name, values):
+                        adjusted = min(adjusted, int(values.get("max_level") or d["bathroom_max_level"]))
                     candidates.append((
-                        self._priority_level(raw, priority), raw, rise, name,
-                        "rh_rise", f"RH rise {name} +{rise:.1f}%/10m ({priority})",
+                        adjusted, raw, rise, name, "rh_rise",
+                        f"RH rise {name} +{rise:.1f}%/10m ({priority})",
                     ))
 
         if not candidates:
@@ -380,6 +419,12 @@ class ControllerRuntime:
             "smart_max_co2_room": max_co2[1],
             "smart_max_rh": max_rh[0],
             "smart_max_rh_room": max_rh[1],
+            "bathroom_policy": {
+                "rh_setpoint": self.config.data.get("bathroom_rh_setpoint"),
+                "rh_hysteresis": self.config.data.get("bathroom_rh_hysteresis"),
+                "max_level": self.config.data.get("bathroom_max_level"),
+                "night_air_quality_max_level": self.config.data.get("night_air_quality_max_level"),
+            },
         }
 
     def snapshot(self) -> dict[str, object]:
@@ -391,6 +436,18 @@ class ControllerRuntime:
         result.update(self.master.snapshot())
         result.update(self._smart_input_snapshot())
         writes_allowed = self.master.writes_allowed()
+        sample_at = self._first(self.gateway_state, "temperature_sample_monotonic")
+        sample_age = None
+        if isinstance(sample_at, (int, float)):
+            sample_age = max(0.0, time.monotonic() - float(sample_at))
+        before_heater = self._first(self.gateway_state, "supply_temperature", "supply_temp")
+        if sample_age is not None and sample_age > 45:
+            before_heater = None
+        before_source = (
+            str(self.gateway_state.get("temperature_source") or "canonical_t2")
+            if self.gateway_state.get("supply_temperature") is not None
+            else "unit_t2_legacy"
+        )
         if self.master.master == MasterArbitrator.HCP4:
             control_state = "paused_hcp4_master"
         elif self.master.master == MasterArbitrator.PI:
@@ -411,7 +468,9 @@ class ControllerRuntime:
             "actual_fireplace": self._first(self.gateway_state, "fireplace"),
             "actual_afterheat": self._first(self.gateway_state, "afterheat_active"),
             "actual_afterheat_setpoint": self._first(self.gateway_state, "afterheat_setpoint"),
-            "actual_supply_before_heater_temperature": self._first(self.gateway_state, "supply_temp"),
+            "actual_supply_before_heater_temperature": before_heater,
+            "actual_supply_before_heater_temperature_source": before_source,
+            "actual_supply_before_heater_age_seconds": round(sample_age, 1) if sample_age is not None else None,
             "actual_supply_air_temperature": self._first(self.gateway_state, "heating_coil_after_temperature", "supply_temp"),
             "actual_supply_air_temperature_source": "hac1_t2ah" if self.gateway_state.get("heating_coil_after_temperature") is not None else "unit_t2",
             "actual_afterheat_frost_temperature": self._first(self.gateway_state, "heating_coil_frost_temperature"),

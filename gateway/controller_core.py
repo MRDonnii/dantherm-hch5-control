@@ -171,6 +171,10 @@ class ControllerState:
         "night_start": "22:00",
         "night_end": "06:00",
         "night_level": 2,
+        "night_air_quality_max_level": 4,
+        "bathroom_rh_setpoint": 65.0,
+        "bathroom_rh_hysteresis": 5.0,
+        "bathroom_max_level": 4,
         "vacation_enabled": False,
         "vacation_level": 1,
         "vacation_until": None,
@@ -235,6 +239,7 @@ class ControllerState:
             ("manual_level", 3), ("local_normal_level", 3),
             ("local_min_level", 1), ("local_max_level", 6),
             ("ha_requested_level", 3), ("night_level", 2),
+            ("night_air_quality_max_level", 4), ("bathroom_max_level", 4),
             ("vacation_level", 1), ("quick_boost_level", 6), ("cooling_level", 4),
         ):
             try:
@@ -301,6 +306,8 @@ class ControllerState:
             self.data["quick_boost_until"] = quick_boost_until
             self.data["quick_boost_minutes"] = quick_boost_minutes
         for key, default, low, high in (
+            ("bathroom_rh_setpoint", 65.0, 35.0, 90.0),
+            ("bathroom_rh_hysteresis", 5.0, 1.0, 20.0),
             ("cooling_room_setpoint", 23.0, 18.0, 30.0),
             ("cooling_hysteresis", 0.5, 0.2, 3.0),
             ("cooling_outdoor_min", 12.0, -10.0, 25.0),
@@ -356,6 +363,8 @@ class ControllerState:
                 "boost_hold_seconds", "ha_timeout_seconds", "bypass", "fireplace",
                 "fireplace_minutes", "afterheat_setpoint", "profiles", "schedule_enabled",
                 "schedule", "night_enabled", "night_start", "night_end", "night_level",
+                "night_air_quality_max_level", "bathroom_rh_setpoint",
+                "bathroom_rh_hysteresis", "bathroom_max_level",
                 "vacation_enabled", "vacation_level", "vacation_until",
                 "quick_boost_minutes", "quick_boost_level", "cooling_enabled",
                 "cooling_room_setpoint", "cooling_hysteresis", "cooling_outdoor_min",
@@ -369,7 +378,7 @@ class ControllerState:
                 if patch["mode"] not in VALID_MODES:
                     raise ControllerError("Ugyldig controller-mode")
                 self.data["mode"] = patch["mode"]
-            for key in ("manual_level", "local_normal_level", "local_min_level", "local_max_level", "night_level", "vacation_level", "quick_boost_level", "cooling_level"):
+            for key in ("manual_level", "local_normal_level", "local_min_level", "local_max_level", "night_level", "night_air_quality_max_level", "bathroom_max_level", "vacation_level", "quick_boost_level", "cooling_level"):
                 if key in patch:
                     value = int(patch[key])
                     if not 1 <= value <= 6:
@@ -377,6 +386,7 @@ class ControllerState:
                     self.data[key] = value
             for key, low, high in (
                 ("rh_setpoint", 25.0, 80.0), ("rh_hysteresis", 1.0, 10.0),
+                ("bathroom_rh_setpoint", 35.0, 90.0), ("bathroom_rh_hysteresis", 1.0, 20.0),
                 ("auto_step_rh", 2.0, 20.0), ("cooling_room_setpoint", 18.0, 30.0),
                 ("cooling_hysteresis", 0.2, 3.0), ("cooling_outdoor_min", -10.0, 25.0),
                 ("cooling_min_delta", 0.5, 10.0),
@@ -697,16 +707,25 @@ class ControllerEngine:
             if d.get("night_enabled") and _time_window_active(now, str(d["night_start"]), str(d["night_end"])):
                 flags["night_active"] = True
                 rh, co2 = self.measurements.get("rh"), self.measurements.get("co2")
-                urgent_air = (
+                local_urgent = (
                     isinstance(rh, (int, float)) and rh > float(d["rh_setpoint"]) + float(d["rh_hysteresis"]) or
                     isinstance(co2, (int, float)) and co2 > int(d["co2_setpoint"]) + int(d["co2_hysteresis"])
                 )
-                if not urgent_air:
+                # Night mode is a final policy layer, not a competing writer. HA Smart
+                # demand may lift the night level for air quality, but only to a
+                # configurable ceiling. This prevents a humid bathroom from repeatedly
+                # forcing full boost while night mode simultaneously tries to reduce it.
+                ha_urgent = source == "ha_smart" and level > int(d["night_level"])
+                if local_urgent or ha_urgent:
+                    night_cap = max(int(d["night_level"]), int(d["night_air_quality_max_level"]))
+                    if level > night_cap:
+                        level = night_cap
+                    source = "night_air_quality"
+                    reason = f"{reason}; nat: luftkvalitet begrænset til trin {night_cap}"
+                else:
                     level = min(level, int(d["night_level"]))
                     source = "night"
                     reason = f"Natsænkning {d['night_start']}–{d['night_end']}"
-                else:
-                    reason = f"{reason}; nat men luftkvalitet har prioritet"
 
             room = self.measurements.get("room")
             outdoor = self.measurements.get("outdoor")
