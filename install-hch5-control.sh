@@ -20,6 +20,11 @@ if [[ -x /opt/dantherm-passivelink-webui/venv/bin/python \
   echo "Existing HCH5 Control installation detected; using transactional update/recovery."
   HCH5_UPDATE_BUILD="${build:-unknown}" bash "$tmp/update.sh"
   install -o root -g root -m 0755 "$tmp/update.sh" /opt/dantherm-webui/update.sh
+  systemctl restart dantherm-webui-admin.service
+  systemctl is-active --quiet dantherm-webui-admin.service || {
+    echo "The updated admin service did not become active." >&2
+    exit 1
+  }
   echo "HCH5 Control $(cat "$tmp/VERSION") installed safely."
   exit 0
 fi
