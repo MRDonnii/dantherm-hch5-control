@@ -13,10 +13,15 @@ class ControllerTests(unittest.TestCase):
         state = ControllerState(Path(directory.name) / "state.json")
         return state, ControllerEngine(state)
 
-    def test_disabled_by_default(self):
+    def test_always_enabled_and_old_disabled_state_migrates(self):
         state, engine = self.make()
-        self.assertFalse(state.data["enabled"])
-        self.assertIsNone(engine.resolve()["effective_level"])
+        self.assertTrue(state.data["enabled"])
+        self.assertIsNotNone(engine.resolve()["effective_level"])
+        state.path.write_text('{"enabled": false, "mode": "manual", "manual_level": 2}')
+        migrated = ControllerState(state.path)
+        self.assertTrue(migrated.data["enabled"])
+        with self.assertRaises(ControllerError):
+            migrated.configure({"enabled": False})
 
     def test_six_profiles_are_monotonic_and_balanced(self):
         state, _ = self.make()
@@ -31,7 +36,7 @@ class ControllerTests(unittest.TestCase):
 
     def test_manual_level_uses_profile(self):
         state, engine = self.make()
-        state.configure({"enabled": True, "mode": "manual", "manual_level": 4})
+        state.configure({"mode": "manual", "manual_level": 4})
         result = engine.resolve()
         self.assertEqual(result["effective_level"], 4)
         self.assertEqual((result["effective_profile"]["extract"], result["effective_profile"]["supply"]), (70, 58))
@@ -39,7 +44,7 @@ class ControllerTests(unittest.TestCase):
     def test_profile_can_be_calibrated(self):
         state, engine = self.make()
         state.configure({"profiles": {"4": {"extract": 72, "supply": 60}}})
-        state.configure({"enabled": True, "mode": "manual", "manual_level": 4})
+        state.configure({"mode": "manual", "manual_level": 4})
         result = engine.resolve()
         self.assertEqual(result["effective_profile"]["extract"], 72)
         self.assertEqual(result["effective_profile"]["supply"], 60)
@@ -56,7 +61,7 @@ class ControllerTests(unittest.TestCase):
 
     def test_rh_raises_local_auto(self):
         state, engine = self.make()
-        state.configure({"enabled": True, "mode": "local_auto", "rh_setpoint": 50})
+        state.configure({"mode": "local_auto", "rh_setpoint": 50})
         engine.update_measurements(rh=61, co2=600)
         result = engine.resolve()
         self.assertGreaterEqual(result["effective_level"], 5)
@@ -64,7 +69,7 @@ class ControllerTests(unittest.TestCase):
 
     def test_co2_raises_local_auto(self):
         state, engine = self.make()
-        state.configure({"enabled": True, "mode": "local_auto", "co2_setpoint": 800})
+        state.configure({"mode": "local_auto", "co2_setpoint": 800})
         engine.update_measurements(rh=40, co2=1250)
         result = engine.resolve()
         self.assertEqual(result["effective_level"], 6)
@@ -72,7 +77,7 @@ class ControllerTests(unittest.TestCase):
 
     def test_downshift_waits_for_hysteresis_and_delay(self):
         state, engine = self.make()
-        state.configure({"enabled": True, "mode": "local_auto", "downshift_delay_seconds": 30})
+        state.configure({"mode": "local_auto", "downshift_delay_seconds": 30})
         engine.update_measurements(rh=70, co2=1800)
         high = engine.resolve(now=1000)
         self.assertEqual(high["effective_level"], 6)
@@ -85,15 +90,15 @@ class ControllerTests(unittest.TestCase):
 
     def test_smart_auto_uses_ha_when_fresh(self):
         state, engine = self.make()
-        state.configure({"enabled": True, "mode": "smart_auto"})
-        state.heartbeat("high")
+        state.configure({"mode": "smart_auto"})
+        state.heartbeat("high", requested_level=5)
         self.assertEqual(engine.resolve()["effective_level"], 5)
-        state.heartbeat("boost")
+        state.heartbeat("boost", requested_level=6)
         self.assertEqual(engine.resolve()["effective_level"], 6)
 
     def test_smart_auto_falls_back_to_local(self):
         state, engine = self.make()
-        state.configure({"enabled": True, "mode": "smart_auto"})
+        state.configure({"mode": "smart_auto"})
         state.data["ha_last_seen"] = time.time() - 999
         engine.update_measurements(rh=40, co2=600)
         result = engine.resolve()
@@ -116,7 +121,7 @@ class ControllerTests(unittest.TestCase):
             set_fireplace=lambda enabled: calls.append(("fireplace", enabled)),
             set_afterheat_setpoint=lambda value: None,
         ))
-        state.configure({"enabled": True, "mode": "manual", "manual_level": 4,
+        state.configure({"mode": "manual", "manual_level": 4,
                          "fireplace_minutes": 15})
         engine.apply()
         self.assertTrue(state.snapshot()["fireplace"])
@@ -146,7 +151,7 @@ class ControllerTests(unittest.TestCase):
             set_afterheat_setpoint=lambda value: calls.append(("afterheat", value)),
         )
         engine = ControllerEngine(state, adapter)
-        state.configure({"enabled": True, "mode": "manual", "manual_level": 3})
+        state.configure({"mode": "manual", "manual_level": 3})
         engine.apply()
         engine.apply()
         self.assertEqual(calls.count(("fan", 55, 43)), 1)
@@ -161,7 +166,7 @@ class ControllerTests(unittest.TestCase):
             set_afterheat_setpoint=lambda value: calls.append(value),
         )
         engine = ControllerEngine(state, adapter)
-        state.configure({"enabled": True, "afterheat_setpoint": 21})
+        state.configure({"afterheat_setpoint": 21})
         engine.apply()
         engine.apply()
         self.assertEqual(calls, [21])
@@ -177,7 +182,7 @@ class ControllerTests(unittest.TestCase):
             set_afterheat_setpoint=lambda value: None,
         ))
         engine.retry_base_seconds = 0
-        state.configure({"enabled": True, "mode": "manual", "manual_level": 3})
+        state.configure({"mode": "manual", "manual_level": 3})
         for _ in range(10):
             try: engine.apply()
             except OSError: pass

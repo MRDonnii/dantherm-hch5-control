@@ -21,9 +21,9 @@ def test_startup_waits_before_pi_master():
     arb = MasterArbitrator(startup_observation=3, release_timeout=3)
     t0 = arb.started_monotonic
     arb.observe_frame(fc03_request(), now=t0 + 0.1)
-    arb.evaluate(controller_enabled=True, bus_healthy=True, now=t0 + 2.9)
+    arb.evaluate(bus_healthy=True, now=t0 + 2.9)
     assert arb.master == arb.UNKNOWN
-    arb.evaluate(controller_enabled=True, bus_healthy=True, now=t0 + 3.1)
+    arb.evaluate(bus_healthy=True, now=t0 + 3.1)
     assert arb.master == arb.PI
 
 
@@ -40,23 +40,39 @@ def test_pi_yields_on_single_foreign_write():
     arb = MasterArbitrator(startup_observation=3, release_timeout=3)
     t0 = arb.started_monotonic
     arb.observe_frame(fc03_request(), now=t0 + 0.1)
-    arb.evaluate(controller_enabled=True, bus_healthy=True, now=t0 + 3.1)
+    arb.evaluate(bus_healthy=True, now=t0 + 3.1)
     assert arb.master == arb.PI
     arb.observe_frame(fc06(1, 143, 189), now=t0 + 3.2)
     assert arb.master == arb.HCP4
 
 
 def test_own_echo_does_not_mark_hcp4():
-    arb = MasterArbitrator(startup_observation=3, release_timeout=3)
+    arb = MasterArbitrator(startup_observation=3, release_timeout=3, own_echo_ttl=0.2)
     t0 = arb.started_monotonic
     arb.observe_frame(fc03_request(), now=t0 + 0.1)
-    arb.evaluate(controller_enabled=True, bus_healthy=True, now=t0 + 3.1)
+    arb.evaluate(bus_healthy=True, now=t0 + 3.1)
     assert arb.master == arb.PI
     frame = fc06(1, 67, 43)
     arb.note_own_frame(frame, now=t0 + 3.2)
     assert arb.observe_frame(frame, now=t0 + 3.25) == "own"
     assert arb.master == arb.PI
     assert arb.foreign_write_count == 0
+
+
+def test_identical_hcp4_write_after_short_echo_window_is_foreign():
+    arb = MasterArbitrator(startup_observation=3, release_timeout=3, own_echo_ttl=0.2)
+    t0 = arb.started_monotonic
+    arb.observe_frame(fc03_request(), now=t0 + 0.1)
+    arb.evaluate(bus_healthy=True, now=t0 + 3.1)
+    frame = fc06(1, 67, 43)
+    arb.note_own_frame(frame, now=t0 + 3.2)
+    assert arb.observe_frame(frame, now=t0 + 3.41) == "foreign"
+    assert arb.master == arb.HCP4
+    assert arb.foreign_write_count == 1
+
+
+def test_echo_window_is_capped_to_transaction_scale():
+    assert MasterArbitrator(own_echo_ttl=9).own_echo_ttl == 0.25
 
 
 def test_hcp4_release_requires_quiet_timeout():
@@ -70,19 +86,19 @@ def test_hcp4_release_requires_quiet_timeout():
     arb.observe_frame(fc06(1, 67, 43), now=t0 + 0.2)
     arb.observe_frame(fc06(1, 66, 55), now=t0 + 0.5)
     assert arb.master == arb.HCP4
-    arb.evaluate(controller_enabled=True, bus_healthy=True, now=t0 + 5.4)
+    arb.evaluate(bus_healthy=True, now=t0 + 5.4)
     assert arb.master == arb.HCP4
-    arb.evaluate(controller_enabled=True, bus_healthy=True, now=t0 + 5.6)
+    arb.evaluate(bus_healthy=True, now=t0 + 5.6)
     assert arb.master == arb.PI
 
 
-def test_controller_disabled_never_becomes_pi_master():
+def test_unhealthy_bus_never_becomes_pi_master():
     arb = MasterArbitrator(startup_observation=3)
     t0 = arb.started_monotonic
     arb.observe_frame(fc03_request(), now=t0 + 0.1)
-    arb.evaluate(controller_enabled=False, bus_healthy=True, now=t0 + 20)
+    arb.evaluate(bus_healthy=False, now=t0 + 20)
     assert arb.master == arb.UNKNOWN
-    assert not arb.writes_allowed(False)
+    assert not arb.writes_allowed()
 
 
 def test_stream_parser_finds_write_frames_among_reads():

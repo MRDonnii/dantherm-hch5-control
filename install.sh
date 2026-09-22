@@ -6,22 +6,29 @@ Usage: sudo ./install.sh --device /dev/serial/by-id/YOUR_ADAPTER [options]
   --gateway-port PORT   Raw TCP port for Home Assistant (default: 4196)
   --web-port PORT       WebUI/controller API port (default: 8080)
   --enable-onewire      Install optional DS18B20/Pi diagnostics service
+  --beta                Install the exact v1.1.0-beta.1 prerelease
   --ref REF             Install an exact GitHub tag/branch when piping this script
 EOF
 }
 
-device=""; gateway_port=4196; web_port=8080; onewire=0; source_ref=""
+device=""; gateway_port=4196; web_port=8080; onewire=0; source_ref=""; beta=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --device) device=${2:-}; shift 2;;
     --gateway-port) gateway_port=${2:-}; shift 2;;
     --web-port) web_port=${2:-}; shift 2;;
     --enable-onewire) onewire=1; shift;;
+    --beta) beta=1; shift;;
     --ref) source_ref=${2:-}; shift 2;;
     -h|--help) usage; exit 0;;
     *) usage >&2; exit 2;;
   esac
 done
+
+if [[ ${beta} -eq 1 ]]; then
+  [[ -z ${source_ref} ]] || { echo "Use either --beta or --ref, not both." >&2; exit 2; }
+  source_ref="v1.1.0-beta.1"
+fi
 
 [[ ${EUID} -eq 0 ]] || { echo "Run as root with sudo." >&2; exit 1; }
 [[ ${device} == /dev/serial/by-id/* ]] || { echo "Use a stable /dev/serial/by-id/... path." >&2; exit 2; }
@@ -67,7 +74,9 @@ install -d -m 0700 "${backup}"
 for path in \
   /etc/dantherm-passivelink-webui/gateway.env \
   /etc/dantherm-passivelink-webui/controller.yaml \
-  /etc/dantherm-passivelink-webui/onewire.json; do
+  /etc/dantherm-passivelink-webui/onewire.json \
+  /var/lib/dantherm-hch5-ha/controller.json \
+  /var/lib/dantherm-hch5-ha/webui-auth.json; do
   [[ -e ${path} ]] && cp -a "${path}" "${backup}/"
 done
 
@@ -107,7 +116,9 @@ EOF
 chown root:passivelink-webui /etc/dantherm-passivelink-webui/gateway.env
 chmod 0640 /etc/dantherm-passivelink-webui/gateway.env
 
-cat > /etc/dantherm-passivelink-webui/controller.yaml <<EOF
+controller_config=/etc/dantherm-passivelink-webui/controller.yaml
+if [[ ! -f ${controller_config} ]]; then
+cat > "${controller_config}" <<EOF
 device:
   id: dantherm_hch5
   name: Dantherm HCH5
@@ -140,7 +151,7 @@ controller:
     detection_min_foreign_writes: 2
     release_timeout_seconds: 10
     startup_observation_seconds: 10
-    own_echo_ttl_seconds: 2
+    own_echo_ttl_seconds: 0.2
 control:
   enabled: false
   fireplace_enabled: false
@@ -149,8 +160,64 @@ diagnostic_capture:
 filter:
   enabled: false
 EOF
-chown root:passivelink-webui /etc/dantherm-passivelink-webui/controller.yaml
-chmod 0640 /etc/dantherm-passivelink-webui/controller.yaml
+else
+  # Preserve user configuration and only migrate fields required by the
+  # controller-aware entrypoint and fail-safe arbitration.
+  /opt/dantherm-passivelink-webui/venv/bin/python - "${controller_config}" "${device}" "${gateway_port}" "${web_port}" <<'PY'
+import os
+import sys
+import tempfile
+
+import yaml
+
+path, device, gateway_port, web_port = sys.argv[1:]
+with open(path, encoding="utf-8") as handle:
+    config = yaml.safe_load(handle) or {}
+if not isinstance(config, dict):
+    raise SystemExit("Existing controller.yaml must contain a YAML object")
+
+serial = config.setdefault("serial", {})
+serial.update(port=device, baudrate=19200, parity="E", active_reads_enabled=True, master_mode=True)
+raw_tcp = config.setdefault("raw_tcp", {})
+raw_tcp.update(enabled=True, port=int(gateway_port))
+raw_tcp.setdefault("bind", "0.0.0.0")
+raw_tcp.setdefault("max_clients", 4)
+dashboard = config.setdefault("dashboard", {})
+dashboard.update(enabled=True, port=int(web_port))
+dashboard.setdefault("bind", "0.0.0.0")
+controller = config.setdefault("controller", {})
+controller.setdefault("state_file", "/var/lib/dantherm-hch5-ha/controller.json")
+controller.setdefault("tick_seconds", 2.0)
+master = controller.setdefault("master_arbitration", {})
+master.setdefault("detection_window_seconds", 2)
+master.setdefault("detection_min_foreign_writes", 2)
+master.setdefault("release_timeout_seconds", 10)
+master.setdefault("startup_observation_seconds", 10)
+master["own_echo_ttl_seconds"] = 0.2
+# The legacy gateway loop must remain disabled; ControllerRuntime is the only
+# Pi controller and cannot be disabled by users.
+control = config.setdefault("control", {})
+control["enabled"] = False
+control["fireplace_enabled"] = False
+
+directory = os.path.dirname(path)
+fd, temporary = tempfile.mkstemp(prefix=".controller-", dir=directory)
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        yaml.safe_dump(config, handle, sort_keys=False)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.chmod(temporary, 0o640)
+    os.replace(temporary, path)
+finally:
+    try:
+        os.unlink(temporary)
+    except FileNotFoundError:
+        pass
+PY
+fi
+chown root:passivelink-webui "${controller_config}"
+chmod 0640 "${controller_config}"
 
 if [[ ! -f /etc/dantherm-passivelink-webui/onewire.json ]]; then
   install -o root -g passivelink-webui -m 0640 "${source_dir}/gateway/onewire.example.json" /etc/dantherm-passivelink-webui/onewire.json

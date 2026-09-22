@@ -27,10 +27,6 @@ Examples:
 ```
 
 ```json
-{"bypass":"open"}
-```
-
-```json
 {"fireplace":true}
 ```
 
@@ -43,14 +39,16 @@ Leased Home Assistant room measurements. They are never written directly to Modb
   "source":"home_assistant",
   "valid_for_s":180,
   "rooms":{
-    "bathroom":{"temperature":22.8,"humidity":68.4},
-    "bedroom":{"co2":1180},
-    "kitchen":{"co2":920}
+    "bathroom":{"temperature":22.8,"humidity":68.4,"enabled":true,"control":true,"priority":"high"},
+    "bedroom":{"co2":1180,"enabled":true,"control":true,"priority":"auto"},
+    "kitchen":{"co2":920,"enabled":true,"control":false,"priority":"low"}
   }
 }
 ```
 
-Pi derives the Smart Auto demand. Current beta rules use worst-room CO2/RH and a 10-minute RH rise trigger. Stale inputs automatically fall back to Local Auto.
+Pi derives levels 1–6 from worst-room CO2/RH and a 10-minute RH rise trigger. Priority changes how early a room reacts, but a severe normal-priority measurement still beats a mild high-priority measurement. Disabled and monitor-only rooms never control ventilation. The HCH5/HAC1 local CO2/RH sensors remain part of the decision. Stale leased input automatically falls back to Local Auto with the configured downshift/boost protection.
+
+At most 32 rooms are accepted. Invalid metadata or out-of-range measurements return HTTP 400 instead of being silently used. Bypass is status-only in this beta; non-`auto` commands are rejected because the verified hardware sequence is not documented.
 
 ## Master rule
 

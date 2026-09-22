@@ -18,6 +18,7 @@ from controller_core import ControllerEngine, ControllerError, ControllerState, 
 from master_arbitration import MasterArbitrator, RtuFrameStream
 
 LOG = logging.getLogger("passivelink-controller")
+VALID_PRIORITIES = {"auto", "low", "normal", "high", "critical"}
 
 
 class ControllerRuntime:
@@ -42,12 +43,15 @@ class ControllerRuntime:
         self.master_stream = RtuFrameStream()
         self._last_master = self.master.master
 
-        self.smart_rooms: dict[str, dict[str, float]] = {}
+        self.smart_rooms: dict[str, dict[str, object]] = {}
         self.smart_inputs_received_at: float | None = None
         self.smart_inputs_valid_for = 180
         self._room_rh_history: dict[str, deque[tuple[float, float]]] = defaultdict(deque)
         self.smart_demand = "normal"
         self.smart_reason = "No Home Assistant room data"
+        self.smart_requested_level = int(self.config.data["local_normal_level"])
+        self.smart_controlling_room: str | None = None
+        self.smart_controlling_metric: str | None = None
 
     @staticmethod
     def _first(state: dict[str, object], *keys: str):
@@ -117,7 +121,7 @@ class ControllerRuntime:
             return None
         return number if low <= number <= high else None
 
-    def _rooms_with_unit_sensors(self) -> dict[str, dict[str, float]]:
+    def _rooms_with_unit_sensors(self) -> dict[str, dict[str, object]]:
         """Combine HA rooms with the unit's own local indoor sensors.
 
         The HCH/HAC1 CO2 sensor remains part of Smart Auto even when HA sends
@@ -125,7 +129,12 @@ class ControllerRuntime:
         quality at the unit sensor (or vice versa).
         """
         combined = {name: dict(values) for name, values in self.smart_rooms.items()}
-        local: dict[str, float] = {}
+        local: dict[str, object] = {
+            "enabled": True,
+            "control": True,
+            "priority": "auto",
+            "source": "unit",
+        }
         co2 = self._safe_number(self._first(self.gateway_state, "co2"), 250, 10000)
         rh = self._safe_number(
             self._first(self.gateway_state, "humidity", "relative_humidity"), 0, 100
@@ -147,15 +156,29 @@ class ControllerRuntime:
             local["humidity"] = round(rh, 2)
         if temp is not None:
             local["temperature"] = round(temp, 2)
-        if local:
-            combined["HCH5 / spisestue"] = local
+        if any(key in local for key in ("co2", "humidity", "temperature")):
+            combined["HCH5 / lokale sensorer"] = local
         return combined
+
+    @classmethod
+    def _measurement(cls, values: dict, key: str, low: float, high: float):
+        if key not in values or values[key] is None:
+            return None
+        number = cls._safe_number(values[key], low, high)
+        if number is None:
+            raise ControllerError(f"{key} skal være et tal mellem {low:g} og {high:g}")
+        return number
 
     def room_inputs(self, payload: dict[str, object]) -> dict[str, object]:
         """Accept leased room measurements from HA and derive semantic demand."""
         rooms = payload.get("rooms")
         if not isinstance(rooms, dict):
             raise ControllerError("rooms skal være et objekt")
+        if len(rooms) > 32:
+            raise ControllerError("Højst 32 rum understøttes")
+        source = payload.get("source", "home_assistant")
+        if not isinstance(source, str) or not source.strip() or len(source) > 64:
+            raise ControllerError("source skal være en kort tekst")
         try:
             valid_for = int(payload.get("valid_for_s", 180))
         except (TypeError, ValueError) as error:
@@ -164,17 +187,29 @@ class ControllerRuntime:
             raise ControllerError("valid_for_s skal være 30..900 sekunder")
 
         now = time.time()
-        sanitized: dict[str, dict[str, float]] = {}
-        for raw_name, raw_values in list(rooms.items())[:32]:
+        sanitized: dict[str, dict[str, object]] = {}
+        for raw_name, raw_values in rooms.items():
             if not isinstance(raw_values, dict):
-                continue
+                raise ControllerError(f"Rum {raw_name!s} skal være et objekt")
             name = str(raw_name).strip()[:64]
             if not name:
-                continue
-            values: dict[str, float] = {}
-            temp = self._safe_number(raw_values.get("temperature"), -30, 60)
-            rh = self._safe_number(raw_values.get("humidity"), 0, 100)
-            co2 = self._safe_number(raw_values.get("co2"), 250, 10000)
+                raise ControllerError("Rumnavne må ikke være tomme")
+            enabled = raw_values.get("enabled", True)
+            control = raw_values.get("control", True)
+            priority = raw_values.get("priority", "auto")
+            if not isinstance(enabled, bool) or not isinstance(control, bool):
+                raise ControllerError(f"enabled/control for {name} skal være boolean")
+            if priority not in VALID_PRIORITIES:
+                raise ControllerError(f"Ugyldig priority for {name}")
+            values: dict[str, object] = {
+                "enabled": enabled,
+                "control": control,
+                "priority": priority,
+                "source": source.strip(),
+            }
+            temp = self._measurement(raw_values, "temperature", -30, 60)
+            rh = self._measurement(raw_values, "humidity", 0, 100)
+            co2 = self._measurement(raw_values, "co2", 250, 10000)
             if temp is not None:
                 values["temperature"] = round(temp, 2)
             if rh is not None:
@@ -185,52 +220,102 @@ class ControllerRuntime:
                     history.popleft()
             if co2 is not None:
                 values["co2"] = round(co2, 0)
-            if values:
-                sanitized[name] = values
+            if not any(key in values for key in ("temperature", "humidity", "co2")):
+                raise ControllerError(f"{name} har ingen gyldige målinger")
+            sanitized[name] = values
 
         self.smart_rooms = sanitized
         self.smart_inputs_received_at = now
         self.smart_inputs_valid_for = valid_for
-        demand, reason = self._derive_smart_demand(now)
-        self.smart_demand, self.smart_reason = demand, reason
-        self.config.heartbeat(demand)
+        decision = self._derive_smart_decision(now)
+        self.smart_requested_level = decision[0]
+        self.smart_demand = decision[1]
+        self.smart_reason = decision[2]
+        self.smart_controlling_room = decision[3]
+        self.smart_controlling_metric = decision[4]
+        self.config.heartbeat(
+            self.smart_demand,
+            requested_level=self.smart_requested_level,
+            valid_for_s=valid_for,
+            reason=self.smart_reason,
+        )
         if self.config.data.get("mode") == "smart_auto" and self.hardware_writes_allowed():
             self.apply_once()
         return self.snapshot()
 
-    def _derive_smart_demand(self, now: float | None = None) -> tuple[str, str]:
+    @staticmethod
+    def _priority_level(level: int, priority: str) -> int:
+        """Adjust response speed without allowing mild rooms to hide severe ones."""
+        if priority == "low" and level < 6:
+            return max(1, level - 1)
+        if priority == "high" and level < 6:
+            return min(6, level + 1)
+        if priority == "critical" and level < 6:
+            return min(6, level + 2)
+        return level
+
+    @staticmethod
+    def _metric_level(value: float, setpoint: float, step: float,
+                      hysteresis: float, normal: int) -> int:
+        if value > setpoint:
+            return min(6, normal + max(1, int((value - setpoint + step - 0.0001) // step)))
+        if value <= setpoint - hysteresis:
+            distance = setpoint - hysteresis - value
+            return max(1, normal - max(1, int((distance + step - 0.0001) // step)))
+        return normal
+
+    def _derive_smart_decision(
+        self, now: float | None = None
+    ) -> tuple[int, str, str, str | None, str | None]:
         now = time.time() if now is None else now
         d = self.config.data
         rooms = self._rooms_with_unit_sensors()
-        max_co2 = max(
-            ((v.get("co2"), name) for name, v in rooms.items() if v.get("co2") is not None),
-            default=(None, None),
-        )
-        max_rh = max(
-            ((v.get("humidity"), name) for name, v in rooms.items() if v.get("humidity") is not None),
-            default=(None, None),
-        )
-        max_rise = (0.0, None)
+        normal = int(d["local_normal_level"])
+        candidates: list[tuple[int, int, float, str, str, str]] = []
+        for name, values in rooms.items():
+            if not values.get("enabled", True) or not values.get("control", True):
+                continue
+            priority = str(values.get("priority", "auto"))
+            for metric, setpoint, step, hysteresis, label in (
+                ("co2", float(d["co2_setpoint"]), float(d["auto_step_co2"]), float(d["co2_hysteresis"]), "CO2"),
+                ("humidity", float(d["rh_setpoint"]), float(d["auto_step_rh"]), float(d["rh_hysteresis"]), "RH"),
+            ):
+                value = values.get(metric)
+                if not isinstance(value, (int, float)):
+                    continue
+                raw = self._metric_level(float(value), setpoint, step, hysteresis, normal)
+                adjusted = self._priority_level(raw, priority)
+                reason = f"{label} {name} {float(value):.1f} ({priority})"
+                candidates.append((adjusted, raw, float(value), name, label.lower(), reason))
+
         for name, history in self._room_rh_history.items():
+            values = rooms.get(name, {})
+            if not values.get("enabled", True) or not values.get("control", True):
+                continue
             fresh = [(ts, value) for ts, value in history if now - ts <= 600]
             if len(fresh) >= 2:
                 rise = fresh[-1][1] - fresh[0][1]
-                if rise > max_rise[0]:
-                    max_rise = (rise, name)
+                if rise >= 7.0:
+                    # A shower-like rise is intentionally stronger than the
+                    # same room's still-moderate absolute RH reading.
+                    raw = min(6, normal + 3 + int((rise - 7.0) // 5.0))
+                    priority = str(values.get("priority", "auto"))
+                    candidates.append((
+                        self._priority_level(raw, priority), raw, rise, name,
+                        "rh_rise", f"RH rise {name} +{rise:.1f}%/10m ({priority})",
+                    ))
 
-        if max_rise[0] >= 7.0:
-            return "boost", f"RH rise {max_rise[1]} +{max_rise[0]:.1f}%/10m"
-        co2, co2_room = max_co2
-        rh, rh_room = max_rh
-        if isinstance(co2, (int, float)) and co2 >= int(d["co2_setpoint"]) + 2 * int(d["auto_step_co2"]):
-            return "boost", f"CO2 {co2_room} {co2:.0f} ppm"
-        if isinstance(rh, (int, float)) and rh >= float(d["rh_setpoint"]) + 2 * float(d["auto_step_rh"]):
-            return "boost", f"RH {rh_room} {rh:.1f}%"
-        if isinstance(co2, (int, float)) and co2 > int(d["co2_setpoint"]):
-            return "high", f"CO2 {co2_room} {co2:.0f} ppm"
-        if isinstance(rh, (int, float)) and rh > float(d["rh_setpoint"]):
-            return "high", f"RH {rh_room} {rh:.1f}%"
-        return "normal", "All unit and HA rooms below configured thresholds"
+        if not candidates:
+            return normal, "normal", "No enabled control measurements", None, None
+        adjusted, _raw, _value, room, metric, reason = max(candidates)
+        adjusted = min(int(d["local_max_level"]), max(int(d["local_min_level"]), adjusted))
+        demand = "low" if adjusted <= 2 else "normal" if adjusted == 3 else "high" if adjusted <= 5 else "boost"
+        return adjusted, demand, reason, room, metric
+
+    def _derive_smart_demand(self, now: float | None = None) -> tuple[str, str]:
+        """Compatibility helper for older callers."""
+        _level, demand, reason, _room, _metric = self._derive_smart_decision(now)
+        return demand, reason
 
     def _smart_input_snapshot(self) -> dict[str, object]:
         now = time.time()
@@ -238,11 +323,13 @@ class ControllerRuntime:
         fresh = age is not None and age <= self.smart_inputs_valid_for
         rooms = self._rooms_with_unit_sensors()
         max_co2 = max(
-            ((v.get("co2"), n) for n, v in rooms.items() if v.get("co2") is not None),
+            ((v.get("co2"), n) for n, v in rooms.items()
+             if v.get("enabled", True) and v.get("co2") is not None),
             default=(None, None),
         )
         max_rh = max(
-            ((v.get("humidity"), n) for n, v in rooms.items() if v.get("humidity") is not None),
+            ((v.get("humidity"), n) for n, v in rooms.items()
+             if v.get("enabled", True) and v.get("humidity") is not None),
             default=(None, None),
         )
         return {
@@ -252,6 +339,10 @@ class ControllerRuntime:
             "smart_rooms": rooms,
             "smart_ha_rooms": self.smart_rooms,
             "smart_demand": self.smart_demand if fresh else "stale",
+            "smart_requested_level": self.smart_requested_level if fresh else None,
+            "smart_target_level": self.engine.current_auto_level if fresh else None,
+            "smart_controlling_room": self.smart_controlling_room if fresh else None,
+            "smart_controlling_metric": self.smart_controlling_metric if fresh else None,
             "smart_reason": self.smart_reason if fresh else "HA room data stale; Local Auto fallback",
             "smart_max_co2": max_co2[0],
             "smart_max_co2_room": max_co2[1],
@@ -284,6 +375,9 @@ class ControllerRuntime:
             "actual_fireplace": self._first(self.gateway_state, "fireplace"),
             "actual_afterheat": self._first(self.gateway_state, "afterheat_active"),
             "actual_afterheat_setpoint": self._first(self.gateway_state, "afterheat_setpoint"),
+            "actual_afterheat_valve_percent": self._first(
+                self.gateway_state, "heating_valve_percent", "afterheat_valve_percent"
+            ),
             "actual_supply_before_heater_temperature": self._first(self.gateway_state, "supply_temp"),
             "actual_supply_air_temperature": self._first(self.gateway_state, "heating_coil_after_temperature", "supply_temp"),
             "actual_supply_air_temperature_source": "hac1_t2ah" if self.gateway_state.get("heating_coil_after_temperature") is not None else "unit_t2",

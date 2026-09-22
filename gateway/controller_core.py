@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local controller for an HCH5/HAC1 with HCP4 physically disconnected.
+"""Local controller for an HCH5/HAC1 with automatic HCP4 arbitration.
 
 WebUI and Home Assistant submit high-level intent. Only this controller may
 translate desired state to the already hardware-verified RS485 write layer.
@@ -17,7 +17,10 @@ from typing import Callable
 
 VALID_MODES = {"local_auto", "smart_auto", "manual"}
 VALID_DEMANDS = {"low", "normal", "high", "boost"}
-VALID_BYPASS = {"auto", "open", "closed"}
+# No repository evidence documents a verified bypass write sequence. Keep the
+# desired value at native automatic operation and expose physical bypass status
+# read-only until such evidence exists.
+VALID_BYPASS = {"auto"}
 
 # Six editable profiles. The original observed HCP4 values are retained as
 # anchors (25/13, 55/43, 85/73, 100/88); levels 2 and 4 are conservative
@@ -80,7 +83,9 @@ class ControllerState:
     """Persistent controller configuration and desired state."""
 
     DEFAULTS = {
-        "enabled": False,
+        # Compatibility readback only. Old state files with enabled=false are
+        # migrated to true; no API is allowed to change it.
+        "enabled": True,
         "mode": "local_auto",
         "manual_level": 3,
         "local_normal_level": 3,
@@ -95,16 +100,19 @@ class ControllerState:
         "downshift_delay_seconds": 300,
         "boost_hold_seconds": 600,
         "ha_demand": "normal",
+        "ha_requested_level": 3,
+        "ha_reason": "No Home Assistant room data",
         "ha_last_seen": None,
+        "ha_valid_for_seconds": 180,
         "ha_timeout_seconds": 300,
         "bypass": "auto",
         "fireplace": False,
         "fireplace_until": None,
         "fireplace_duration_minutes": 0,
         "afterheat_setpoint": 20,
-        "effective_source": "disabled",
-        "effective_level": None,
-        "effective_reason": "Controller disabled",
+        "effective_source": "local_auto",
+        "effective_level": 3,
+        "effective_reason": "Controller starting",
         "updated_at": 0.0,
     }
 
@@ -172,6 +180,19 @@ class ControllerState:
                 self.data["fireplace_duration_minutes"] = 15
         if self.data["ha_demand"] not in VALID_DEMANDS:
             self.data["ha_demand"] = "normal"
+        self.data["enabled"] = True
+        try:
+            self.data["ha_requested_level"] = min(
+                6, max(1, int(self.data.get("ha_requested_level", 3)))
+            )
+        except (TypeError, ValueError):
+            self.data["ha_requested_level"] = 3
+        try:
+            self.data["ha_valid_for_seconds"] = min(
+                900, max(30, int(self.data.get("ha_valid_for_seconds", 180)))
+            )
+        except (TypeError, ValueError):
+            self.data["ha_valid_for_seconds"] = 180
         sp = self.data.get("afterheat_setpoint")
         try:
             sp = int(sp) if sp is not None else 20
@@ -198,7 +219,7 @@ class ControllerState:
     def configure(self, patch: dict[str, object]) -> dict[str, object]:
         with self.lock:
             allowed = {
-                "enabled", "mode", "manual_level", "local_normal_level",
+                "mode", "manual_level", "local_normal_level",
                 "local_min_level", "local_max_level", "rh_setpoint",
                 "rh_hysteresis", "co2_setpoint", "co2_hysteresis",
                 "auto_step_rh", "auto_step_co2", "downshift_delay_seconds",
@@ -208,10 +229,6 @@ class ControllerState:
             unknown = set(patch) - allowed
             if unknown:
                 raise ControllerError(f"Ukendt controller-felt: {sorted(unknown)[0]}")
-            if "enabled" in patch:
-                if not isinstance(patch["enabled"], bool):
-                    raise ControllerError("enabled skal være boolean")
-                self.data["enabled"] = patch["enabled"]
             if "mode" in patch:
                 if patch["mode"] not in VALID_MODES:
                     raise ControllerError("Ugyldig controller-mode")
@@ -246,9 +263,9 @@ class ControllerState:
                         raise ControllerError(f"{key} udenfor gyldigt område")
                     self.data[key] = value
             if "bypass" in patch:
-                if patch["bypass"] not in VALID_BYPASS:
-                    raise ControllerError("Ugyldig bypass-mode")
-                self.data["bypass"] = patch["bypass"]
+                if patch["bypass"] != "auto":
+                    raise ControllerError("Bypass er read-only; verificeret write-sekvens mangler")
+                self.data["bypass"] = "auto"
             if "fireplace" in patch:
                 if not isinstance(patch["fireplace"], bool):
                     raise ControllerError("fireplace skal være boolean")
@@ -286,7 +303,10 @@ class ControllerState:
                     validate_profile(extract, supply)
                     profiles[level].update(extract=extract, supply=supply)
                     if "name" in values:
-                        profiles[level]["name"] = str(values["name"])[:24]
+                        name = str(values["name"]).strip()
+                        if not name or len(name) > 24:
+                            raise ControllerError("Profilnavn skal være 1..24 tegn")
+                        profiles[level]["name"] = name
                 # Keep profiles monotonic so a higher level never slows a fan.
                 for level in range(2, 7):
                     if profiles[level]["extract"] <= profiles[level - 1]["extract"] or \
@@ -298,12 +318,29 @@ class ControllerState:
             self.save()
             return self.snapshot()
 
-    def heartbeat(self, demand: str = "normal") -> dict[str, object]:
+    def heartbeat(
+        self,
+        demand: str = "normal",
+        *,
+        requested_level: int | None = None,
+        valid_for_s: int | None = None,
+        reason: str | None = None,
+    ) -> dict[str, object]:
         if demand not in VALID_DEMANDS:
             raise ControllerError("Ugyldigt HA-demand")
+        if requested_level is not None and not 1 <= int(requested_level) <= 6:
+            raise ControllerError("HA requested level skal være 1..6")
+        if valid_for_s is not None and not 30 <= int(valid_for_s) <= 900:
+            raise ControllerError("HA lease skal være 30..900 sekunder")
         with self.lock:
             self.data["ha_last_seen"] = time.time()
             self.data["ha_demand"] = demand
+            if requested_level is not None:
+                self.data["ha_requested_level"] = int(requested_level)
+            if valid_for_s is not None:
+                self.data["ha_valid_for_seconds"] = int(valid_for_s)
+            if reason is not None:
+                self.data["ha_reason"] = str(reason)[:256]
             return self.snapshot()
 
     def _expire_fireplace(self, now: float | None = None) -> None:
@@ -323,7 +360,11 @@ class ControllerState:
             result = dict(self.data)
             result["profiles"] = _copy_profiles(self.data["profiles"])
             seen = result.get("ha_last_seen")
-            result["ha_online"] = bool(seen and now - float(seen) <= result["ha_timeout_seconds"])
+            lease = min(
+                int(result["ha_timeout_seconds"]),
+                int(result.get("ha_valid_for_seconds", result["ha_timeout_seconds"])),
+            )
+            result["ha_online"] = bool(seen and now - float(seen) <= lease)
             result["ha_age_seconds"] = round(now - float(seen), 1) if seen else None
             until = result.get("fireplace_until")
             result["fireplace_remaining_seconds"] = max(0, int(float(until) - now)) if until else 0
@@ -389,10 +430,27 @@ class ControllerEngine:
                 reasons.append(f"CO2 {co2:.0f} ppm > {int(d['co2_setpoint'])} ppm")
 
         wanted = min(int(d["local_max_level"]), max(int(d["local_min_level"]), wanted))
-        current = self.current_auto_level or normal
+        rh_clear = not isinstance(rh, (int, float)) or rh <= float(d["rh_setpoint"]) - float(d["rh_hysteresis"])
+        co2_clear = not isinstance(co2, (int, float)) or co2 <= int(d["co2_setpoint"]) - int(d["co2_hysteresis"])
+        current, held = self._stabilize_auto_level(
+            wanted, now, allow_downshift=rh_clear and co2_clear
+        )
+        if held:
+            reasons.append(held)
+        return current, ", ".join(reasons) if reasons else "RH/CO2 normal"
 
-        # Raising ventilation is immediate. Falling back requires both a dwell
-        # time and that the demand is actually below release hysteresis.
+    def _stabilize_auto_level(
+        self, wanted: int, now: float, *, allow_downshift: bool = True
+    ) -> tuple[int, str | None]:
+        """Raise immediately while applying boost hold and delayed downshift."""
+        d = self.config.data
+        wanted = min(6, max(1, int(wanted)))
+        current = (
+            self.current_auto_level
+            if self.current_auto_level is not None
+            else int(d["local_normal_level"])
+        )
+        held = None
         if wanted > current:
             current = wanted
             self.last_level_change = now
@@ -400,31 +458,37 @@ class ControllerEngine:
                 self.boost_until = now + int(d["boost_hold_seconds"])
         elif wanted < current:
             if now < self.boost_until:
-                reasons.append("Boost hold")
+                held = "Boost hold"
+            elif not allow_downshift:
+                held = "Hysteresis"
+            elif now - self.last_level_change >= int(d["downshift_delay_seconds"]):
+                current = wanted
+                self.last_level_change = now
             else:
-                rh_clear = not isinstance(rh, (int, float)) or rh <= float(d["rh_setpoint"]) - float(d["rh_hysteresis"])
-                co2_clear = not isinstance(co2, (int, float)) or co2 <= int(d["co2_setpoint"]) - int(d["co2_hysteresis"])
-                if rh_clear and co2_clear and now - self.last_level_change >= int(d["downshift_delay_seconds"]):
-                    current = wanted
-                    self.last_level_change = now
+                held = "Downshift delay"
         self.current_auto_level = current
-        return current, ", ".join(reasons) if reasons else "RH/CO2 normal"
+        return current, held
 
     def resolve(self, now: float | None = None) -> dict[str, object]:
         now = now or time.time()
         with self.config.lock, self.lock:
             self.config._expire_fireplace(now)
             d = self.config.data
-            if not d["enabled"]:
-                source, level, reason = "disabled", None, "Controller disabled"
-            elif d["mode"] == "manual":
+            if d["mode"] == "manual":
                 source, level, reason = "manual", int(d["manual_level"]), "Manual WebUI/HA selection"
             elif d["mode"] == "smart_auto":
                 seen = d.get("ha_last_seen")
-                if seen and now - float(seen) <= int(d["ha_timeout_seconds"]):
-                    mapping = {"low": 1, "normal": 3, "high": 5, "boost": 6}
-                    source, level = "ha_smart", mapping[d["ha_demand"]]
-                    reason = f"HA demand: {d['ha_demand']}"
+                lease = min(
+                    int(d["ha_timeout_seconds"]),
+                    int(d.get("ha_valid_for_seconds", d["ha_timeout_seconds"])),
+                )
+                if seen and now - float(seen) <= lease:
+                    wanted = int(d["ha_requested_level"])
+                    level, held = self._stabilize_auto_level(wanted, now)
+                    source = "ha_smart"
+                    reason = str(d.get("ha_reason") or f"HA demand: {d['ha_demand']}")
+                    if held:
+                        reason = f"{reason}; {held}"
                 else:
                     level, reason = self._local_auto_level(now)
                     source = "local_fallback"
@@ -486,8 +550,6 @@ class ControllerEngine:
     def apply(self) -> dict[str, object]:
         """Apply only changed desired values; never create an aggressive write loop."""
         snapshot = self.resolve()
-        if not snapshot["enabled"]:
-            return snapshot
         fireplace = bool(snapshot["fireplace"])
         previous_fireplace = self.last_applied.get("fireplace")
         self._call("fireplace", fireplace, self.hardware.set_fireplace, fireplace)
@@ -499,11 +561,6 @@ class ControllerEngine:
         if profile:
             pair = (int(profile["extract"]), int(profile["supply"]))
             self._call("fan_pair", pair, self.hardware.write_fan_pair, *pair)
-        # 'auto' means do not force bypass in this test controller; the native
-        # unit state is retained unless the user explicitly requests open/closed.
-        bypass = snapshot["bypass"]
-        if bypass in ("open", "closed"):
-            self._call("bypass", bypass, self.hardware.set_bypass, bypass)
         setpoint = int(snapshot["afterheat_setpoint"])
         self._call("afterheat_setpoint", setpoint, self.hardware.set_afterheat_setpoint, setpoint)
         return self.resolve()

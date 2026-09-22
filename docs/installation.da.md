@@ -2,12 +2,13 @@
 
 Denne guide installerer hele kæden på én Linux-maskine:
 
-1. receive-only RS485-læser ved `19200 8E1`;
+1. controller-aware RS485-gateway ved `19200 8E1` med HCP4-prioritet;
 2. rå TCP-stream til Home Assistant på port `4196`;
 3. WebUI på port `8080`;
 4. lokal historik og systemdiagnostik;
 5. login og en separat allowlistet admin-helper;
-6. valgfri DS18B20/OneWire-service.
+6. valgfri DS18B20/OneWire-service;
+7. controller-API til Home Assistant med dynamiske Smart Auto-rum.
 
 WebUI-gatewayen åbner serieporten én gang. Home Assistant forbinder via TCP og må ikke åbne samme USB-adapter direkte.
 
@@ -17,11 +18,11 @@ WebUI-gatewayen åbner serieporten én gang. Home Assistant forbinder via TCP og
 - systemd og `apt`;
 - Python 3.11 eller nyere;
 - en Linux-understøttet USB-RS485-adapter;
-- Dantherm HCH5 MK1/HAC1 med en eksisterende controller/master på RS485-bussen.
+- Dantherm HCH5 MK1/HAC1. HCP4 kan forblive forbundet og har altid prioritet; Pi'en skriver kun, når HCP4 er stille og bussen er sund.
 
 ## Sikker RS485-tilslutning
 
-Sluk ventilation og adapter, før ledninger ændres. PassiveLink tilsluttes som en kort, parallel receive-only tap. Den eksisterende forbindelse mellem controller/HAC1 og HCH5 skal blive siddende.
+Sluk ventilation og adapter, før ledninger ændres. PassiveLink tilsluttes som en kort parallel gren. Den eksisterende forbindelse mellem controller/HAC1 og HCH5 skal blive siddende. Pi-controlleren starter i `UNKNOWN`, observerer bussen og sender ingen control-writes, før sikker arbitration har valgt Pi'en som master.
 
 | Eksisterende bus | Typisk adaptermærkning |
 | --- | --- |
@@ -68,13 +69,24 @@ curl -fsSL https://raw.githubusercontent.com/MRDonnii/dantherm-hch-passivelink-w
 
 Udelad `--enable-onewire`, hvis der ikke bruges DS18B20-følere. Portene kan ændres med `--gateway-port` og `--web-port`.
 
+### Beta 1.1.0
+
+Brug den eksplicitte betakanal; den henter aldrig seneste stable ved en fejl:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MRDonnii/dantherm-hch-passivelink-webui/test/hcp4-replacement-controller/install.sh \
+  | sudo bash -s -- \
+      --beta \
+      --device /dev/serial/by-id/usb-DIN_ADAPTER
+```
+
 Installationsscriptet:
 
 - installerer systempakker og en isoleret Python-venv;
 - opretter den uprivilegerede bruger `passivelink-webui`;
 - installerer og aktiverer systemd-services;
 - genererer et tilfældigt admin-token i root-beskyttede miljøfiler;
-- gemmer eksisterende konfiguration i `/var/backups/dantherm-webui-*`;
+- gemmer eksisterende konfiguration, login og controller-state i `/var/backups/dantherm-webui-*` og migrerer indstillinger uden reset;
 - starter gateway, WebUI og admin-helper.
 
 ## Første login
@@ -97,7 +109,7 @@ Første besøg kræver, at ejeren selv opretter brugernavn og adgangskode. Der f
 
 [Åbn repositoryet direkte i HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=MRDonnii&repository=dantherm-hch-passivelink&category=integration)
 
-Home Assistant-forbindelsen er read-only. WebUI’ens Pi-administration ændrer Linux-værten, ikke RS485-registerværdier.
+Den klassiske PassiveLink TCP-forbindelse er read-only. Controllerfunktionerne bruger separat HTTP API med bearer-token; kun Pi-controlleren oversætter intent til de allerede verificerede RS485-writes. Bypass er fortsat read-only i betaen.
 
 ## Kontrol efter installation
 

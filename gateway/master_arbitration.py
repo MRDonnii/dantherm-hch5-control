@@ -112,13 +112,16 @@ class MasterArbitrator:
                  detection_min_foreign_writes: int = 2,
                  release_timeout: float = 10.0,
                  startup_observation: float = 10.0,
-                 own_echo_ttl: float = 2.0,
+                 own_echo_ttl: float = 0.20,
                  foreign_echo_dedupe: float = 0.12):
         self.detection_window = max(0.5, float(detection_window))
         self.detection_min_foreign_writes = max(1, int(detection_min_foreign_writes))
         self.release_timeout = max(3.0, float(release_timeout))
         self.startup_observation = max(3.0, float(startup_observation))
-        self.own_echo_ttl = max(0.1, float(own_echo_ttl))
+        # An RTU echo for the verified writes arrives in a few tens of
+        # milliseconds.  Keeping this window transaction-local is critical:
+        # a later identical HCP4 write must not be mistaken for our echo.
+        self.own_echo_ttl = min(0.25, max(0.05, float(own_echo_ttl)))
         self.foreign_echo_dedupe = max(0.02, float(foreign_echo_dedupe))
         self.started_monotonic = time.monotonic()
         self.master = self.UNKNOWN
@@ -141,10 +144,13 @@ class MasterArbitrator:
             ("detection_window", "detection_window_seconds", 0.5),
             ("release_timeout", "release_timeout_seconds", 3.0),
             ("startup_observation", "startup_observation_seconds", 3.0),
-            ("own_echo_ttl", "own_echo_ttl_seconds", 0.1),
         ):
             if key in cfg:
                 setattr(self, attr, max(minimum, float(cfg[key])))
+        if "own_echo_ttl_seconds" in cfg:
+            self.own_echo_ttl = min(
+                0.25, max(0.05, float(cfg["own_echo_ttl_seconds"]))
+            )
         if "detection_min_foreign_writes" in cfg:
             self.detection_min_foreign_writes = max(1, int(cfg["detection_min_foreign_writes"]))
 
@@ -211,20 +217,10 @@ class MasterArbitrator:
                 self._transition(self.HCP4, "foreign_write_activity", now)
         return "foreign"
 
-    def evaluate(
-        self, *, bus_healthy: bool, now: float | None = None,
-        controller_enabled: bool | None = None,
-    ) -> bool:
-        """Choose the only safe active master.
-
-        ``controller_enabled`` is retained for older callers and tests. The
-        automatic runtime omits it, so normal Pi master arbitration cannot be
-        disabled from the WebUI.
-        """
+    def evaluate(self, *, bus_healthy: bool, now: float | None = None) -> bool:
+        """Choose the only safe active master."""
         now = time.monotonic() if now is None else float(now)
         self._purge(now)
-        if controller_enabled is False:
-            return self._transition(self.UNKNOWN, "controller_explicitly_disabled", now)
         if not bus_healthy:
             return self._transition(self.UNKNOWN, "bus_unhealthy", now)
         foreign_age = None if self.last_foreign_write is None else now - self.last_foreign_write
@@ -241,9 +237,7 @@ class MasterArbitrator:
         self.reason = "pi_master_bus_healthy"
         return False
 
-    def writes_allowed(self, controller_enabled: bool | None = None) -> bool:
-        if controller_enabled is False:
-            return False
+    def writes_allowed(self) -> bool:
         return self.master == self.PI
 
     def bus_age(self, now: float | None = None):
