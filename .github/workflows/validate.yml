@@ -1,7 +1,7 @@
 name: Validate
 on:
   push:
-    branches: [main]
+    branches: [main, "beta/**"]
   pull_request:
   workflow_dispatch:
 permissions: {}
@@ -14,10 +14,11 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install pytest pyserial==3.5 paho-mqtt PyYAML
-      - run: bash -n install.sh uninstall.sh
+      - run: bash -n install.sh install-hch5-control.sh update.sh uninstall.sh
       - run: python -m py_compile gateway/*.py
       - run: pytest -q
       - run: node --check gateway/webui/dashboard.js
       - run: node --check gateway/webui/auth.js
       - run: node --check gateway/webui/controller.js
       - run: node --check gateway/webui/master_status.js
+      - run: node --check gateway/webui/smartcontrol.js
