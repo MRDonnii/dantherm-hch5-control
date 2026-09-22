@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0-beta.11
+
+- Slows the Overview air-flow and fan animations to a calm, subtle pace with less glow; direction stays clear, RPM still scales it moderately.
+- Fixes afterheat setpoint writes (`unexpected afterheat source block`) by retrying the read/identity check instead of failing on the first transient bus mismatch; identity safety check unchanged.
+- Splits bypass UI into requested (Auto/On) and actual (Lukket/Åben/Bevæger sig) state using reg68 request vs. the fn4 damper-position readback, and disables the buttons while the actuator is moving.
+
 ## 1.1.0-beta.1
 
 - Makes the Pi an always-on controller candidate while HCP4 retains absolute priority.

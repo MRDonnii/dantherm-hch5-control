@@ -97,11 +97,11 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .hch-port-extract path,.hch-port-exhaust path { stroke: #ff8e46; }
 .hch-port-outdoor path { stroke: #4fbaff; }
 .hch-port-extract path { stroke: #ff6f6f; }
-.hch-airflow { fill: none; stroke-width: 7; stroke-linecap: round; stroke-dasharray: 2 16; filter: url(#airGlow); animation: pro-airflow var(--flow-speed) linear infinite; }
+.hch-airflow { fill: none; stroke-width: 6; stroke-linecap: round; stroke-dasharray: 3 22; opacity: .75; animation: pro-airflow var(--flow-speed) linear infinite; }
 .hch-supply-flow { stroke: url(#supplyFlow); }
 .hch-extract-flow { stroke: url(#extractFlow); }
-.hch-airflow[style*="0s"] { animation: none; opacity: .28; }
-@keyframes pro-airflow { to { stroke-dashoffset: -144; } }
+.hch-airflow[style*="0s"] { animation: none; opacity: .22; }
+@keyframes pro-airflow { to { stroke-dashoffset: -50; } }
 .hch-temp-badge rect { fill: #0a1822; stroke: #274557; }
 .hch-temp-title { fill: #91a7b5; font-size: 10px; font-weight: 700; }
 .hch-temp-value { fill: #f2f8fb; font-size: 18px; font-weight: 850; }

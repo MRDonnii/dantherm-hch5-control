@@ -1481,13 +1481,25 @@ class Gateway:
         """Reuse the observed HAC1 FC16 185..189 block, changing only word 186."""
         if not 18 <= value <= 30:
             raise ValueError("afterheat setpoint must be 18..30 C")
-        current = self.read_register_block(ser, 0x40, 185, 5)
-        if current is None or len(current) != 5:
-            raise RuntimeError("afterheat source block unavailable")
-        # Captures and parser tests verify word 185=1, word 186=C*256 and
-        # word 187=15. Preserve every other live HAC1 word exactly.
-        if current[0] != 1 or current[2] != 15:
-            raise RuntimeError(f"unexpected afterheat source block: {current}")
+        # A single active read can race a live HAC1 update on the bus and
+        # return a transient/partial block right after the gateway becomes
+        # master. Retry the read+identity check before giving up instead of
+        # failing on the first mismatch (no change to the identity check
+        # itself: word 185=1 and word 187=15 must still hold).
+        current = None
+        for _attempt in range(3):
+            candidate = self.read_register_block(ser, 0x40, 185, 5)
+            if candidate is not None and len(candidate) == 5 and candidate[0] == 1 and candidate[2] == 15:
+                current = candidate
+                break
+            time.sleep(0.05)
+        if current is None:
+            candidate = self.read_register_block(ser, 0x40, 185, 5)
+            if candidate is None or len(candidate) != 5:
+                raise RuntimeError("afterheat source block unavailable")
+            # Captures and parser tests verify word 185=1, word 186=C*256 and
+            # word 187=15. Preserve every other live HAC1 word exactly.
+            raise RuntimeError(f"unexpected afterheat source block: {candidate}")
         if current[1] == value * 256:
             self.publish("afterheat_setpoint", value)
             return value

@@ -142,6 +142,9 @@ export function OverviewPage() {
   const co2 = first(unit, "co2");
   const filterLife = first(unit, "filter_life_percent");
   const bypassActual = unit.bypass_active === true || controller.actual_bypass === true;
+  const bypassRaw = number(controller.actual_bypass_raw) ?? number(unit.bypass_raw);
+  const bypassMoving = bypassRaw !== null && bypassRaw !== 0 && bypassRaw !== 255;
+  const bypassActualLabel = bypassMoving ? "bevæger sig" : bypassActual ? "åben" : "lukket";
   const bypassRequest = String(controller.actual_bypass_request ?? unit.bypass_request ?? controller.bypass ?? "off");
   const heating = controller.actual_afterheat === true || unit.afterheat_active === true;
   const fireplace = controller.actual_fireplace === true || unit.fireplace === true;
@@ -218,10 +221,10 @@ export function OverviewPage() {
             <article className="surface mini-control">
               <div className="mini-control-title"><ArrowRight size={20}/><strong>Bypass-styring</strong></div>
               <div className="mini-buttons two">
-                <button className={String(controller.bypass ?? "off") === "off" ? "active" : ""} disabled={busy !== null} onClick={() => void command("bypass-auto", { bypass: "off" }, "Bypass sat til Auto.")}>Auto</button>
-                <button className={String(controller.bypass) === "on" ? "active" : ""} disabled={busy !== null || fireplace} onClick={() => void command("bypass-on", { bypass: "on" }, "Bypass ønskes åben.")}>On</button>
+                <button className={String(controller.bypass ?? "off") === "off" ? "active" : ""} disabled={busy !== null || bypassMoving} onClick={() => void command("bypass-auto", { bypass: "off" }, "Bypass sat til Auto.")}>Auto</button>
+                <button className={String(controller.bypass) === "on" ? "active" : ""} disabled={busy !== null || fireplace || bypassMoving} onClick={() => void command("bypass-on", { bypass: "on" }, "Bypass ønskes åben.")}>On</button>
               </div>
-              <small className="control-footnote">Faktisk: {bypassActual ? "åben" : "lukket"}</small>
+              <small className="control-footnote">Faktisk: {bypassActualLabel}</small>
             </article>
           </div>
 

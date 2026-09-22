@@ -37,7 +37,7 @@ const BYPASS_SUPPLY = "M76 182 H267 C310 182 337 201 337 239 V333 C337 373 366 4
 const BYPASS_EXTRACT = "M1018 182 H816 C774 182 746 202 746 240 V318 C746 353 718 374 678 374 H407 C362 374 333 386 303 400 H76";
 
 function Fan({ x, y, rpm, label }: { x: number; y: number; rpm: Num; label: string }) {
-  const speed = rpm && rpm > 0 ? Math.max(.7, 3.1 - rpm / 760) : 0;
+  const speed = rpm && rpm > 0 ? Math.max(3.2, 4.6 - rpm / 2200) : 0;
   return (
     <g className={`hch-fan${speed ? " running" : " stopped"}`} transform={`translate(${x} ${y})`}>
       <circle className="hch-fan-ring" r="42" />
@@ -95,8 +95,8 @@ export function Hch5UnitDiagram(props: Hch5UnitDiagramProps) {
   } = props;
   const supplyPath = bypassActual ? BYPASS_SUPPLY : NORMAL_SUPPLY;
   const extractPath = bypassActual ? BYPASS_EXTRACT : NORMAL_EXTRACT;
-  const supplySpeed = supplyRpm && supplyRpm > 0 ? Math.max(.75, 3.2 - supplyRpm / 760) : 0;
-  const extractSpeed = extractRpm && extractRpm > 0 ? Math.max(.75, 3.2 - extractRpm / 760) : 0;
+  const supplySpeed = supplyRpm && supplyRpm > 0 ? Math.max(5, 7.5 - supplyRpm / 1400) : 0;
+  const extractSpeed = extractRpm && extractRpm > 0 ? Math.max(5, 7.5 - extractRpm / 1400) : 0;
 
   return (
     <div className={`hch5-visual${bypassActual ? " is-bypass" : " is-recovery"}`}>
@@ -116,7 +116,7 @@ export function Hch5UnitDiagram(props: Hch5UnitDiagramProps) {
           </linearGradient>
           <linearGradient id="supplyFlow" x1="0" x2="1"><stop offset="0" stopColor="#46bfff"/><stop offset=".55" stopColor="#69d6bd"/><stop offset="1" stopColor="#55e39b"/></linearGradient>
           <linearGradient id="extractFlow" x1="1" x2="0"><stop offset="0" stopColor="#ff6969"/><stop offset=".48" stopColor="#ffae55"/><stop offset="1" stopColor="#ff923f"/></linearGradient>
-          <filter id="airGlow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          <filter id="airGlow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="1.6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
           <filter id="unitShadow" x="-20%" y="-30%" width="150%" height="180%"><feDropShadow dx="0" dy="18" stdDeviation="18" floodColor="#000" floodOpacity=".42"/></filter>
           <pattern id="filterMesh" width="8" height="8" patternUnits="userSpaceOnUse"><path d="M0 8 L8 0 M-2 2 L2 -2 M6 10 L10 6" stroke="#9db0ba" strokeWidth="1" opacity=".55"/></pattern>
           <marker id="arrowSupply" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0 0 L8 3 L0 6Z" fill="#5fe0a0"/></marker>

@@ -405,6 +405,7 @@ class ControllerRuntime:
             "actual_fan_extract_rpm": self._first(self.gateway_state, "fan_extract_rpm", "extract_fan_rpm"),
             "actual_fan_supply_rpm": self._first(self.gateway_state, "fan_supply_rpm", "supply_fan_rpm"),
             "actual_bypass": self._first(self.gateway_state, "bypass_active"),
+            "actual_bypass_raw": self._first(self.gateway_state, "bypass_raw"),
             "actual_bypass_request": self._first(self.gateway_state, "bypass_request"),
             "actual_bypass_request_raw": self._first(self.gateway_state, "bypass_request_raw"),
             "actual_fireplace": self._first(self.gateway_state, "fireplace"),
