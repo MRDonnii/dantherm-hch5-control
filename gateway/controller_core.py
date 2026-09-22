@@ -151,7 +151,8 @@ class ControllerState:
         if self.data["mode"] not in VALID_MODES:
             self.data["mode"] = "local_auto"
         for key, default in (("manual_level", 3), ("local_normal_level", 3),
-                             ("local_min_level", 1), ("local_max_level", 6)):
+                             ("local_min_level", 1), ("local_max_level", 6),
+                             ("ha_requested_level", 3)):
             try:
                 value = int(self.data[key])
             except (TypeError, ValueError):
@@ -162,6 +163,10 @@ class ControllerState:
         self.data["local_normal_level"] = min(
             self.data["local_max_level"],
             max(self.data["local_min_level"], self.data["local_normal_level"]),
+        )
+        self.data["ha_requested_level"] = min(
+            self.data["local_max_level"],
+            max(self.data["local_min_level"], self.data["ha_requested_level"]),
         )
         if self.data["bypass"] not in VALID_BYPASS:
             self.data["bypass"] = "auto"
@@ -193,6 +198,7 @@ class ControllerState:
             )
         except (TypeError, ValueError):
             self.data["ha_valid_for_seconds"] = 180
+        self.data["ha_reason"] = str(self.data.get("ha_reason") or "No Home Assistant room data")[:160]
         sp = self.data.get("afterheat_setpoint")
         try:
             sp = int(sp) if sp is not None else 20

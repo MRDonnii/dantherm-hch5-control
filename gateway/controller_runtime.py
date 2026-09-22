@@ -9,6 +9,7 @@ and all persistent configuration remain on the Pi.
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from collections import defaultdict, deque
@@ -121,13 +122,29 @@ class ControllerRuntime:
             return None
         return number if low <= number <= high else None
 
-    def _rooms_with_unit_sensors(self) -> dict[str, dict[str, object]]:
-        """Combine HA rooms with the unit's own local indoor sensors.
+    @staticmethod
+    def _bool(value, default: bool = True) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return default
+        return str(value).strip().lower() not in {"0", "false", "off", "no"}
 
-        The HCH/HAC1 CO2 sensor remains part of Smart Auto even when HA sends
-        extra room sensors, so a good bedroom reading can never mask poor air
-        quality at the unit sensor (or vice versa).
-        """
+    def _smart_inputs_fresh(self, now: float | None = None) -> bool:
+        if self.smart_inputs_received_at is None:
+            return False
+        now = time.time() if now is None else now
+        return now - self.smart_inputs_received_at <= self.smart_inputs_valid_for
+
+    def _expire_smart_lease(self, now: float | None = None) -> None:
+        """Force Local Auto fallback as soon as the HA room lease expires."""
+        if self.config.data.get("mode") != "smart_auto" or self._smart_inputs_fresh(now):
+            return
+        with self.config.lock:
+            self.config.data["ha_last_seen"] = None
+
+    def _rooms_with_unit_sensors(self) -> dict[str, dict[str, object]]:
+        """Combine HA rooms with the unit's own local indoor sensors."""
         combined = {name: dict(values) for name, values in self.smart_rooms.items()}
         local: dict[str, object] = {
             "enabled": True,
@@ -170,7 +187,7 @@ class ControllerRuntime:
         return number
 
     def room_inputs(self, payload: dict[str, object]) -> dict[str, object]:
-        """Accept leased room measurements from HA and derive semantic demand."""
+        """Accept leased room measurements and metadata from Home Assistant."""
         rooms = payload.get("rooms")
         if not isinstance(rooms, dict):
             raise ControllerError("rooms skal være et objekt")
@@ -320,7 +337,7 @@ class ControllerRuntime:
     def _smart_input_snapshot(self) -> dict[str, object]:
         now = time.time()
         age = None if self.smart_inputs_received_at is None else max(0.0, now - self.smart_inputs_received_at)
-        fresh = age is not None and age <= self.smart_inputs_valid_for
+        fresh = self._smart_inputs_fresh(now)
         rooms = self._rooms_with_unit_sensors()
         max_co2 = max(
             ((v.get("co2"), n) for n, v in rooms.items()
@@ -352,6 +369,7 @@ class ControllerRuntime:
 
     def snapshot(self) -> dict[str, object]:
         self.refresh_measurements()
+        self._expire_smart_lease()
         self._evaluate_master()
         result = self.engine.resolve()
         result["enabled"] = True  # compatibility only; not configurable
@@ -398,6 +416,8 @@ class ControllerRuntime:
         return self.snapshot()
 
     def heartbeat(self, demand: str = "normal") -> dict[str, object]:
+        # Kept for backwards compatibility with old HA beta clients. New HA
+        # sends raw room observations through /api/controller/inputs.
         self.config.heartbeat(demand)
         self._evaluate_master()
         if self.config.data["mode"] == "smart_auto" and self.hardware_writes_allowed():
@@ -407,6 +427,9 @@ class ControllerRuntime:
     def apply_once(self) -> dict[str, object]:
         with self.apply_lock:
             self.refresh_measurements()
+            self._expire_smart_lease()
+            if self.config.data.get("mode") == "smart_auto" and self._smart_inputs_fresh():
+                self._recalculate_smart_demand()
             self._evaluate_master()
             if not self.master.writes_allowed():
                 self.engine.resolve()
@@ -418,6 +441,9 @@ class ControllerRuntime:
 
     def tick(self) -> None:
         self.refresh_measurements()
+        self._expire_smart_lease()
+        if self.config.data.get("mode") == "smart_auto" and self._smart_inputs_fresh():
+            self._recalculate_smart_demand()
         self._evaluate_master()
         if not self.master.writes_allowed():
             self.engine.resolve()
