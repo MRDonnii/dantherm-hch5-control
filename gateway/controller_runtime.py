@@ -135,6 +135,19 @@ class ControllerRuntime:
             return default
         return str(value).strip().lower() not in {"0", "false", "off", "no"}
 
+    def _smart_inputs_fresh(self, now: float | None = None) -> bool:
+        if self.smart_inputs_received_at is None:
+            return False
+        now = time.time() if now is None else now
+        return now - self.smart_inputs_received_at <= self.smart_inputs_valid_for
+
+    def _expire_smart_lease(self, now: float | None = None) -> None:
+        """Force Local Auto fallback as soon as the HA room lease expires."""
+        if self.config.data.get("mode") != "smart_auto" or self._smart_inputs_fresh(now):
+            return
+        with self.config.lock:
+            self.config.data["ha_last_seen"] = None
+
     def _rooms_with_unit_sensors(self) -> dict[str, dict[str, object]]:
         """Combine HA rooms with the unit's own local indoor sensors."""
         combined = {name: dict(values) for name, values in self.smart_rooms.items()}
@@ -382,7 +395,7 @@ class ControllerRuntime:
     def _smart_input_snapshot(self) -> dict[str, object]:
         now = time.time()
         age = None if self.smart_inputs_received_at is None else max(0.0, now - self.smart_inputs_received_at)
-        fresh = age is not None and age <= self.smart_inputs_valid_for
+        fresh = self._smart_inputs_fresh(now)
         rooms = self._rooms_with_unit_sensors()
         max_co2 = max(
             ((v.get("co2"), n) for n, v in rooms.items() if isinstance(v.get("co2"), (int, float))),
@@ -413,6 +426,7 @@ class ControllerRuntime:
 
     def snapshot(self) -> dict[str, object]:
         self.refresh_measurements()
+        self._expire_smart_lease()
         self._evaluate_master()
         result = self.engine.resolve()
         result["enabled"] = True  # compatibility only; not configurable
@@ -467,10 +481,9 @@ class ControllerRuntime:
     def apply_once(self) -> dict[str, object]:
         with self.apply_lock:
             self.refresh_measurements()
-            if self.config.data.get("mode") == "smart_auto":
-                age = None if self.smart_inputs_received_at is None else time.time() - self.smart_inputs_received_at
-                if age is not None and age <= self.smart_inputs_valid_for:
-                    self._recalculate_smart_demand()
+            self._expire_smart_lease()
+            if self.config.data.get("mode") == "smart_auto" and self._smart_inputs_fresh():
+                self._recalculate_smart_demand()
             self._evaluate_master()
             if not self.master.writes_allowed():
                 self.engine.resolve()
@@ -482,10 +495,9 @@ class ControllerRuntime:
 
     def tick(self) -> None:
         self.refresh_measurements()
-        if self.config.data.get("mode") == "smart_auto":
-            age = None if self.smart_inputs_received_at is None else time.time() - self.smart_inputs_received_at
-            if age is not None and age <= self.smart_inputs_valid_for:
-                self._recalculate_smart_demand()
+        self._expire_smart_lease()
+        if self.config.data.get("mode") == "smart_auto" and self._smart_inputs_fresh():
+            self._recalculate_smart_demand()
         self._evaluate_master()
         if not self.master.writes_allowed():
             self.engine.resolve()
