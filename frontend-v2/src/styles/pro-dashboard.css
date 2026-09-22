@@ -91,7 +91,7 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .water-port { fill: #72bde9; }
 .hch-service-box { fill: #0a1820; stroke: #3c5665; }
 .service-lines { fill: none; stroke: #5a7381; stroke-width: 2; }
-.hch-port rect { fill: #142a35; stroke: #6b8595; stroke-width: 2; }
+.hch-port rect { fill: url(#metalEdge); stroke: #8ba0ac; stroke-width: 2.5; filter: drop-shadow(0 5px 5px rgb(0 0 0 / 32%)); }
 .hch-port path { fill: none; stroke-width: 9; stroke-linecap: round; filter: url(#airGlow); }
 .hch-port-outdoor path,.hch-port-supply path { stroke: #5fe0a0; }
 .hch-port-extract path,.hch-port-exhaust path { stroke: #ff8e46; }
@@ -105,15 +105,15 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
    partway along it, matching the density of the previous densest spots. */
 .hch-fog-group { mix-blend-mode: screen; }
 .hch-fog { fill: none; stroke-linecap: round; }
-.hch-fog-a { stroke-width: 46; opacity: .34; }
-.hch-fog-b { stroke-width: 30; opacity: .24; }
+.hch-fog-a { stroke-width: 38; opacity: .27; }
+.hch-fog-b { stroke-width: 24; opacity: .18; }
 .hch-fog-supply { stroke: url(#supplyFlow); }
 .hch-fog-extract { stroke: url(#extractFlow); }
-.hch-fog-wash { fill: none; stroke-linecap: round; stroke-width: 92; opacity: .17; }
+.hch-fog-wash { fill: none; stroke-linecap: round; stroke-width: 72; opacity: .11; }
 .hch-fog[style*="0s"], .hch-fog-a[style*="0s"] { opacity: .1; }
 .hch-fog-wash[style*="0s"] { opacity: .05; }
 
-.hch-airflow-guide { fill: none; stroke-width: 2; stroke-linecap: round; stroke-dasharray: 1 26; opacity: .55; animation: pro-airflow var(--flow-speed) linear infinite; }
+.hch-airflow-guide { fill: none; stroke-width: 2; stroke-linecap: round; stroke-dasharray: 1 30; opacity: .48; animation: pro-airflow var(--flow-speed) linear infinite; }
 .hch-airflow-guide[style*="0s"] { animation: none; opacity: .16; }
 @keyframes pro-airflow { to { stroke-dashoffset: -54; } }
 .hch-temp-badge rect { fill: #0a1822; stroke: #274557; }
@@ -230,6 +230,7 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
   .dashboard-bottom-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 980px) {
+  .app-shell,body[data-sidebar="collapsed"] .app-shell { grid-template-columns: minmax(0,1fr); }
   .overview-heading-row { align-items: flex-start; flex-direction: column; }
   .overview-status-pills { width: 100%; }
   .overview-status-pills > div { flex: 1; min-width: 0; }

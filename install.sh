@@ -41,10 +41,13 @@ if [[ ! -f ${source_dir}/gateway/dantherm_controller_gateway.py ]]; then
   temp_dir=$(mktemp -d)
   trap '[[ -n ${temp_dir} ]] && rm -rf -- "${temp_dir}"' EXIT
   if [[ -n ${source_ref} ]]; then
-    tarball_url="https://api.github.com/repos/MRDonnii/dantherm-hch-passivelink-webui/tarball/${source_ref}"
+    encoded_ref=${source_ref//\//%2F}
+    tarball_url="https://codeload.github.com/MRDonnii/dantherm-hch-passivelink-webui/tar.gz/${encoded_ref}"
   else
-    tarball_url=$(curl -fsSL https://api.github.com/repos/MRDonnii/dantherm-hch-passivelink-webui/releases/latest \
-      | python3 -c 'import json,sys; print(json.load(sys.stdin)["tarball_url"])')
+    latest_url=$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/MRDonnii/dantherm-hch-passivelink-webui/releases/latest)
+    latest_tag=${latest_url##*/}
+    [[ -n ${latest_tag} && ${latest_tag} != latest ]] || { echo "Could not resolve latest release tag." >&2; exit 1; }
+    tarball_url="https://codeload.github.com/MRDonnii/dantherm-hch-passivelink-webui/tar.gz/${latest_tag}"
   fi
   curl -fsSL "${tarball_url}" | tar -xz -C "${temp_dir}" --strip-components=1
   source_dir=${temp_dir}

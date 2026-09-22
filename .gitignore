@@ -1,5 +1,7 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+node_modules/
+*.tsbuildinfo
 *.sqlite3
 webui-auth.json

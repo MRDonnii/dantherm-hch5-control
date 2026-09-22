@@ -34,10 +34,11 @@ function int(value: Num) {
 // Both normal-mode paths are anchored through the exchanger's exact
 // rotation center (550 295) so they cross it as a clean X, matching the
 // physical cross-flow through the heat exchanger.
-const NORMAL_SUPPLY = "M76 182 H260 C305 182 332 196 360 222 L550 295 L740 368 C768 379 795 391 838 400 H1018";
-const NORMAL_EXTRACT = "M1018 182 H840 C795 182 768 196 740 222 L550 295 L360 368 C332 379 305 391 262 400 H76";
-const BYPASS_SUPPLY = "M76 182 H267 C310 182 337 201 337 239 V333 C337 373 366 400 410 400 H1018";
-const BYPASS_EXTRACT = "M1018 182 H816 C774 182 746 202 746 240 V318 C746 353 718 374 678 374 H407 C362 374 333 386 303 400 H76";
+const NORMAL_SUPPLY = "M-38 182 H326 Q347 182 365 200 L550 295 L735 390 Q750 400 775 400 H1138";
+const NORMAL_EXTRACT = "M1138 182 H774 Q753 182 735 200 L550 295 L365 390 Q350 400 325 400 H-38";
+// Only the supply air changes route in bypass mode. Extract air continues
+// through the exchanger exactly as it does in heat-recovery mode.
+const BYPASS_SUPPLY = "M-38 182 H326 Q360 182 360 148 V126 Q360 105 382 105 H718 Q740 105 740 127 V365 Q740 400 775 400 H1138";
 
 function Fan({ x, y, rpm, label }: { x: number; y: number; rpm: Num; label: string }) {
   const speed = rpm && rpm > 0 ? Math.max(3.2, 4.6 - rpm / 2200) : 0;
@@ -97,13 +98,13 @@ export function Hch5UnitDiagram(props: Hch5UnitDiagramProps) {
     supplyRpm, extractRpm, supplyPercent, extractPercent, bypassActual, bypassRequest, heating, recovery,
   } = props;
   const supplyPath = bypassActual ? BYPASS_SUPPLY : NORMAL_SUPPLY;
-  const extractPath = bypassActual ? BYPASS_EXTRACT : NORMAL_EXTRACT;
+  const extractPath = NORMAL_EXTRACT;
   const supplySpeed = supplyRpm && supplyRpm > 0 ? Math.max(5, 7.5 - supplyRpm / 1400) : 0;
   const extractSpeed = extractRpm && extractRpm > 0 ? Math.max(5, 7.5 - extractRpm / 1400) : 0;
 
   return (
     <div className={`hch5-visual${bypassActual ? " is-bypass" : " is-recovery"}`}>
-      <svg viewBox="0 0 1100 560" role="img" aria-label="Detaljeret HCH5 luftstrøm med varmeveksler, filtre, bypass og eftervarme">
+      <svg viewBox="-55 -12 1210 584" role="img" aria-label="Detaljeret HCH5 luftstrøm med varmeveksler, filtre, bypass og eftervarme">
         <defs>
           <linearGradient id="metalFace" x1="0" x2="1" y1="0" y2="1">
             <stop offset="0" stopColor="#52636e" /><stop offset=".38" stopColor="#263741" /><stop offset="1" stopColor="#14232d" />
@@ -128,11 +129,11 @@ export function Hch5UnitDiagram(props: Hch5UnitDiagramProps) {
           <marker id="arrowExtract" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0 0 L8 3 L0 6Z" fill="#ff8e46"/></marker>
           <linearGradient id="fogFadeGradient" x1="0" x2="1" y1="0" y2="0">
             <stop offset="0" stopColor="#fff" stopOpacity="0" />
-            <stop offset=".09" stopColor="#fff" stopOpacity="1" />
-            <stop offset=".91" stopColor="#fff" stopOpacity="1" />
+            <stop offset=".045" stopColor="#fff" stopOpacity="1" />
+            <stop offset=".955" stopColor="#fff" stopOpacity="1" />
             <stop offset="1" stopColor="#fff" stopOpacity="0" />
           </linearGradient>
-          <mask id="fogFadeMask"><rect x="0" y="0" width="1100" height="560" fill="url(#fogFadeGradient)" /></mask>
+          <mask id="fogFadeMask"><rect x="-55" y="-12" width="1210" height="584" fill="url(#fogFadeGradient)" /></mask>
         </defs>
 
         <ellipse className="hch-floor-shadow" cx="550" cy="487" rx="365" ry="35" />

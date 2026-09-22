@@ -1,6 +1,6 @@
 .overview-live .warn-text{color:var(--orange)}
 .airflow-card-live{min-height:660px}
-.airflow-stage-live{height:505px;margin-top:4px;overflow:hidden}
+.airflow-stage-live{height:505px;margin-top:4px;overflow:visible}
 .airflow-stage-live svg{max-width:1160px;margin:auto}
 .airflow-stage-live .live-shell{fill:color-mix(in srgb,var(--surface-soft) 94%,var(--blue) 6%);stroke:color-mix(in srgb,var(--border-strong) 78%,var(--blue) 22%)}
 .airflow-stage-live .duct-bg{stroke-width:30;stroke:color-mix(in srgb,var(--surface-strong) 78%,var(--border-strong));filter:drop-shadow(0 5px 11px rgb(0 0 0 / 13%))}
@@ -49,5 +49,5 @@ button:disabled{opacity:.42!important;cursor:not-allowed!important;transform:non
 .overview-metrics-live{grid-template-columns:repeat(4,minmax(0,1fr))}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 @media(max-width:1180px){.airflow-card-live{min-height:0}.overview-metrics-live{grid-template-columns:repeat(4,minmax(0,1fr))}}
-@media(max-width:920px){.airflow-stage-live{height:430px;overflow-x:auto;overflow-y:hidden}.airflow-stage-live svg{min-width:920px}.overview-metrics-live{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:920px){.airflow-stage-live{height:430px;overflow-x:auto;overflow-y:visible}.airflow-stage-live svg{min-width:920px}.overview-metrics-live{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:680px){.airflow-stage-live{height:350px;margin-inline:-8px}.airflow-stage-live svg{min-width:820px;transform:none!important}.inline-bypass-control{align-items:flex-start;flex-direction:column}.mini-segmented{width:100%}.mini-segmented button{flex:1}.overview-metrics-live{grid-template-columns:1fr 1fr}.quick-card-live{grid-template-columns:36px 1fr auto}}

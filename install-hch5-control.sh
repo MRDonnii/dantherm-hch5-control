@@ -7,11 +7,10 @@ command -v tar >/dev/null || { echo "tar is required." >&2; exit 1; }
 ref="beta/1.1-modern-controller"
 tmp=$(mktemp -d)
 trap 'rm -rf -- "$tmp"' EXIT
-curl -fsSL "https://api.github.com/repos/MRDonnii/dantherm-hch-passivelink-webui/tarball/${ref}" \
+curl -fsSL "https://codeload.github.com/MRDonnii/dantherm-hch-passivelink-webui/tar.gz/refs/heads/${ref}" \
   | tar -xz -C "$tmp" --strip-components=1
 
-build=$(curl -fsSL "https://api.github.com/repos/MRDonnii/dantherm-hch-passivelink-webui/branches/beta%2F1.1-modern-controller" \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)["commit"]["sha"])' 2>/dev/null || true)
+build=$(cat "$tmp/VERSION")
 
 if [[ -x /opt/dantherm-passivelink-webui/venv/bin/python \
       && -f /opt/dantherm-passivelink-webui/dantherm_controller_gateway.py \

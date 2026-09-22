@@ -13,6 +13,7 @@ import tempfile
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -67,16 +68,17 @@ def set_profile(profile):
     PROFILE_FILE.write_text(profile + "\n")
 
 
-def _request_json(url: str) -> dict:
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"})
-    with urllib.request.urlopen(request, timeout=15) as response:
-        return json.loads(response.read(1024 * 1024))
-
-
 def _request_text(url: str) -> str:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(request, timeout=15) as response:
         return response.read(128 * 1024).decode("utf-8", "replace").strip()
+
+
+def _final_url(url: str) -> str:
+    """Resolve a public GitHub redirect without consuming REST API quota."""
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(request, timeout=15) as response:
+        return response.geturl()
 
 
 def _read_text(path: Path, fallback: str = "unknown") -> str:
@@ -177,18 +179,19 @@ def update_info(channel: str | None = None) -> dict[str, object]:
         installed_build = current_build()
         available_build = None
         if channel == "stable":
-            release = _request_json(f"https://api.github.com/repos/{REPOSITORY}/releases/latest")
-            ref = str(release["tag_name"])
+            latest_url = _final_url(f"https://github.com/{REPOSITORY}/releases/latest")
+            ref = urllib.parse.unquote(urllib.parse.urlparse(latest_url).path.rsplit("/", 1)[-1])
+            if not ref or ref == "latest":
+                raise ValueError("latest_release_redirect_missing_tag")
             remote_version = ref.lstrip("v")
-            published = release.get("published_at")
+            published = None
             update_available = current != remote_version
         else:
             ref = BETA_REF
             remote_version = _request_text(f"https://raw.githubusercontent.com/{REPOSITORY}/{BETA_REF}/VERSION")
-            branch = _request_json(f"https://api.github.com/repos/{REPOSITORY}/branches/{BETA_REF}")
-            available_build = str(branch.get("commit", {}).get("sha") or "unknown")
-            published = branch.get("commit", {}).get("commit", {}).get("committer", {}).get("date")
-            update_available = current != remote_version or installed_build != available_build
+            available_build = remote_version
+            published = None
+            update_available = current != remote_version
     except (OSError, ValueError, KeyError, urllib.error.URLError, json.JSONDecodeError) as error:
         # A GitHub rate limit (HTTP 403) or transient network error should not
         # spam the UI with a failure on every poll. Fall back to the last
@@ -214,8 +217,8 @@ def update_info(channel: str | None = None) -> dict[str, object]:
 
 def _download_tarball(ref: str, destination: Path) -> None:
     request = urllib.request.Request(
-        f"https://api.github.com/repos/{REPOSITORY}/tarball/{ref}",
-        headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"},
+        f"https://codeload.github.com/{REPOSITORY}/tar.gz/{urllib.parse.quote(ref, safe='')}",
+        headers={"User-Agent": USER_AGENT},
     )
     with urllib.request.urlopen(request, timeout=45) as response, destination.open("wb") as handle:
         shutil.copyfileobj(response, handle, length=1024 * 1024)
@@ -432,11 +435,16 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
-if PROFILE_FILE.exists():
-    saved = PROFILE_FILE.read_text().strip()
-    if saved in PROFILES:
-        try:
-            set_profile(saved)
-        except OSError:
-            pass
-ThreadingHTTPServer((BIND, PORT), Handler).serve_forever()
+def main() -> None:
+    if PROFILE_FILE.exists():
+        saved = PROFILE_FILE.read_text().strip()
+        if saved in PROFILES:
+            try:
+                set_profile(saved)
+            except OSError:
+                pass
+    ThreadingHTTPServer((BIND, PORT), Handler).serve_forever()
+
+
+if __name__ == "__main__":
+    main()
