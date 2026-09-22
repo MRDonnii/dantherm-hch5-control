@@ -334,6 +334,21 @@ class ControllerRuntime:
         _level, demand, reason, _room, _metric = self._derive_smart_decision(now)
         return demand, reason
 
+    def _recalculate_smart_demand(self, now: float | None = None) -> None:
+        """Refresh a live Smart Auto lease from the latest room measurements."""
+        decision = self._derive_smart_decision(now)
+        self.smart_requested_level = decision[0]
+        self.smart_demand = decision[1]
+        self.smart_reason = decision[2]
+        self.smart_controlling_room = decision[3]
+        self.smart_controlling_metric = decision[4]
+        self.config.heartbeat(
+            self.smart_demand,
+            requested_level=self.smart_requested_level,
+            valid_for_s=self.smart_inputs_valid_for,
+            reason=self.smart_reason,
+        )
+
     def _smart_input_snapshot(self) -> dict[str, object]:
         now = time.time()
         age = None if self.smart_inputs_received_at is None else max(0.0, now - self.smart_inputs_received_at)
