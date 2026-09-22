@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -22,12 +23,14 @@ TOKEN = os.environ["DANTHERM_REBOOT_TOKEN"]
 BIND = os.getenv("DANTHERM_ADMIN_BIND", "127.0.0.1")
 PORT = int(os.getenv("DANTHERM_ADMIN_PORT", "4198"))
 PROFILE_FILE = Path("/var/lib/dantherm-admin/power-profile")
+UPDATE_CHANNEL_FILE = Path("/var/lib/dantherm-admin/update-channel")
+FILTER_STATE_FILE = Path("/var/lib/dantherm-hch5-ha/filter-state.json")
 APP_DIR = Path("/opt/dantherm-passivelink-webui")
 VERSION_FILE = APP_DIR / "VERSION"
 BUILD_FILE = APP_DIR / "BUILD"
 REPOSITORY = "MRDonnii/dantherm-hch-passivelink-webui"
 BETA_REF = "beta/1.1-modern-controller"
-USER_AGENT = "HCH5-Control-Updater/1.1"
+USER_AGENT = "HCH5-Control-Updater/1.2"
 PROFILES = {"powersave": "powersave", "balanced": "ondemand", "performance": "performance"}
 SERVICES = {
     "gateway": os.getenv("DANTHERM_GATEWAY_SERVICE", "dantherm-webui-gateway.service"),
@@ -38,6 +41,8 @@ REPORT_SERVICES = {**SERVICES, "admin": ADMIN_SERVICE}
 DIAGNOSTICS_LOCK = threading.Lock()
 UPDATE_LOCK = threading.Lock()
 UPDATE_STATE = {"running": False, "channel": None, "started_at": None, "last_error": None}
+FILTER_INTERVAL_MIN_DAYS = 90
+FILTER_INTERVAL_MAX_DAYS = 360
 
 
 def set_profile(profile):
@@ -67,6 +72,13 @@ def _read_text(path: Path, fallback: str = "unknown") -> str:
         return fallback
 
 
+def _atomic_write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(content, encoding="utf-8")
+    temporary.replace(path)
+
+
 def current_version() -> str:
     return _read_text(VERSION_FILE)
 
@@ -75,7 +87,65 @@ def current_build() -> str:
     return _read_text(BUILD_FILE)
 
 
-def update_info(channel: str) -> dict[str, object]:
+def current_update_channel() -> str:
+    value = _read_text(UPDATE_CHANNEL_FILE, "stable").lower()
+    return value if value in {"stable", "beta"} else "stable"
+
+
+def set_update_channel(channel: str) -> str:
+    if channel not in {"stable", "beta"}:
+        raise ValueError("invalid_channel")
+    _atomic_write_text(UPDATE_CHANNEL_FILE, channel + "\n")
+    return channel
+
+
+def _read_filter_state() -> dict[str, object]:
+    reset_epoch = time.time()
+    interval_days = FILTER_INTERVAL_MAX_DAYS
+    try:
+        saved = json.loads(FILTER_STATE_FILE.read_text(encoding="utf-8"))
+        reset_epoch = float(saved.get("reset_epoch", reset_epoch))
+        interval_days = int(saved.get("interval_days", interval_days))
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        pass
+    interval_days = max(FILTER_INTERVAL_MIN_DAYS, min(FILTER_INTERVAL_MAX_DAYS, interval_days))
+    elapsed = max(0.0, (time.time() - reset_epoch) / 86400.0)
+    remaining = max(0, math.ceil(interval_days - elapsed))
+    percent = max(0, min(100, round(remaining / interval_days * 100)))
+    return {
+        "reset_epoch": reset_epoch,
+        "interval_days": interval_days,
+        "days_remaining": remaining,
+        "life_percent": percent,
+    }
+
+
+def _write_filter_state(*, interval_days: int | None = None, reset_now: bool = False) -> dict[str, object]:
+    state = _read_filter_state()
+    if interval_days is not None:
+        interval_days = int(interval_days)
+        if not FILTER_INTERVAL_MIN_DAYS <= interval_days <= FILTER_INTERVAL_MAX_DAYS:
+            raise ValueError("invalid_filter_interval")
+        state["interval_days"] = interval_days
+    if reset_now:
+        state["reset_epoch"] = time.time()
+    payload = {
+        "reset_epoch": float(state["reset_epoch"]),
+        "interval_days": int(state["interval_days"]),
+    }
+    _atomic_write_text(FILTER_STATE_FILE, json.dumps(payload, separators=(",", ":")) + "\n")
+    return _read_filter_state()
+
+
+def _schedule_service_restart(service: str, delay: float = 0.7) -> None:
+    def restart():
+        time.sleep(delay)
+        subprocess.run(["systemctl", "restart", service], check=False)
+    threading.Thread(target=restart, daemon=True).start()
+
+
+def update_info(channel: str | None = None) -> dict[str, object]:
+    channel = channel or current_update_channel()
     if channel not in {"stable", "beta"}:
         raise ValueError("invalid_channel")
     current = current_version()
@@ -152,6 +222,7 @@ def _install_update(channel: str) -> None:
         UPDATE_STATE.update(running=True, channel=channel, started_at=time.time(), last_error=None)
     success = False
     try:
+        set_update_channel(channel)
         info = update_info(channel)
         ref = str(info["ref"])
         build = str(info.get("available_build") or ref)
@@ -216,6 +287,8 @@ class Handler(BaseHTTPRequestHandler):
                 "governor": governor,
                 "version": current_version(),
                 "build": current_build(),
+                "update_channel": current_update_channel(),
+                "filter": _read_filter_state(),
                 "update": dict(UPDATE_STATE),
             })
         self.reply(404, {"error": "not_found"})
@@ -241,18 +314,51 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, {"ok": True, "power_profile": target})
         if action == "restart_service" and target in SERVICES:
             self.reply(202, {"ok": True, "message": "service restart scheduled"})
-            threading.Thread(target=lambda: (time.sleep(.5), subprocess.run(["systemctl", "restart", SERVICES[target]], check=False)), daemon=True).start()
+            _schedule_service_restart(SERVICES[target], 0.5)
             return
-        if action == "check_update" and target in {"stable", "beta"}:
+        if action == "get_update_channel":
+            return self.reply(200, {"ok": True, "channel": current_update_channel()})
+        if action == "set_update_channel" and target in {"stable", "beta"}:
             try:
-                return self.reply(200, update_info(target))
+                channel = set_update_channel(str(target))
+            except OSError as error:
+                return self.reply(500, {"error": f"channel_save_failed: {error}"})
+            return self.reply(200, {"ok": True, "channel": channel})
+        if action == "get_filter_config":
+            return self.reply(200, {"ok": True, "enabled": True, **_read_filter_state()})
+        if action == "set_filter_interval":
+            try:
+                interval = int(target)
+                state = _write_filter_state(interval_days=interval)
+            except (TypeError, ValueError, OSError) as error:
+                return self.reply(400, {"error": f"filter_interval_failed: {error}"})
+            self.reply(200, {"ok": True, "enabled": True, **state})
+            _schedule_service_restart(SERVICES["gateway"])
+            return
+        if action == "reset_filter":
+            try:
+                state = _write_filter_state(reset_now=True)
+            except (ValueError, OSError) as error:
+                return self.reply(500, {"error": f"filter_reset_failed: {error}"})
+            self.reply(200, {"ok": True, "enabled": True, **state})
+            _schedule_service_restart(SERVICES["gateway"])
+            return
+        if action == "check_update":
+            channel = str(target) if target in {"stable", "beta"} else current_update_channel()
+            try:
+                return self.reply(200, update_info(channel))
             except (OSError, ValueError, KeyError, urllib.error.URLError, json.JSONDecodeError) as error:
                 return self.reply(503, {"error": f"update_check_failed: {error}"})
-        if action == "install_update" and target in {"stable", "beta"}:
+        if action == "install_update":
+            channel = str(target) if target in {"stable", "beta"} else current_update_channel()
             if UPDATE_STATE["running"]:
                 return self.reply(409, {"error": "update_already_running", "update": dict(UPDATE_STATE)})
-            self.reply(202, {"ok": True, "message": "update scheduled", "channel": target})
-            threading.Thread(target=_install_update, args=(target,), daemon=True).start()
+            try:
+                set_update_channel(channel)
+            except OSError as error:
+                return self.reply(500, {"error": f"channel_save_failed: {error}"})
+            self.reply(202, {"ok": True, "message": "update scheduled", "channel": channel})
+            threading.Thread(target=_install_update, args=(channel,), daemon=True).start()
             return
         command = {"reboot": ["systemctl", "reboot"], "shutdown": ["systemctl", "poweroff"]}.get(action)
         if command:
