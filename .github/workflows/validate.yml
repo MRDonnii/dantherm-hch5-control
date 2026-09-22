@@ -16,6 +16,7 @@ jobs:
       - run: pip install pytest pyserial==3.5 paho-mqtt PyYAML
       - run: bash -n install.sh install-hch5-control.sh update.sh uninstall.sh
       - run: python -m py_compile gateway/*.py
+      - run: PYTHONPATH=gateway python -c "import dantherm_controller_gateway, controller_runtime, controller_observability, controller_safety"
       - run: pytest -q
       - run: node --check gateway/webui/dashboard.js
       - run: node --check gateway/webui/auth.js
