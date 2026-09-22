@@ -95,6 +95,8 @@ class ControllerState:
         "downshift_delay_seconds": 300,
         "boost_hold_seconds": 600,
         "ha_demand": "normal",
+        "ha_target_level": 3,
+        "ha_reason": "HA demand: normal",
         "ha_last_seen": None,
         "ha_timeout_seconds": 300,
         "bypass": "auto",
@@ -143,7 +145,8 @@ class ControllerState:
         if self.data["mode"] not in VALID_MODES:
             self.data["mode"] = "local_auto"
         for key, default in (("manual_level", 3), ("local_normal_level", 3),
-                             ("local_min_level", 1), ("local_max_level", 6)):
+                             ("local_min_level", 1), ("local_max_level", 6),
+                             ("ha_target_level", 3)):
             try:
                 value = int(self.data[key])
             except (TypeError, ValueError):
@@ -154,6 +157,10 @@ class ControllerState:
         self.data["local_normal_level"] = min(
             self.data["local_max_level"],
             max(self.data["local_min_level"], self.data["local_normal_level"]),
+        )
+        self.data["ha_target_level"] = min(
+            self.data["local_max_level"],
+            max(self.data["local_min_level"], self.data["ha_target_level"]),
         )
         if self.data["bypass"] not in VALID_BYPASS:
             self.data["bypass"] = "auto"
@@ -172,6 +179,7 @@ class ControllerState:
                 self.data["fireplace_duration_minutes"] = 15
         if self.data["ha_demand"] not in VALID_DEMANDS:
             self.data["ha_demand"] = "normal"
+        self.data["ha_reason"] = str(self.data.get("ha_reason") or "HA demand: normal")[:160]
         sp = self.data.get("afterheat_setpoint")
         try:
             sp = int(sp) if sp is not None else 20
@@ -298,12 +306,18 @@ class ControllerState:
             self.save()
             return self.snapshot()
 
-    def heartbeat(self, demand: str = "normal") -> dict[str, object]:
+    def heartbeat(self, demand: str = "normal", target_level: int | None = None,
+                  reason: str | None = None) -> dict[str, object]:
         if demand not in VALID_DEMANDS:
             raise ControllerError("Ugyldigt HA-demand")
         with self.lock:
             self.data["ha_last_seen"] = time.time()
             self.data["ha_demand"] = demand
+            if target_level is not None:
+                self.data["ha_target_level"] = min(6, max(1, int(target_level)))
+            if reason:
+                self.data["ha_reason"] = str(reason)[:160]
+            self._sanitize()
             return self.snapshot()
 
     def _expire_fireplace(self, now: float | None = None) -> None:
@@ -422,9 +436,12 @@ class ControllerEngine:
             elif d["mode"] == "smart_auto":
                 seen = d.get("ha_last_seen")
                 if seen and now - float(seen) <= int(d["ha_timeout_seconds"]):
-                    mapping = {"low": 1, "normal": 3, "high": 5, "boost": 6}
-                    source, level = "ha_smart", mapping[d["ha_demand"]]
-                    reason = f"HA demand: {d['ha_demand']}"
+                    source = "ha_smart"
+                    level = min(
+                        int(d["local_max_level"]),
+                        max(int(d["local_min_level"]), int(d.get("ha_target_level", d["local_normal_level"]))),
+                    )
+                    reason = str(d.get("ha_reason") or f"HA demand: {d['ha_demand']}")
                 else:
                     level, reason = self._local_auto_level(now)
                     source = "local_fallback"
