@@ -41,6 +41,7 @@ class ModernAutomationTests(unittest.TestCase):
             "cooling_outdoor_min": 12,
             "cooling_min_delta": 2,
             "cooling_level": 4,
+            "cooling_start_delay_seconds": 0,
         })
         engine.update_measurements(room=25, outdoor=19, rh=40, co2=600)
         result = engine.resolve()
