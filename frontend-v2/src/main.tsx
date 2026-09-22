@@ -5,6 +5,7 @@ import { App } from "./App";
 import "./styles/tokens.css";
 import "./styles/app.css";
 import "./styles/pro-dashboard.css";
+import "./styles/pro-shell.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
