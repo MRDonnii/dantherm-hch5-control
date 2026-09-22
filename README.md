@@ -51,7 +51,9 @@ ls -l /dev/serial/by-id/
 Then install:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MRDonnii/dantherm-hch-passivelink-webui/beta-latest/install-hch5-control.sh \
+beta_tag=$(curl -fsSL https://github.com/MRDonnii/dantherm-hch-passivelink-webui/releases.atom \
+  | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+' | sort -V | tail -1)
+curl -fsSL "https://raw.githubusercontent.com/MRDonnii/dantherm-hch-passivelink-webui/${beta_tag}/install-hch5-control.sh" \
   | sudo bash -s -- \
       --device /dev/serial/by-id/usb-YOUR_ADAPTER \
       --enable-onewire

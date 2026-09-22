@@ -27,8 +27,9 @@ done
 
 if [[ ${beta} -eq 1 ]]; then
   [[ -z ${source_ref} ]] || { echo "Use either --beta or --ref, not both." >&2; exit 2; }
-  beta_version=$(curl -fsSL "https://raw.githubusercontent.com/MRDonnii/dantherm-hch-passivelink-webui/beta-latest/VERSION")
-  source_ref="v${beta_version}"
+  source_ref=$(curl -fsSL "https://github.com/MRDonnii/dantherm-hch-passivelink-webui/releases.atom" \
+    | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+' | sort -V | tail -1)
+  [[ -n ${source_ref} ]] || { echo "Could not resolve the current beta release." >&2; exit 1; }
 fi
 
 [[ ${EUID} -eq 0 ]] || { echo "Run as root with sudo." >&2; exit 1; }

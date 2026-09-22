@@ -30,20 +30,24 @@ class UpdaterTransportTests(unittest.TestCase):
         self.module._UPDATE_INFO_CACHE.clear()
         self.module._UPDATE_INFO_CACHE_AT.clear()
 
-    def test_beta_check_uses_raw_version_without_github_api(self):
+    def test_beta_check_uses_public_release_feed_without_github_api(self):
         with (
             mock.patch.object(self.module, "current_version", return_value="1.2.0-beta.17"),
             mock.patch.object(self.module, "current_build", return_value="old"),
-            mock.patch.object(self.module, "_request_text", return_value="1.2.0-beta.18") as request_text,
+            mock.patch.object(
+                self.module,
+                "_request_text",
+                return_value="<feed>v1.2.0-beta.17 v1.2.0-beta.20 v1.2.0-beta.19</feed>",
+            ) as request_text,
             mock.patch.object(self.module, "_final_url") as final_url,
         ):
             info = self.module.update_info("beta")
 
         self.assertTrue(info["update_available"])
-        self.assertEqual(info["available_build"], "1.2.0-beta.18")
-        self.assertIn("raw.githubusercontent.com", request_text.call_args.args[0])
-        self.assertIn("/beta-latest/VERSION", request_text.call_args.args[0])
-        self.assertEqual(info["ref"], "v1.2.0-beta.18")
+        self.assertEqual(info["available_build"], "1.2.0-beta.20")
+        self.assertIn("github.com", request_text.call_args.args[0])
+        self.assertIn("/releases.atom", request_text.call_args.args[0])
+        self.assertEqual(info["ref"], "v1.2.0-beta.20")
         final_url.assert_not_called()
 
     def test_stable_check_resolves_public_latest_redirect(self):

@@ -6,6 +6,7 @@ import hmac
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import tarfile
@@ -30,7 +31,7 @@ APP_DIR = Path("/opt/dantherm-passivelink-webui")
 VERSION_FILE = APP_DIR / "VERSION"
 BUILD_FILE = APP_DIR / "BUILD"
 REPOSITORY = "MRDonnii/dantherm-hch-passivelink-webui"
-BETA_REF = "beta-latest"
+BETA_FEED = f"https://github.com/{REPOSITORY}/releases.atom"
 USER_AGENT = "HCH5-Control-Updater/1.2"
 PROFILES = {"powersave": "powersave", "balanced": "ondemand", "performance": "performance"}
 SERVICES = {
@@ -79,6 +80,16 @@ def _final_url(url: str) -> str:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(request, timeout=15) as response:
         return response.geturl()
+
+
+def _latest_beta_tag() -> str:
+    """Read prerelease tags from GitHub's public Atom feed, without API quota."""
+    feed = _request_text(BETA_FEED)
+    tags = set(re.findall(r"v(\d+)\.(\d+)\.(\d+)-beta\.(\d+)", feed))
+    if not tags:
+        raise ValueError("beta_release_missing_from_feed")
+    version = max(tuple(int(part) for part in tag) for tag in tags)
+    return f"v{version[0]}.{version[1]}.{version[2]}-beta.{version[3]}"
 
 
 def _read_text(path: Path, fallback: str = "unknown") -> str:
@@ -187,8 +198,8 @@ def update_info(channel: str | None = None) -> dict[str, object]:
             published = None
             update_available = current != remote_version
         else:
-            remote_version = _request_text(f"https://raw.githubusercontent.com/{REPOSITORY}/{BETA_REF}/VERSION")
-            ref = f"v{remote_version}"
+            ref = _latest_beta_tag()
+            remote_version = ref.lstrip("v")
             available_build = remote_version
             published = None
             update_available = current != remote_version
