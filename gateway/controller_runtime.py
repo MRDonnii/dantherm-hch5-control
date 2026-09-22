@@ -390,12 +390,11 @@ class ControllerRuntime:
             "actual_fan_extract_rpm": self._first(self.gateway_state, "fan_extract_rpm", "extract_fan_rpm"),
             "actual_fan_supply_rpm": self._first(self.gateway_state, "fan_supply_rpm", "supply_fan_rpm"),
             "actual_bypass": self._first(self.gateway_state, "bypass_active"),
+            "actual_bypass_request": self._first(self.gateway_state, "bypass_request"),
+            "actual_bypass_request_raw": self._first(self.gateway_state, "bypass_request_raw"),
             "actual_fireplace": self._first(self.gateway_state, "fireplace"),
             "actual_afterheat": self._first(self.gateway_state, "afterheat_active"),
             "actual_afterheat_setpoint": self._first(self.gateway_state, "afterheat_setpoint"),
-            "actual_afterheat_valve_percent": self._first(
-                self.gateway_state, "heating_valve_percent", "afterheat_valve_percent"
-            ),
             "actual_supply_before_heater_temperature": self._first(self.gateway_state, "supply_temp"),
             "actual_supply_air_temperature": self._first(self.gateway_state, "heating_coil_after_temperature", "supply_temp"),
             "actual_supply_air_temperature_source": "hac1_t2ah" if self.gateway_state.get("heating_coil_after_temperature") is not None else "unit_t2",

@@ -14,6 +14,4 @@
 .setting-card>span{grid-column:1/-1;color:var(--muted);font-size:11px}
 @media(max-width:600px){.setting-card{grid-template-columns:1fr}.setting-card button{justify-self:start}}
 
-/* Safety: the Pi controller is automatic and bypass forcing is not hardware-verified. */
 .control-enable{display:none!important}
-#overview-bypass{display:none!important}

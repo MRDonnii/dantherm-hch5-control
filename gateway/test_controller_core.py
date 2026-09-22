@@ -113,6 +113,39 @@ class ControllerTests(unittest.TestCase):
         with self.assertRaises(ControllerError):
             reloaded.configure({"afterheat_setpoint": 17})
 
+    def test_bypass_persists_and_old_auto_migrates_to_off(self):
+        state, _ = self.make()
+        state.configure({"bypass": "on"})
+        self.assertEqual(ControllerState(state.path).data["bypass"], "on")
+        state.path.write_text('{"bypass": "auto"}')
+        self.assertEqual(ControllerState(state.path).data["bypass"], "off")
+
+    def test_bypass_and_fireplace_are_mutually_exclusive(self):
+        state, _ = self.make()
+        state.configure({"bypass": "on"})
+        with self.assertRaises(ControllerError):
+            state.configure({"fireplace_minutes": 15})
+        state.configure({"bypass": "off", "fireplace_minutes": 15})
+        with self.assertRaises(ControllerError):
+            state.configure({"bypass": "on"})
+
+    def test_bypass_write_is_deduplicated_and_separate_from_afterheat(self):
+        calls = []
+        state, _ = self.make()
+        engine = ControllerEngine(state, HardwareAdapter(
+            write_fan_pair=lambda extract, supply: None,
+            set_bypass=lambda value: calls.append(("bypass", value)),
+            set_fireplace=lambda enabled: None,
+            set_afterheat_setpoint=lambda value: calls.append(("afterheat", value)),
+        ))
+        engine.apply()
+        engine.apply()
+        state.configure({"bypass": "on"})
+        engine.apply()
+        self.assertEqual(calls.count(("bypass", "off")), 1)
+        self.assertEqual(calls.count(("bypass", "on")), 1)
+        self.assertEqual(calls.count(("afterheat", 20)), 1)
+
     def test_fireplace_timer_expires_and_restores_selected_fan_profile(self):
         calls = []
         state, _ = self.make()

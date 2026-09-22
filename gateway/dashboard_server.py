@@ -12,7 +12,7 @@ except ModuleNotFoundError:
 LOGGER = logging.getLogger("passivelink-dashboard")
 ASSET_TYPES = {".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8"}
 RANGES = {"1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800, "30d": 2592000}
-HISTORY_FIELDS = ("outdoor_temp", "supply_temp", "extract_temp", "exhaust_temp", "hrc2_t5_temperature", "flow_temperature", "return_temperature", "heating_valve_percent", "co2", "fan_supply_rpm", "fan_extract_rpm", "fan_supply_percent", "fan_extract_percent", "heat_recovery_efficiency")
+HISTORY_FIELDS = ("outdoor_temp", "supply_temp", "extract_temp", "exhaust_temp", "hrc2_t5_temperature", "flow_temperature", "return_temperature", "co2", "fan_supply_rpm", "fan_extract_rpm", "fan_supply_percent", "fan_extract_percent", "heat_recovery_efficiency")
 
 class HistoryStore:
     def __init__(self, path: str | Path, retention_days: int = 30, sample_seconds: int = 60):

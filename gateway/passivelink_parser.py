@@ -298,7 +298,10 @@ class DanthermDecoder:
             if now <= self._night_transition_until:
                 self._night_transition_registers.add(register)
         elif register == 68:
-            self._set(afterheat_raw=value)
+            updates = {"bypass_request_raw": value}
+            if value in (0, 255):
+                updates["bypass_request"] = "ON" if value == 255 else "OFF"
+            self._set(**updates)
         elif register == 76:
             self._special_mode_flag = value
         elif register == 143 and value:

@@ -17,10 +17,7 @@ from typing import Callable
 
 VALID_MODES = {"local_auto", "smart_auto", "manual"}
 VALID_DEMANDS = {"low", "normal", "high", "boost"}
-# No repository evidence documents a verified bypass write sequence. Keep the
-# desired value at native automatic operation and expose physical bypass status
-# read-only until such evidence exists.
-VALID_BYPASS = {"auto"}
+VALID_BYPASS = {"off", "on"}
 
 # Six editable profiles. The original observed HCP4 values are retained as
 # anchors (25/13, 55/43, 85/73, 100/88); levels 2 and 4 are conservative
@@ -105,7 +102,7 @@ class ControllerState:
         "ha_last_seen": None,
         "ha_valid_for_seconds": 180,
         "ha_timeout_seconds": 300,
-        "bypass": "auto",
+        "bypass": "off",
         "fireplace": False,
         "fireplace_until": None,
         "fireplace_duration_minutes": 0,
@@ -168,8 +165,12 @@ class ControllerState:
             self.data["local_max_level"],
             max(self.data["local_min_level"], self.data["ha_requested_level"]),
         )
+        # Older state files used the unverified value "auto". Register 68 is
+        # now physically verified as a binary bypass request: 0=OFF, 255=ON.
         if self.data["bypass"] not in VALID_BYPASS:
-            self.data["bypass"] = "auto"
+            self.data["bypass"] = "off"
+        if self.data["fireplace"] and self.data["bypass"] == "on":
+            self.data["bypass"] = "off"
         try:
             fireplace_until = float(self.data["fireplace_until"]) if self.data.get("fireplace_until") else None
         except (TypeError, ValueError):
@@ -269,13 +270,17 @@ class ControllerState:
                         raise ControllerError(f"{key} udenfor gyldigt område")
                     self.data[key] = value
             if "bypass" in patch:
-                if patch["bypass"] != "auto":
-                    raise ControllerError("Bypass er read-only; verificeret write-sekvens mangler")
-                self.data["bypass"] = "auto"
+                if patch["bypass"] not in VALID_BYPASS:
+                    raise ControllerError("Bypass skal være off eller on")
+                if patch["bypass"] == "on" and bool(patch.get("fireplace", self.data["fireplace"])):
+                    raise ControllerError("Bypass kan ikke aktiveres under pejsefunktion")
+                self.data["bypass"] = patch["bypass"]
             if "fireplace" in patch:
                 if not isinstance(patch["fireplace"], bool):
                     raise ControllerError("fireplace skal være boolean")
                 minutes = 15 if patch["fireplace"] else 0
+                if minutes and self.data["bypass"] == "on":
+                    raise ControllerError("Pejsefunktion kan ikke aktiveres mens bypass er tændt")
                 self.data["fireplace"] = minutes > 0
                 self.data["fireplace_until"] = time.time() + minutes * 60 if minutes else None
                 self.data["fireplace_duration_minutes"] = minutes
@@ -286,6 +291,8 @@ class ControllerState:
                     raise ControllerError("Pejsetid skal være 0, 15 eller 30 minutter")
                 if minutes not in (0, 15, 30):
                     raise ControllerError("Pejsetid skal være 0, 15 eller 30 minutter")
+                if minutes and self.data["bypass"] == "on":
+                    raise ControllerError("Pejsefunktion kan ikke aktiveres mens bypass er tændt")
                 self.data["fireplace"] = minutes > 0
                 self.data["fireplace_until"] = time.time() + minutes * 60 if minutes else None
                 self.data["fireplace_duration_minutes"] = minutes
@@ -563,6 +570,9 @@ class ControllerEngine:
             # Fireplace mode temporarily owns the physical fan behaviour. Force
             # the selected controller profile back after the timer stops.
             self.last_applied.pop("fan_pair", None)
+        bypass = str(snapshot["bypass"])
+        if self.hardware.set_bypass is not None:
+            self._call("bypass", bypass, self.hardware.set_bypass, bypass)
         profile = snapshot.get("effective_profile")
         if profile:
             pair = (int(profile["extract"]), int(profile["supply"]))

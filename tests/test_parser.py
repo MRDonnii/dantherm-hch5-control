@@ -56,6 +56,16 @@ def test_fan_registers_and_mode():
     assert decoder.data["current_level"] == "level_1"
 
 
+def test_register_68_is_bypass_request_not_afterheat():
+    decoder = DanthermDecoder(lambda _: None)
+    decoder.decode(frame(bytes.fromhex("0106004400ff")))
+    assert decoder.data["bypass_request_raw"] == 255
+    assert decoder.data["bypass_request"] == "ON"
+    assert "afterheat_raw" not in decoder.data
+    decoder.decode(frame(bytes.fromhex("010600440000")))
+    assert decoder.data["bypass_request"] == "OFF"
+
+
 def test_repeated_manual_command_does_not_reclassify_unchanged_auto_pair():
     decoder = DanthermDecoder(lambda _: None)
     decoder.decode(frame(bytes.fromhex("010600420055")))

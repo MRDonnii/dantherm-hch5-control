@@ -2,8 +2,8 @@
 """Dantherm HCH5/HAC1 RS485 -> MQTT gateway.
 
 Programmet aflytter den eksisterende Modbus RTU-trafik mellem HAC1 og
-hovedprintet. Det publicerer verificerede værdier og kan kun skrive de særskilt
-verificerede ventilatorregistre 66 og 67.
+hovedprintet. Det publicerer verificerede værdier og skriver kun via særskilt
+verificerede og readback-beskyttede registersekvenser.
 """
 
 from __future__ import annotations
@@ -656,7 +656,7 @@ class Gateway:
         self.last_afterheat_poll = 0.0
         self.last_hrc2_t5_poll = 0.0
         self.last_temperature_snapshot_poll = 0.0
-        self.last_valve_poll = 0.0
+        self.last_bypass_request_poll = 0.0
         self.last_bus_frame = 0.0
         self.reader_started_at = 0.0
         self.last_bus_health_publish = 0.0
@@ -683,8 +683,7 @@ class Gateway:
             gateway_state=self.state,
             hardware=HardwareAdapter(
                 write_fan_pair=lambda extract, supply: self.queue_controller_hardware("fan_pair", (extract, supply)),
-                # No verified bypass writer exists in the installed gateway or backups.
-                set_bypass=None,
+                set_bypass=lambda value: self.queue_controller_hardware("bypass", str(value)),
                 set_fireplace=lambda enabled: self.queue_controller_hardware("fireplace", bool(enabled)),
                 set_afterheat_setpoint=lambda value: self.queue_controller_hardware("afterheat_setpoint", int(value)),
             ),
@@ -734,6 +733,8 @@ class Gateway:
                     elif not value and self.fireplace_gateway_active:
                         self.stop_fireplace(ser)
                     result["value"] = self.fireplace_gateway_active
+                elif action == "bypass":
+                    result["value"] = self.write_bypass_request(ser, str(value))
                 elif action == "afterheat_setpoint":
                     result["value"] = self.write_afterheat_setpoint(ser, int(value))
                 else:
@@ -920,6 +921,7 @@ class Gateway:
                 f"{self.prefix}/{key}", self.format_payload(value), retain=self.retain
             )
         client.subscribe(f"{self.prefix}/restart_gateway/set")
+        client.subscribe(f"{self.prefix}/bypass_request/set")
         if self.control_enabled:
             client.subscribe(f"{self.prefix}/mode/set")
             if self.fireplace_enabled:
@@ -938,6 +940,7 @@ class Gateway:
             f"{self.prefix}/filter_reset/set",
             f"{self.prefix}/filter_interval/set",
             f"{self.prefix}/restart_gateway/set",
+            f"{self.prefix}/bypass_request/set",
         }:
             return
         if message.retain:
@@ -949,6 +952,15 @@ class Gateway:
         if message.topic == f"{self.prefix}/restart_gateway/set":
             LOG.warning("MQTT-genstart anmodet")
             self.running = False
+            return
+        if message.topic == f"{self.prefix}/bypass_request/set":
+            if command not in {"on", "off"}:
+                LOG.warning("Afviser ukendt bypasskommando: %r", command)
+                return
+            try:
+                self.controller.configure({"bypass": command})
+            except Exception as error:
+                LOG.error("Bypasskommando mislykkedes: %s", error)
             return
         if message.topic == f"{self.prefix}/filter_reset/set":
             self.filter_reset_queue.put(True)
@@ -1012,6 +1024,7 @@ class Gateway:
             "heat_recovery_efficiency": ("sensor", "Diagnostik – Varmegenvinding råværdi", None, None, None),
             "bypass_active": ("binary_sensor", "Drift – Bypass aktiv", None, "opening", None),
             "bypass_raw": ("sensor", "Diagnostik – Bypass råstatus", None, None, None),
+            "bypass_request_raw": ("sensor", "Diagnostik – Bypass-request råværdi", None, None, None),
             "status_code": ("sensor", "Diagnostik – Statuskode", None, None, None),
             "operating_mode": ("sensor", "Drift – Registreret tilstand", None, None, None),
             "current_level": ("sensor", "Drift – Aktuelt trin", None, None, None),
@@ -1025,7 +1038,6 @@ class Gateway:
             "fireplace": ("binary_sensor", "Drift – Pejsefunktion", None, None, None),
             "standby": ("binary_sensor", "Drift – Standby", None, None, None),
             "night_mode": ("binary_sensor", "Drift – Natdrift", None, None, None),
-            "afterheat_raw": ("sensor", "Diagnostik – Eftervarme råstatus", None, None, None),
             "command_raw": ("sensor", "Diagnostik – Betjeningskommando rå", None, None, None),
             "control_status": ("sensor", "Diagnostik – Styringsstatus", None, None, None),
             "gateway_mode": ("sensor", "Diagnostik – Gatewaytilstand", None, None, None),
@@ -1035,15 +1047,15 @@ class Gateway:
         diagnostic_entities = {
             "hac1_connected",
             "bypass_raw",
+            "bypass_request_raw",
             "status_code",
-            "afterheat_raw",
             "command_raw",
             "control_status",
             "gateway_mode",
             "bus_last_frame_age",
             "bus_traffic",
         }
-        disabled_raw_entities = {"bypass_raw", "status_code", "afterheat_raw", "command_raw"}
+        disabled_raw_entities = {"bypass_raw", "bypass_request_raw", "status_code", "command_raw"}
         for key, (component, name, unit, device_class, state_class) in entities.items():
             payload = {
                 "name": name,
@@ -1066,42 +1078,46 @@ class Gateway:
                 payload["enabled_by_default"] = False
             topic = f"{self.discovery}/{component}/{self.device_id}/{key}/config"
             self.client.publish(topic, json.dumps(payload), retain=True)
-        if self.control_enabled:
-            payload = {
-                "name": "Drift – Styring",
-                "unique_id": f"{self.device_id}_mode",
-                "command_topic": f"{self.prefix}/mode/set",
-                "state_topic": f"{self.prefix}/mode",
-                "availability_topic": f"{self.prefix}/availability",
-                "options": list(MODE_LABELS.values()),
-                "icon": "mdi:fan-auto",
-                "device": device,
-            }
-            topic = f"{self.discovery}/select/{self.device_id}/mode/config"
-            self.client.publish(topic, json.dumps(payload), retain=True)
-            fireplace_payload = {
-                "name": "Drift – Pejs-ventilation (15 min)",
-                "unique_id": f"{self.device_id}_fireplace_gateway",
-                "command_topic": f"{self.prefix}/fireplace_gateway/set",
-                "state_topic": f"{self.prefix}/fireplace_gateway",
-                "availability_topic": f"{self.prefix}/availability",
-                "payload_on": "ON",
-                "payload_off": "OFF",
-                "icon": "mdi:fireplace",
-                "device": device,
-            }
-            topic = f"{self.discovery}/switch/{self.device_id}/fireplace_gateway/config"
-            if self.fireplace_enabled:
-                self.client.publish(topic, json.dumps(fireplace_payload), retain=True)
-            else:
-                self.client.publish(topic, "", retain=True)
-        else:
-            # Remove retained experimental controls when running as a passive listener.
-            for topic in (
-                f"{self.discovery}/select/{self.device_id}/mode/config",
-                f"{self.discovery}/switch/{self.device_id}/fireplace_gateway/config",
-            ):
-                self.client.publish(topic, "", retain=True)
+        # Discovery describes permanent device capabilities. A temporary
+        # fallback or missing RS485 value must never delete an HA entity.
+        payload = {
+            "name": "Drift – Styring",
+            "unique_id": f"{self.device_id}_mode",
+            "command_topic": f"{self.prefix}/mode/set",
+            "state_topic": f"{self.prefix}/mode",
+            "availability_topic": f"{self.prefix}/availability",
+            "options": list(MODE_LABELS.values()),
+            "icon": "mdi:fan-auto",
+            "device": device,
+        }
+        topic = f"{self.discovery}/select/{self.device_id}/mode/config"
+        self.client.publish(topic, json.dumps(payload), retain=True)
+        fireplace_payload = {
+            "name": "Drift – Pejs-ventilation (15 min)",
+            "unique_id": f"{self.device_id}_fireplace_gateway",
+            "command_topic": f"{self.prefix}/fireplace_gateway/set",
+            "state_topic": f"{self.prefix}/fireplace_gateway",
+            "availability_topic": f"{self.prefix}/availability",
+            "payload_on": "ON",
+            "payload_off": "OFF",
+            "icon": "mdi:fireplace",
+            "device": device,
+        }
+        topic = f"{self.discovery}/switch/{self.device_id}/fireplace_gateway/config"
+        self.client.publish(topic, json.dumps(fireplace_payload), retain=True)
+        bypass_payload = {
+            "name": "Drift – Bypass-request",
+            "unique_id": f"{self.device_id}_bypass_request",
+            "command_topic": f"{self.prefix}/bypass_request/set",
+            "state_topic": f"{self.prefix}/bypass_request",
+            "availability_topic": f"{self.prefix}/availability",
+            "payload_on": "ON",
+            "payload_off": "OFF",
+            "icon": "mdi:valve",
+            "device": device,
+        }
+        topic = f"{self.discovery}/switch/{self.device_id}/bypass_request/config"
+        self.client.publish(topic, json.dumps(bypass_payload), retain=True)
 
         filter_interval_payload = {
             "name": "Filter – Interval",
@@ -1131,37 +1147,6 @@ class Gateway:
         }
         topic = f"{self.discovery}/button/{self.device_id}/filter_reset/config"
         self.client.publish(topic, json.dumps(filter_reset_payload), retain=True)
-        # Filter changes are observed from HCP4. Local controls would only
-        # alter the gateway and are deliberately removed.
-        self.client.publish(
-            f"{self.discovery}/number/{self.device_id}/filter_interval/config",
-            "",
-            retain=True,
-        )
-        self.client.publish(
-            f"{self.discovery}/button/{self.device_id}/filter_reset/config",
-            "",
-            retain=True,
-        )
-        if not self.filter_enabled:
-            # The MK1 filter value has not been found. Remove the old local
-            # countdown entities instead of presenting them as unit status.
-            stale_filter_entities = {
-                "sensor": (
-                    "filter_days_remaining",
-                    "filter_life_percent",
-                    "filter_status",
-                    "filter_source",
-                ),
-                "binary_sensor": ("filter_alarm",),
-                "number": ("filter_interval",),
-                "button": ("filter_reset",),
-            }
-            for component, keys in stale_filter_entities.items():
-                for key in keys:
-                    topic = f"{self.discovery}/{component}/{self.device_id}/{key}/config"
-                    self.client.publish(topic, "", retain=True)
-
         restart_payload = {
             "name": "Gateway – Genstart",
             "unique_id": f"{self.device_id}_restart_gateway",
@@ -1290,7 +1275,9 @@ class Gateway:
                     self.publish("fan_supply_percent", value)
                 self.last_manual_write = time.monotonic()
             elif register == 68:
-                self.publish("afterheat_raw", value)
+                self.publish("bypass_request_raw", value)
+                if value in (0, 255):
+                    self.publish("bypass_request", "ON" if value == 255 else "OFF")
             elif register == 76:
                 self.special_mode_flag = value
             elif register == 143 and value:
@@ -1754,13 +1741,9 @@ class Gateway:
             )
             self.tcp_mirror.broadcast(request + body + crc16(body).to_bytes(2, "little"))
 
-    def poll_valve_position(self, ser: serial.Serial):
-        # Register 68 på slave 1 (eftervarme-ventilens åbningsgrad) bliver
-        # normalt kun opdateret hos passive lyttere når en SKRIVE-kommando
-        # (funktion 6) til registeret observeres på bussen - ikke ved
-        # løbende læsning. Det gør værdien stale, hvis ventilen ændrer sig
-        # uden at vi lige overhører selve skrivningen. Forespørg den derfor
-        # aktivt her, ligesom register 184.
+    def poll_bypass_request(self, ser: serial.Serial):
+        # Physical HCP4 capture: slave 1, register 68, 0=OFF and 255=ON.
+        # This request is separate from the physical damper readback.
         values = self.read_register_block(ser, 1, 68, 1)
         if values is None:
             return
@@ -1770,9 +1753,38 @@ class Gateway:
             )
             self.tcp_mirror.broadcast(body + crc16(body).to_bytes(2, "little"))
         raw = values[0]
-        self.publish("afterheat_raw", raw)
-        if 0 <= raw <= 100:
-            self.publish("heating_valve_percent", raw)
+        self.publish("bypass_request_raw", raw)
+        if raw in (0, 255):
+            self.publish("bypass_request", "ON" if raw == 255 else "OFF")
+        else:
+            LOG.error("Ugyldig bypass-request readback fra register 68: %s", raw)
+
+    def write_bypass_request(self, ser: serial.Serial, requested: str):
+        requested = requested.lower()
+        if requested not in {"off", "on"}:
+            raise ValueError("bypass request must be off or on")
+        if requested == "on" and self.fireplace_gateway_active:
+            raise RuntimeError("bypass cannot be enabled during fireplace mode")
+        desired = 255 if requested == "on" else 0
+        current_values = self.read_register_block(ser, 1, 68, 1)
+        if current_values is None or current_values[0] not in (0, 255):
+            raise RuntimeError(f"unsafe bypass pre-read: {current_values}")
+        if current_values[0] != desired:
+            self.write_one(ser, 68, desired)
+        actual = None
+        for _attempt in range(3):
+            values = self.read_register_block(ser, 1, 68, 1)
+            if values is not None:
+                actual = values[0]
+                if actual == desired:
+                    break
+            time.sleep(0.1)
+        if actual != desired:
+            self.publish("control_status", "bypass_readback_mismatch")
+            raise RuntimeError(f"bypass readback mismatch: {actual}, expected {desired}")
+        self.publish("bypass_request_raw", actual)
+        self.publish("bypass_request", "ON" if actual == 255 else "OFF")
+        return requested
 
     def verify_control_pair(self, ser: serial.Serial):
         if self.override_mode is None:
@@ -1797,13 +1809,13 @@ class Gateway:
     def write_fireplace_pattern(
         self,
         ser: serial.Serial,
-        reg68: int,
+        bypass_request: int,
         reg76: int,
         extract: int,
         supply: int,
     ):
         # Nøjagtig rækkefølge fra den rene passive HRC2-optagelse.
-        self.write_one(ser, 68, reg68)
+        self.write_one(ser, 68, bypass_request)
         self.write_one(ser, 76, reg76)
         self.write_one(ser, 67, supply)
         self.write_one(ser, 66, extract)
@@ -1822,32 +1834,32 @@ class Gateway:
             self.publish("control_status", "fireplace_rejected_fan_override")
             return
         pair = self.read_fan_pair(ser)
-        reg68_values = self.read_register_block(ser, 1, 68, 1)
+        bypass_request_values = self.read_register_block(ser, 1, 68, 1)
         reg76_values = self.read_register_block(ser, 1, 76, 1)
-        if pair is None or reg68_values is None or reg76_values is None:
+        if pair is None or bypass_request_values is None or reg76_values is None:
             self.publish("control_status", "fireplace_read_failed")
             return
-        reg68 = reg68_values[0]
+        bypass_request = bypass_request_values[0]
         reg76 = reg76_values[0]
         extract, supply = pair
-        if reg68 != 0 or reg76 != 0 or not (0 < supply <= 100):
+        if bypass_request != 0 or reg76 != 0 or not (0 < supply <= 100):
             LOG.error(
-                "Pejs afvist fra uventet tilstand: reg68=%s reg76=%s pair=%s/%s",
-                reg68,
+                "Pejs afvist fra uventet tilstand: bypass_request=%s reg76=%s pair=%s/%s",
+                bypass_request,
                 reg76,
                 extract,
                 supply,
             )
             self.publish("control_status", "fireplace_invalid_start_state")
             return
-        self.fireplace_restore = (reg68, reg76, extract, supply)
+        self.fireplace_restore = (bypass_request, reg76, extract, supply)
         self.fireplace_until_epoch = time.time() + FIREPLACE_DURATION_SECONDS
         self.fireplace_until_monotonic = time.monotonic() + FIREPLACE_DURATION_SECONDS
         try:
             self.write_fireplace_pattern(ser, 0, 1, 0, supply)
         except Exception:
             LOG.exception("Pejs kunne ikke startes; gendanner")
-            self.write_fireplace_pattern(ser, reg68, reg76, extract, supply)
+            self.write_fireplace_pattern(ser, bypass_request, reg76, extract, supply)
             self.fireplace_restore = None
             self.publish("control_status", "fireplace_write_failed")
             return
@@ -1874,7 +1886,7 @@ class Gateway:
             self.save_fireplace_state()
             return
         self.fireplace_restore = tuple(saved["restore"])
-        reg68, reg76, _extract, supply = self.fireplace_restore
+        bypass_request, reg76, _extract, supply = self.fireplace_restore
         self.fireplace_gateway_active = True
         self.fireplace_until_epoch = float(saved["until"])
         self.fireplace_until_monotonic = time.monotonic() + remaining
@@ -1893,11 +1905,11 @@ class Gateway:
     def stop_fireplace(self, ser: serial.Serial, clear_saved_state: bool = True):
         restored_pair: tuple[int, int] | None = None
         if self.fireplace_restore is not None:
-            reg68, reg76, extract, supply = self.fireplace_restore
+            bypass_request, reg76, extract, supply = self.fireplace_restore
             restored_pair = (extract, supply)
-            self.write_fireplace_pattern(ser, reg68, reg76, extract, supply)
+            self.write_fireplace_pattern(ser, bypass_request, reg76, extract, supply)
             time.sleep(0.15)
-            self.write_fireplace_pattern(ser, reg68, reg76, extract, supply)
+            self.write_fireplace_pattern(ser, bypass_request, reg76, extract, supply)
         self.fireplace_gateway_active = False
         self.fireplace_restore = None
         self.special_mode_flag = 0
@@ -2124,10 +2136,10 @@ class Gateway:
                         self.last_temperature_snapshot_poll = time.monotonic()
                     if (
                         self.active_reads_enabled
-                        and time.monotonic() - self.last_valve_poll >= 10.0
+                        and time.monotonic() - self.last_bypass_request_poll >= 10.0
                     ):
-                        self.poll_valve_position(ser)
-                        self.last_valve_poll = time.monotonic()
+                        self.poll_bypass_request(ser)
+                        self.last_bypass_request_poll = time.monotonic()
                     if time.monotonic() - self.last_bus_health_publish >= 5.0:
                         now = time.monotonic()
                         age = round(now - self.last_bus_frame, 1) if self.last_bus_frame else 9999
