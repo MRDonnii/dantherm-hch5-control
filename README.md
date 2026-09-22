@@ -1,108 +1,154 @@
-# Dantherm HCH PassiveLink WebUI
+# HCH5 Control
 
-A modern, responsive local WebUI and fail-safe Raspberry Pi controller for a Dantherm HCH5 MK1/HAC1. The Pi automatically takes over only when HCP4 is quiet and the RS485 bus is healthy; any verified foreign write makes it yield immediately.
+**Modern local ventilation control for Dantherm HCH5 MK1 / HAC1.**
 
-> This is an unofficial community project and is not developed, approved or supported by Dantherm Group.
+HCH5 Control turns a Raspberry Pi and a USB-RS485 adapter into a local controller, WebUI and Home Assistant bridge for older HCH5 installations. It keeps the proven PassiveLink decoder for compatibility, but the product is no longer a passive-only project: the Pi can take over as Modbus master, run local automation and issue only the RS485 writes that have been physically verified on the reference installation.
 
-![WebUI overview](docs/images/webui/overview-desktop.png)
+> **Unofficial community project.** HCH5 Control is not developed, approved, certified or supported by Dantherm Group. Installation changes the control path of the ventilation system and is performed entirely at your own risk. Keep the original controller available so the installation can be returned to its original configuration.
 
-## Highlights
+## What is included
 
-- physically meaningful normal and bypass airflow diagrams;
-- live heat-recovery, after-heater, fan, filter and air-quality states;
-- desktop, tablet and mobile layouts with persistent light/dark themes;
-- 30-day bounded SQLite history;
-- Raspberry Pi, service, OneWire and network diagnostics;
-- first-run owner setup, salted PBKDF2 password hashes, server-side sessions, CSRF protection and login rate limiting;
-- owner-controlled username/password changes and an explicit security warning before login can be disabled;
-- allowlisted Raspberry Pi reboot, shutdown, service restart and CPU power profiles;
-- one-click, single-file debug report with current state, seven days of bounded service/system logs and Raspberry Pi health data;
-- direct HACS, GitHub and Home Assistant config-flow links for the companion integration.
-- Local Auto and Smart Auto with six validated fan profiles, leased Home Assistant room inputs and automatic local fallback;
-- HCP4-priority master arbitration with a 10-second quiet takeover and a transaction-local 0.2-second echo window;
-- machine API for Home Assistant intent and sensor data—Home Assistant never writes Modbus directly.
+- Local HCH5 controller with automatic HCP4 master arbitration and fail-safe write blocking.
+- Responsive WebUI with live temperatures, fans, bypass, after-heater, diagnostics and history.
+- Animated airflow diagram: normal heat recovery uses the crossed exchanger routes; physical bypass readback switches the diagram to the straight-through routes.
+- Local Auto and Smart Auto with six adjustable fan profiles.
+- Adjustable weekly schedule, night reduction and holiday mode.
+- Free-cooling automation using indoor/outdoor temperature, hysteresis and minimum temperature difference.
+- Manual bypass request plus separate physical bypass feedback.
+- Fireplace mode and after-heater setpoint support from the verified controller layer.
+- Home Assistant API plus raw TCP mirror on port `4196`.
+- Stable/Beta update channels in the WebUI. Beta is opt-in.
+- First-user login, CSRF protection, system diagnostics and safe backups before updates.
 
-<p>
-  <img src="docs/images/webui/overview-mobile.png" alt="Mobile overview" width="300">
-  <img src="docs/images/webui/first-user-setup.png" alt="First-user setup" width="300">
-</p>
+## Important: original HCP4 controller
 
-![Home Assistant integration links](docs/images/webui/home-assistant.png)
+For **normal active HCH5 Control operation**, disconnect the original HCP4 controller from the RS485 control path so the Raspberry Pi can become the active master.
 
-## Companion Home Assistant integration
+The arbitration layer is still intentionally fail-safe: if an HCP4 is connected again and verified foreign control writes are observed, the Pi immediately stops transmitting and yields mastership. In `UNKNOWN`, unhealthy-bus or HCP4-master state, controller writes are blocked.
 
-Install [MRDonnii/dantherm-hch-passivelink](https://github.com/MRDonnii/dantherm-hch-passivelink) through HACS, then select **RS485 over TCP** and point it at the PassiveLink gateway, normally port `4196`.
+Do not connect two independent masters and assume they can control the unit at the same time.
 
-For the controller beta, install integration tag `v0.8.0-beta.1` as a specific HACS version. Its Options UI reads and writes controller settings through the authenticated Pi API, manages dynamic Smart Auto rooms and keeps the Pi as source of truth.
+## Hardware
 
-[![Open your Home Assistant instance and add the integration repository to HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=MRDonnii&repository=dantherm-hch-passivelink&category=integration)
+Reference setup:
 
-## Install everything on Raspberry Pi OS / Ubuntu / Debian
+- Dantherm HCH5 MK1 with HAC1;
+- Raspberry Pi 2B or newer;
+- Linux-supported USB-RS485 adapter;
+- RS485: `19200 8E1`;
+- optional DS18B20 sensors for water temperatures.
 
-Find the adapter under `/dev/serial/by-id/`, then run:
+Turn off the ventilation unit and adapter before changing RS485 wiring. Use a stable `/dev/serial/by-id/...` device path and do not add termination blindly.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/MRDonnii/dantherm-hch-passivelink-webui/main/install.sh \
-  | sudo bash -s -- --device /dev/serial/by-id/usb-YOUR_ADAPTER
-```
+## Install the current beta
 
-Add `--enable-onewire` for optional DS18B20 sensors and host diagnostics.
-
-To install the controller beta explicitly (prereleases are not returned by GitHub's `releases/latest` endpoint):
+Find the adapter first:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MRDonnii/dantherm-hch-passivelink-webui/test/hcp4-replacement-controller/install.sh \
-  | sudo bash -s -- --beta --device /dev/serial/by-id/usb-YOUR_ADAPTER
+ls -l /dev/serial/by-id/
 ```
 
-- [Komplet dansk installations- og RS485-guide](docs/installation.da.md)
-- The installer supports Raspberry Pi OS, Debian 12 and Ubuntu 22.04/24.04.
-- It installs the controller-aware gateway, raw TCP mirror for Home Assistant, WebUI, login, systemd services and the allowlisted admin helper. Existing tokens, controller state, login data and YAML settings are backed up and preserved.
-
-## Embedding in an existing gateway
-
-`gateway/dashboard_server.py` is embedded in the gateway process so both components use the same in-memory state without opening another RS485 reader:
-
-```python
-from dashboard_server import DashboardHttpServer
-
-dashboard = DashboardHttpServer(
-    "0.0.0.0",
-    8080,
-    gateway_state,
-    "Dantherm HCH5",
-    "http://127.0.0.1:4197/temperatures",
-)
-dashboard.start()
-```
-
-Copy `gateway/dashboard_server.py`, `gateway/webui_auth.py` and `gateway/webui/` beside the gateway application. The gateway service user must be able to write `/var/lib/dantherm-hch5-ha/` for history and authentication state.
-
-The optional privileged helper `gateway/dantherm_pi_admin_api.py` must run as a separately sandboxed root systemd service. It accepts only a fixed action/service/profile allowlist and requires a bearer token. Pass that same token to the unprivileged dashboard process as `DANTHERM_REBOOT_TOKEN`. The helper and dashboard default to loopback port `4198`; override `DANTHERM_ADMIN_BIND`, `DANTHERM_ADMIN_PORT` and `DANTHERM_ADMIN_URL` only when required. Never expose an unrestricted shell or place the token in browser-side code.
-
-Reference files are provided in [`systemd/`](systemd/). Generate a unique token, install `admin.env.example` as root-owned `/etc/dantherm-webui/admin.env` with mode `0600`, and give the dashboard service the same token through its own root-owned environment file.
-
-## Security model
-
-- Browser and Home Assistant endpoints submit high-level intent only. The hardware boundary permits controller writes exclusively while arbitration reports `PI_MASTER`; HCP4 and unknown/unhealthy states block them.
-- Bypass remains read-only because no verified write sequence exists in the repository evidence.
-- First use is locked until the owner creates an account.
-- Passwords are stored as salted PBKDF2-SHA256 hashes, never plaintext.
-- Sessions are server-side and cookies are `HttpOnly` and `SameSite=Strict`.
-- State-changing browser requests require a CSRF token.
-- Login can be disabled only with the current password and an explicit risk acknowledgement.
-- Network settings remain read-only on netboot installations until their real network stack and rollback path are verified.
-- Debug reports are plain-text, bounded in size and redact known password, token, cookie and authorization patterns. Review a report before sharing it because logs can still contain installation-specific details such as hostnames, addresses and sensor IDs.
-
-The WebUI is designed for a trusted local network. Put it behind HTTPS or a trusted reverse proxy before exposing it beyond the LAN.
-
-## Development and tests
+Then install:
 
 ```bash
-python3 -m unittest discover -s tests -v
-node --check gateway/webui/dashboard.js
-node --check gateway/webui/auth.js
+curl -fsSL https://raw.githubusercontent.com/MRDonnii/dantherm-hch-passivelink-webui/beta/1.1-modern-controller/install-hch5-control.sh \
+  | sudo bash -s -- \
+      --device /dev/serial/by-id/usb-YOUR_ADAPTER \
+      --enable-onewire
+```
+
+Omit `--enable-onewire` if DS18B20 sensors are not used.
+
+The installer preserves existing controller state, WebUI login, tokens and YAML configuration when upgrading an existing installation. Backups are written before program files are replaced.
+
+After installation open:
+
+```text
+http://RASPBERRY-PI-IP:8080/
+```
+
+There is no default password. The first browser session creates the owner account.
+
+## Updating from the WebUI
+
+Open **Opdateringer**.
+
+- **Stable** is the default channel.
+- Enable **Brug beta-kanal** only when you want prerelease functionality.
+- **Søg efter opdatering** compares the installed version with the selected channel.
+- **Installer opdatering** downloads a fixed repository ref, backs up application code, replaces only program files and restarts the required services.
+
+Persistent configuration under `/etc/dantherm-passivelink-webui/` and controller state under `/var/lib/dantherm-hch5-ha/` are not reset by the in-place updater.
+
+## Modern automation
+
+The Raspberry Pi is the source of truth for controller settings.
+
+### Weekly schedule
+
+Weekday/weekend start/end times and ventilation level are adjustable in the WebUI. Schedule is an automation layer on top of Local/Smart Auto rather than a separate Modbus implementation.
+
+### Night reduction
+
+Night start/end and target fan level are adjustable. Normal air-quality demand can override the reduced level when CO₂/RH becomes elevated.
+
+### Holiday mode
+
+Holiday mode forces the selected low ventilation level and pauses automatic free cooling until holiday mode is disabled.
+
+### Free cooling
+
+Free cooling can be enabled with adjustable:
+
+- indoor target temperature;
+- minimum outdoor temperature;
+- minimum indoor/outdoor temperature difference;
+- minimum ventilation level;
+- hysteresis.
+
+When conditions are useful for cooling, the controller requests bypass and raises ventilation to at least the configured cooling level. The requested bypass state and the **physical** bypass state remain separate. A slow damper actuator is therefore not treated as an immediate failure.
+
+## Bypass
+
+The verified request binding used by this beta is:
+
+```text
+Slave:    0x01
+Function: FC06
+Register: 0x0044 / 68
+AUTO:     0x0000
+ON:       0x00FF
+```
+
+The physical bypass readback is separate and is what drives the WebUI airflow diagram. `AUTO` can legitimately coexist with a physically open bypass when the HCH5's own conditions call for it.
+
+## Home Assistant
+
+Use the companion repository:
+
+`MRDonnii/dantherm-hch-passivelink`
+
+The classic raw data connection remains compatible on TCP port `4196`. Controller commands and Smart Auto room data go through the authenticated HTTP controller API; Home Assistant does not write Modbus directly.
+
+## Safety model
+
+1. HCP4 has priority whenever foreign control writes are observed.
+2. `UNKNOWN` or unhealthy bus state means **zero Pi control writes**.
+3. Only the central controller hardware boundary may transmit verified control frames.
+4. No unverified T3/T5 write sequence is enabled.
+5. Fireplace mode prevents automatic bypass request.
+6. Existing configuration is preserved during updates and rollback backups are created.
+
+This software cannot make an altered HVAC installation risk-free. Check frost protection, after-heater behaviour, airflow and physical bypass operation on the actual installation after changes. If behaviour is unexpected, disconnect the Pi controller and restore the original HCP4 setup.
+
+## Development
+
+```bash
 python3 -m py_compile gateway/*.py
+pytest -q
+node --check gateway/webui/dashboard.js
+node --check gateway/webui/smartcontrol.js
+bash -n install.sh install-hch5-control.sh update.sh uninstall.sh
 ```
 
 ## License
