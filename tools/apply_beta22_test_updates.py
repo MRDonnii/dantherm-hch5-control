@@ -27,4 +27,11 @@ patch(
     '        self.assertIn("Ekstern eftervarme · HAC1", diagram)\n',
 )
 
+# Keep the existing navigation regression contract readable/stable.
+patch(
+    "frontend-v2/src/App.tsx",
+    '<Route path="/updates" element={<UpdatesPage/>}/>',
+    '<Route path="/updates" element={<UpdatesPage />}/>',
+)
+
 print("beta.22 test contracts updated")
