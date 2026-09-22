@@ -1,8 +1,6 @@
 "use strict";
 (() => {
   const q=(s,r=document)=>r.querySelector(s), qa=(s,r=document)=>[...r.querySelectorAll(s)];
-  const esc=value=>String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
-  const dayNames=["Mandag","Tirsdag","Onsdag","Torsdag","Fredag","Lørdag","Søndag"];
 
   function installBranding(){
     document.title="HCH5 Control";
@@ -10,7 +8,7 @@
     const tabs=q(".tabs");
     if(tabs && !q(".modern-brand",tabs)){
       const brand=document.createElement("div"); brand.className="modern-brand";
-      brand.innerHTML='<img src="/assets/hch5-control-logo.svg" alt=""><div><strong>HCH5 <span>Control</span></strong><small>Smart ventilation</small></div>';
+      brand.innerHTML='<span class="modern-logo" aria-hidden="true"><svg viewBox="0 0 64 64"><path d="M12 31 32 13l20 18v20H39V38H25v13H12Z"/><path class="wave" d="M10 44c9-7 16-7 25 0 8 6 13 6 20 0"/></svg></span><div><strong>HCH5 <span>Control</span></strong><small>Smart ventilation</small></div>';
       tabs.prepend(brand);
       const status=document.createElement("div");status.className="sidebar-status";
       status.innerHTML='<i></i><span>Anlæg online</span><small>HCH5 MK1 · lokal styring</small>';
@@ -107,7 +105,9 @@
   }
 
   function installFavicon(){
-    if(q('link[rel="icon"]'))return;const link=document.createElement("link");link.rel="icon";link.href="/assets/favicon.svg";document.head.append(link);
+    if(q('link[rel="icon"]'))return;
+    const svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#132230"/><path d="M12 31 32 13l20 18v20H39V38H25v13H12Z" fill="none" stroke="#edf5f8" stroke-width="5"/><path d="M10 44c9-7 16-7 25 0 8 6 13 6 20 0" fill="none" stroke="#5ba8df" stroke-width="4" stroke-linecap="round"/><circle cx="49" cy="17" r="7" fill="#58bd79"/></svg>';
+    const link=document.createElement("link");link.rel="icon";link.href=`data:image/svg+xml,${encodeURIComponent(svg)}`;document.head.append(link);
   }
 
   installFavicon();installBranding();installAutomation();installUpdatePanel();
