@@ -1,0 +1,104 @@
+name: Fix Manual Update Refresh
+on:
+  push:
+    branches: ["work/full-ui-beta22"]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/full-ui-beta22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Patch updater cache semantics
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          api = Path("gateway/dantherm_pi_admin_api.py")
+          text = api.read_text(encoding="utf-8")
+
+          old = 'def update_info(channel: str | None = None) -> dict[str, object]:\n'
+          new = 'def update_info(channel: str | None = None, *, force_refresh: bool = False) -> dict[str, object]:\n'
+          if old not in text:
+              raise SystemExit("update_info signature marker missing")
+          text = text.replace(old, new, 1)
+
+          old = '    if cached is not None and cache_age < UPDATE_INFO_CACHE_SECONDS:\n'
+          new = '    if not force_refresh and cached is not None and cache_age < UPDATE_INFO_CACHE_SECONDS:\n'
+          if old not in text:
+              raise SystemExit("cache condition marker missing")
+          text = text.replace(old, new, 1)
+
+          old = '        info = update_info(channel)\n'
+          new = '        info = update_info(channel, force_refresh=True)\n'
+          if old not in text:
+              raise SystemExit("install update_info marker missing")
+          text = text.replace(old, new, 1)
+
+          old = '                return self.reply(200, update_info(channel))\n'
+          new = '                return self.reply(200, update_info(channel, force_refresh=True))\n'
+          if old not in text:
+              raise SystemExit("manual check marker missing")
+          text = text.replace(old, new, 1)
+
+          api.write_text(text, encoding="utf-8")
+
+          test = Path("tests/test_updater_transport.py")
+          text = test.read_text(encoding="utf-8")
+          marker = '\n\nif __name__ == "__main__":\n'
+          if marker not in text:
+              raise SystemExit("test insertion marker missing")
+          addition = r'''
+
+    def test_force_refresh_bypasses_cached_beta_result(self):
+        self.module._UPDATE_INFO_CACHE["beta"] = {
+            "ok": True,
+            "channel": "beta",
+            "current_version": "1.2.0-beta.21",
+            "current_build": "old",
+            "available_version": "1.2.0-beta.21",
+            "available_build": "1.2.0-beta.21",
+            "ref": "v1.2.0-beta.21",
+            "published_at": None,
+            "update_available": False,
+        }
+        self.module._UPDATE_INFO_CACHE_AT["beta"] = self.module.time.monotonic()
+        with (
+            mock.patch.object(self.module, "current_version", return_value="1.2.0-beta.21"),
+            mock.patch.object(self.module, "current_build", return_value="old"),
+            mock.patch.object(
+                self.module,
+                "_request_text",
+                return_value="<feed>v1.2.0-beta.21 v1.2.0-beta.22</feed>",
+            ) as request_text,
+        ):
+            cached = self.module.update_info("beta")
+            refreshed = self.module.update_info("beta", force_refresh=True)
+
+        self.assertEqual(cached["available_version"], "1.2.0-beta.21")
+        self.assertEqual(refreshed["available_version"], "1.2.0-beta.22")
+        self.assertTrue(refreshed["update_available"])
+        request_text.assert_called_once()
+'''
+          text = text.replace(marker, addition + marker, 1)
+          test.write_text(text, encoding="utf-8")
+          PY
+      - name: Validate
+        run: |
+          pip install pytest pyserial==3.5 paho-mqtt PyYAML
+          python -m py_compile gateway/*.py
+          pytest -q tests/test_updater_transport.py
+          pytest -q
+      - name: Commit validated fix
+        run: |
+          rm -f .github/workflows/fix-manual-update-refresh.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add gateway/dantherm_pi_admin_api.py tests/test_updater_transport.py .github/workflows/fix-manual-update-refresh.yml
+          git commit -m 'Bypass updater cache on manual checks'
+          git push
