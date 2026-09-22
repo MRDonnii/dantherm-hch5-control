@@ -45,7 +45,11 @@ jobs:
           compgen -G 'gateway/webui/v2-*.css' >/dev/null
           for js in gateway/webui/v2-*.js; do node --check "$js"; done
       - name: Commit validated WebUI v2 bundle
-        if: github.event_name == 'push' && github.ref == 'refs/heads/work/webui-rebuild-v2'
+        if: >-
+          github.event_name == 'push' &&
+          (github.ref == 'refs/heads/work/webui-rebuild-v2' ||
+           github.ref == 'refs/heads/work/overview-v2' ||
+           startsWith(github.ref, 'refs/heads/beta/'))
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
