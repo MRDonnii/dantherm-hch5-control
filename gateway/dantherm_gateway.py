@@ -1245,6 +1245,13 @@ class Gateway:
                 # Eksperimentelt matchet mod HRC2-displayet 2026-07-15.
                 for key, raw in zip(("outdoor_temp", "supply_temp", "extract_temp", "exhaust_temp"), values):
                     self.publish(key, raw / 100.0)
+                # Canonical T2 (before the external HAC1 heating coil) identity,
+                # shared with the active-master path below, so the "before
+                # heater" sensor means the same thing regardless of which
+                # side currently masters the bus.
+                self.publish("supply_temperature", values[1] / 100.0)
+                self.state["temperature_source"] = "canonical_t2"
+                self.state["temperature_sample_monotonic"] = time.monotonic()
             elif len(values) == 5:
                 efficiency, extract_rpm, supply_rpm, bypass_raw, status = values
                 self.publish("heat_recovery_efficiency", efficiency)
@@ -1508,23 +1515,41 @@ class Gateway:
         if current[1] == value * 256:
             self.publish("afterheat_setpoint", value)
             return value
-        values = list(current)
-        values[1] = value * 256
-        frame = self.write_multiple_frame(0x40, 185, values)
         expected = bytes.fromhex("40 10 00 b9 00 05")
         expected += crc16(expected).to_bytes(2, "little")
-        if not self.wait_quiet(ser):
-            raise RuntimeError("RS485 bus did not become quiet")
-        self.serial_write(ser, frame, "CONTROL_AFTERHEAT_SETPOINT")
-        ser.flush()
-        deadline = time.monotonic() + 0.5
-        received = bytearray()
-        while time.monotonic() < deadline:
-            received.extend(self.serial_read(ser, 256))
-            if expected in received:
-                self.publish("afterheat_setpoint", value)
-                return value
-        raise RuntimeError("missing FC16 afterheat echo")
+        last_error: Exception | None = None
+        for attempt in range(3):
+            if attempt > 0:
+                # A missed echo on a live RS485 bus is usually a transient
+                # collision with HAC1's own unsolicited traffic, not a sign
+                # the frame was wrong. Re-read the block fresh (its other
+                # live words may have moved on) and retry the identical
+                # verified write rather than giving up after one miss.
+                time.sleep(0.08)
+                candidate = self.read_register_block(ser, 0x40, 185, 5)
+                if candidate is None or len(candidate) != 5 or candidate[0] & 1 != 1 or candidate[2] != 15:
+                    continue
+                current = candidate
+                if current[1] == value * 256:
+                    self.publish("afterheat_setpoint", value)
+                    return value
+            values = list(current)
+            values[1] = value * 256
+            frame = self.write_multiple_frame(0x40, 185, values)
+            if not self.wait_quiet(ser):
+                last_error = RuntimeError("RS485 bus did not become quiet")
+                continue
+            self.serial_write(ser, frame, "CONTROL_AFTERHEAT_SETPOINT")
+            ser.flush()
+            deadline = time.monotonic() + 0.5
+            received = bytearray()
+            while time.monotonic() < deadline:
+                received.extend(self.serial_read(ser, 256))
+                if expected in received:
+                    self.publish("afterheat_setpoint", value)
+                    return value
+            last_error = RuntimeError("missing FC16 afterheat echo")
+        raise last_error or RuntimeError("missing FC16 afterheat echo")
 
     def write_hrc_auto_sequence(
         self, ser: serial.Serial, restore_pair: tuple[int, int]
@@ -1663,6 +1688,10 @@ class Gateway:
                 temperatures,
             ):
                 self.publish(key, raw / 100.0)
+            # Same canonical T2 identity as the passive decode() path above.
+            self.publish("supply_temperature", temperatures[1] / 100.0)
+            self.state["temperature_source"] = "canonical_t2"
+            self.state["temperature_sample_monotonic"] = time.monotonic()
         if status is not None:
             humidity_raw, extract_rpm, supply_rpm, bypass_raw, status_code = status
             self.publish("heat_recovery_efficiency", humidity_raw)

@@ -20,7 +20,7 @@ if "paho.mqtt.client" not in sys.modules:
         "paho.mqtt.client": mqtt_client,
     })
 
-from dantherm_gateway import Gateway
+from dantherm_gateway import Gateway, crc16
 
 
 class FakeMqtt:
@@ -110,6 +110,23 @@ class BypassAndDiscoveryTests(unittest.TestCase):
         gateway.read_register_block = lambda *_args: self.fail("must not touch register 68")
         with self.assertRaisesRegex(RuntimeError, "fireplace"):
             gateway.write_bypass_request(object(), "on")
+
+    def test_passive_temperature_frame_publishes_canonical_before_heater_key(self):
+        gateway = make_gateway()
+        body = bytes.fromhex("010408" + "0576094c083705a2")
+        frame = body + crc16(body).to_bytes(2, "little")
+        gateway.decode(frame)
+        self.assertEqual(gateway.state["outdoor_temp"], 13.98)
+        self.assertEqual(gateway.state["supply_temp"], 23.80)
+        self.assertEqual(gateway.state["extract_temp"], 21.03)
+        self.assertEqual(gateway.state["exhaust_temp"], 14.42)
+        # controller_runtime.py reads "supply_temperature" (falling back to
+        # legacy "supply_temp") as the canonical "before heater" T2 sensor
+        # identity, regardless of whether HCP4 or the Pi currently masters
+        # the bus. Both paths in dantherm_gateway.py must publish it.
+        self.assertEqual(gateway.state["supply_temperature"], 23.80)
+        self.assertEqual(gateway.state["temperature_source"], "canonical_t2")
+        self.assertIsInstance(gateway.state["temperature_sample_monotonic"], float)
 
     def test_fireplace_pattern_keeps_verified_register_sequence(self):
         gateway = make_gateway()

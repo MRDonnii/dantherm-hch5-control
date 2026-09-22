@@ -28,12 +28,15 @@ function fmt(value: Num, suffix = "°C") {
 }
 function int(value: Num) { return value === null ? "—" : Math.round(value).toLocaleString("da-DK"); }
 
-// Duct centres are deliberately pulled towards the middle of the cabinet.
-// Normal paths meet the exchanger faces with short, rounded duct elbows.
-const NORMAL_SUPPLY = "M-45 205 H328 Q350 205 369 222 L550 295 L729 350 Q750 365 776 365 H1260";
-const NORMAL_EXTRACT = "M1260 205 H776 Q750 205 730 222 L550 295 L370 350 Q350 365 325 365 H-45";
-// Only supply bypasses the core. Extract continues through the exchanger.
-const BYPASS_SUPPLY = "M-45 205 H326 Q356 205 356 178 V143 Q356 118 382 118 H714 Q744 118 744 145 V326 Q744 365 782 365 H1260";
+// Duct centrelines all meet the exchanger's exact rotation centre (550 295),
+// crossing it as a clean X — the visual equivalent of real cross-flow. Both
+// ends of each duct extend 90px past the cabinet so the temperature ports
+// can sit centred on the flow line itself (fog running through them) with a
+// short, fading tail on either side instead of a hard cutoff.
+const NORMAL_SUPPLY = "M-135 205 H328 Q350 205 369 222 L550 295 L729 350 Q750 365 776 365 H1350";
+const NORMAL_EXTRACT = "M1350 205 H776 Q750 205 730 222 L550 295 L370 350 Q350 365 325 365 H-135";
+// Only supply bypasses the core; extract still always crosses the exchanger.
+const BYPASS_SUPPLY = "M-135 205 H326 Q356 205 356 178 V143 Q356 118 382 118 H714 Q744 118 744 145 V326 Q744 365 782 365 H1350";
 
 function Fan({ x, y, rpm, label }: { x: number; y: number; rpm: Num; label: string }) {
   const speed = rpm && rpm > 0 ? Math.max(4.5, 6.5 - rpm / 2200) : 0;
@@ -50,9 +53,18 @@ function Filter({ x, y, label }: { x: number; y: number; label: string }) {
     <text className="hch-part-label" x="0" y="80" textAnchor="middle">{label}</text>
   </g>;
 }
-function TempBadge({ x, y, title, value, align = "start", tone = "neutral" }: { x:number;y:number;title:string;value:string;align?:"start"|"end";tone?:string }) {
-  const width=118; const left=align==="end"?x-width:x;
-  return <g className={`hch-temp-badge tone-${tone}`} transform={`translate(${left} ${y})`}><rect width={width} height="62" rx="13"/><text className="hch-temp-title" x="13" y="22">{title}</text><text className="hch-temp-value" x="13" y="47">{value}</text></g>;
+// Temperature "ports": semi-transparent duct-cap plates centred exactly on
+// the flow centreline, so the fog visibly enters one side and continues out
+// the other while the reading itself stays fully legible above the flow.
+function TempPort({ cx, cy, title, value, tone = "neutral" }: { cx: number; cy: number; title: string; value: string; tone?: string }) {
+  const width = 132, height = 66;
+  return (
+    <g className={`hch-temp-port tone-${tone}`} transform={`translate(${cx} ${cy})`}>
+      <rect className="hch-temp-port-plate" x={-width / 2} y={-height / 2} width={width} height={height} rx="16" />
+      <text className="hch-temp-port-title" x="0" y={-8} textAnchor="middle">{title}</text>
+      <text className="hch-temp-port-value" x="0" y={17} textAnchor="middle">{value}</text>
+    </g>
+  );
 }
 function SensorPin({ x, y, label, value }: { x:number;y:number;label:string;value:string }) {
   return <g className="hch-sensor-pin" transform={`translate(${x} ${y})`}><circle r="5"/><line x1="0" y1="0" x2="0" y2="-23"/><rect x="-45" y="-57" width="90" height="30" rx="8"/><text x="0" y="-45" textAnchor="middle">{label}</text><text className="pin-value" x="0" y="-34" textAnchor="middle">{value}</text></g>;
@@ -68,7 +80,7 @@ export function Hch5UnitDiagram(props:Hch5UnitDiagramProps) {
   const supplyPath=bypassActual?BYPASS_SUPPLY:NORMAL_SUPPLY; const extractPath=NORMAL_EXTRACT;
   const supplySpeed=supplyRpm&&supplyRpm>0?Math.max(8,11-supplyRpm/1400):0; const extractSpeed=extractRpm&&extractRpm>0?Math.max(8,11-extractRpm/1400):0;
   return <div className={`hch5-visual${bypassActual?" is-bypass":" is-recovery"}`}>
-    <svg viewBox="-70 -8 1370 590" role="img" aria-label="HCH5 luftstrøm med intern bypass og ekstern eftervarme">
+    <svg viewBox="-160 -8 1550 590" role="img" aria-label="HCH5 luftstrøm med intern bypass og ekstern eftervarme">
       <defs>
         <linearGradient id="metalFace" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stopColor="#596b76"/><stop offset=".4" stopColor="#263843"/><stop offset="1" stopColor="#14242e"/></linearGradient>
         <linearGradient id="metalTop" x1="0" x2="1"><stop offset="0" stopColor="#7b8991"/><stop offset=".48" stopColor="#40515b"/><stop offset="1" stopColor="#263640"/></linearGradient>
@@ -80,7 +92,7 @@ export function Hch5UnitDiagram(props:Hch5UnitDiagramProps) {
         <filter id="unitShadow" x="-30%" y="-40%" width="170%" height="190%"><feDropShadow dx="0" dy="18" stdDeviation="18" floodColor="#000" floodOpacity=".42"/></filter>
         <pattern id="filterMesh" width="8" height="8" patternUnits="userSpaceOnUse"><path d="M0 8L8 0M-2 2L2-2M6 10L10 6" stroke="#aab9c1" strokeWidth="1" opacity=".6"/></pattern>
         <linearGradient id="fogFadeGradient" x1="0" x2="1"><stop offset="0" stopColor="#fff" stopOpacity="0"/><stop offset=".035" stopColor="#fff" stopOpacity="1"/><stop offset=".965" stopColor="#fff" stopOpacity="1"/><stop offset="1" stopColor="#fff" stopOpacity="0"/></linearGradient>
-        <mask id="fogFadeMask"><rect x="-70" y="-8" width="1370" height="590" fill="url(#fogFadeGradient)"/></mask>
+        <mask id="fogFadeMask"><rect x="-160" y="-8" width="1550" height="590" fill="url(#fogFadeGradient)"/></mask>
       </defs>
       <ellipse className="hch-floor-shadow" cx="552" cy="483" rx="380" ry="32"/>
       <g filter="url(#unitShadow)">
@@ -101,7 +113,10 @@ export function Hch5UnitDiagram(props:Hch5UnitDiagramProps) {
       <g className="hch-fog-group" filter="url(#fogBlur)" mask="url(#fogFadeMask)"><path className="hch-fog hch-fog-supply hch-fog-a" d={supplyPath} style={{"--flow-speed":supplySpeed?`${supplySpeed}s`:"0s"} as CSSProperties}/><path className="hch-fog hch-fog-supply hch-fog-b" d={supplyPath} style={{"--flow-speed":supplySpeed?`${supplySpeed*1.35}s`:"0s"} as CSSProperties}/><path className="hch-fog hch-fog-extract hch-fog-a" d={extractPath} style={{"--flow-speed":extractSpeed?`${extractSpeed}s`:"0s"} as CSSProperties}/><path className="hch-fog hch-fog-extract hch-fog-b" d={extractPath} style={{"--flow-speed":extractSpeed?`${extractSpeed*1.35}s`:"0s"} as CSSProperties}/></g>
       <g className="hch-fog-group soft" filter="url(#fogBlurSoft)" mask="url(#fogFadeMask)"><path className="hch-fog-wash hch-fog-supply" d={supplyPath} style={{"--flow-speed":supplySpeed?`${supplySpeed*1.7}s`:"0s"} as CSSProperties}/><path className="hch-fog-wash hch-fog-extract" d={extractPath} style={{"--flow-speed":extractSpeed?`${extractSpeed*1.7}s`:"0s"} as CSSProperties}/></g>
       <path className="hch-airflow-guide hch-supply-flow" d={supplyPath} style={{"--flow-speed":supplySpeed?`${supplySpeed}s`:"0s"} as CSSProperties}/><path className="hch-airflow-guide hch-extract-flow" d={extractPath} style={{"--flow-speed":extractSpeed?`${extractSpeed}s`:"0s"} as CSSProperties}/>
-      <TempBadge x={8} y={125} title="Udeluft · T1" value={fmt(outdoor)} tone="cold"/><TempBadge x={8} y={408} title="Afkast · T4" value={fmt(exhaust)} tone="warm"/><TempBadge x={1284} y={125} title="Udsugning · T3" value={fmt(extract)} align="end" tone="warm"/><TempBadge x={1284} y={408} title="Indblæsning · T2AH" value={fmt(afterHeater)} align="end" tone="green"/>
+      <TempPort cx={-90} cy={205} title="Udeluft · T1" value={fmt(outdoor)} tone="cold"/>
+      <TempPort cx={-90} cy={365} title="Afkast · T4" value={fmt(exhaust)} tone="warm"/>
+      <TempPort cx={1305} cy={205} title="Udsugning · T3" value={fmt(extract)} tone="warm"/>
+      <TempPort cx={1305} cy={365} title="Indblæsning · T2AH" value={fmt(afterHeater)} tone="green"/>
       <SensorPin x={968} y={365} label="T2 før flade" value={fmt(beforeHeater,"°")}/><SensorPin x={1142} y={365} label="T2AH" value={fmt(afterHeater,"°")}/><SensorPin x={1055} y={292} label="Frost" value={fmt(frost,"°")}/><SensorPin x={610} y={126} label="T5 rum" value={fmt(room,"°")}/>
       <g className="hch-water-callout" transform="translate(940 480)"><rect width="245" height="55" rx="12"/><text x="14" y="21">Eftervarmevand · ekstern flade</text><text className="water-value" x="14" y="41">Fremløb {fmt(flowWater)} · Retur {fmt(returnWater)}</text></g>
       <g className="hch-bypass-callout" transform="translate(467 20)"><rect width="166" height="53" rx="12"/><text x="83" y="20" textAnchor="middle">Bypass-spjæld</text><text className="bypass-state" x="83" y="40" textAnchor="middle">{bypassActual?"Åben":"Lukket"} · ønske {bypassRequest.toLowerCase()==="on"?"On":"Auto"}</text></g>

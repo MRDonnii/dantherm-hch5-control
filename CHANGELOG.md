@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0-beta.23
+
+- Fixes the afterheat setpoint write failing with "missing FC16 afterheat echo": a missed echo on a live RS485 bus is now retried (fresh re-read + rewrite, up to 3 attempts) instead of failing on the first transient miss. The verified write frame and identity checks are unchanged.
+- Fixes a CSS specificity bug where `overview.css` silently reintroduced a dashed pattern on top of the solid fog styling in `pro-dashboard.css`, which is exactly what made the airflow look thinner in some spots than others. Fog styling now lives solely in `pro-dashboard.css`.
+- Redesigns the duct/temperature-port integration: normal-mode ducts extend further past the cabinet, and the four temperature readouts (T1/T3/T4/T2AH) are now semi-transparent duct-cap plates centred exactly on the flow centreline, so the fog visibly runs through them and fades out gradually afterwards via the existing mask, instead of the readouts floating separately from a flow that faded out well before reaching them.
+- Investigated the "before heater" (T2) sensor: found that beta.22's `controller_runtime.py` already reads a canonical `supply_temperature` key (falling back to legacy `supply_temp`) for sensor identity independent of bus master, but `dantherm_gateway.py` never actually published that key — an incomplete migration, not a removed sensor. Completed it: both the passive (HCP4) and active (Pi-master) temperature-decode paths now publish `supply_temperature` plus a `temperature_source`/`temperature_sample_monotonic` pair, with a regression test covering it.
+
 ## 1.2.0-beta.17
 
 - Reroutes the normal-mode supply/extract paths through the exact exchanger rotation center so they cross it as a clean X, matching real cross-flow.

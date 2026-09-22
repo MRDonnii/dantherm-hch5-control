@@ -116,12 +116,34 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .hch-airflow-guide { fill: none; stroke-width: 2; stroke-linecap: round; stroke-dasharray: 1 30; opacity: .48; animation: pro-airflow var(--flow-speed) linear infinite; }
 .hch-airflow-guide[style*="0s"] { animation: none; opacity: .16; }
 @keyframes pro-airflow { to { stroke-dashoffset: -54; } }
-.hch-temp-badge rect { fill: #0a1822; stroke: #274557; }
-.hch-temp-title { fill: #91a7b5; font-size: 10px; font-weight: 700; }
-.hch-temp-value { fill: #f2f8fb; font-size: 18px; font-weight: 850; }
-.hch-temp-badge.tone-cold circle,.tone-cold .hch-temp-value { fill: #67c5ff; }
-.hch-temp-badge.tone-warm circle,.tone-warm .hch-temp-value { fill: #ffad62; }
-.hch-temp-badge.tone-green circle,.tone-green .hch-temp-value { fill: #64e5a3; }
+
+/* A slow, uniform opacity breathe — never spatial, so the band never reads
+   as thinner in one place than another — gives the fog a sense of life
+   without touching the dash pattern (there isn't one) or its density. */
+.hch-fog-group { animation: pro-fog-breathe 9s ease-in-out infinite; }
+.hch-fog-group.soft { animation-duration: 12s; animation-delay: -4s; }
+@keyframes pro-fog-breathe { 0%, 100% { opacity: .92; } 50% { opacity: 1; } }
+:root[data-motion="reduced"] .hch-fog-group,
+:root[data-motion="reduced"] .hch-airflow-guide,
+:root[data-motion="reduced"] .hch-fan-rotor {
+  animation: none !important;
+}
+:root[data-motion="reduced"] .hch-fog-a,
+:root[data-motion="reduced"] .hch-fog-b,
+:root[data-motion="reduced"] .hch-fog-wash {
+  opacity: .09;
+}
+
+/* Temperature ports double as the visual duct outlet/inlet caps: a
+   semi-transparent glass plate sitting directly on the flow centreline so
+   the fog is visible passing through/behind it, while the reading itself
+   stays fully legible via a solid backing chip plus text shadow. */
+.hch-temp-port-plate { fill: rgb(8 20 28 / 74%); stroke: #3a5b70; stroke-width: 1.4; filter: drop-shadow(0 6px 14px rgb(0 0 0 / 35%)); }
+.hch-temp-port-title { fill: #a9c0cd; font-size: 9.5px; font-weight: 750; letter-spacing: .02em; paint-order: stroke; stroke: #08141c; stroke-width: 3px; stroke-linejoin: round; }
+.hch-temp-port-value { fill: #f5fafd; font-size: 20px; font-weight: 850; paint-order: stroke; stroke: #08141c; stroke-width: 3.5px; stroke-linejoin: round; }
+.hch-temp-port.tone-cold .hch-temp-port-value { fill: #7fd0ff; }
+.hch-temp-port.tone-warm .hch-temp-port-value { fill: #ffb066; }
+.hch-temp-port.tone-green .hch-temp-port-value { fill: #74ecab; }
 .hch-sensor-pin circle { fill: #70ccff; stroke: #d2f2ff; stroke-width: 1; }
 .hch-sensor-pin line { stroke: #688597; stroke-width: 1; }
 .hch-sensor-pin rect { fill: #0a1822; stroke: #284859; }
