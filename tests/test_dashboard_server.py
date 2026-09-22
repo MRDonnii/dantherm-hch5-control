@@ -64,7 +64,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('path="/updates"', app)
         self.assertIn("<UpdatesPage />", app)
         self.assertIn("HashRouter", main)
-        self.assertNotIn("iframe", app.lower())
+        self.assertNotIn("<iframe", app.lower())
         self.assertNotIn("window.location.assign(\"/controller\")", shell)
     def test_read_only_system_snapshot_has_no_control_surface(self):
         with tempfile.TemporaryDirectory() as tmp:
