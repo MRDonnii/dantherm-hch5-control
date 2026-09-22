@@ -22,3 +22,4 @@ jobs:
       - run: node --check gateway/webui/controller.js
       - run: node --check gateway/webui/master_status.js
       - run: node --check gateway/webui/smartcontrol.js
+      - run: node --check gateway/webui/sniffer.js
