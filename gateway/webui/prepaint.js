@@ -45,6 +45,13 @@
   `;
   document.head.append(style);
 
+  // Keep the high-level visual layer independent from the legacy dashboard code.
+  // It can therefore evolve quickly without changing controller semantics.
+  const studioScript = document.createElement("script");
+  studioScript.src = "/assets/studio.js";
+  studioScript.async = false;
+  document.head.append(studioScript);
+
   function navTabFromUrl(url) {
     if (url.pathname === "/controller" || url.pathname === "/controller.html") return "technique";
     if (url.pathname !== "/" && url.pathname !== "/index.html") return null;
