@@ -1,3 +1,4 @@
+@import url("/assets/smartcontrol.css");
 :root{--page-bg:#081019;--top-bg:#081019dd;--card-a:#14212cdb;--card-b:#0e1822ee;--duct-base:#243643;--component:#162632;--component-edge:#87a8b8}
 html[data-theme="light"]{color-scheme:light;--bg:#eef3f6;--panel:#fff;--panel2:#f5f8fa;--edge:#17354c1c;--text:#172a38;--muted:#657888;--page-bg:#e9f0f4;--top-bg:#f8fbfddd;--card-a:#ffffffee;--card-b:#f5f9fbf5;--duct-base:#cad7df;--component:#e9f0f4;--component-edge:#66899c}
 body{background:radial-gradient(circle at 50% -20%,color-mix(in srgb,var(--cyan) 12%,var(--page-bg)) 0,var(--page-bg) 42%)}
