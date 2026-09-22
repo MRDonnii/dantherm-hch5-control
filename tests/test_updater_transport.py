@@ -42,6 +42,8 @@ class UpdaterTransportTests(unittest.TestCase):
         self.assertTrue(info["update_available"])
         self.assertEqual(info["available_build"], "1.2.0-beta.18")
         self.assertIn("raw.githubusercontent.com", request_text.call_args.args[0])
+        self.assertIn("/beta-latest/VERSION", request_text.call_args.args[0])
+        self.assertEqual(info["ref"], "v1.2.0-beta.18")
         final_url.assert_not_called()
 
     def test_stable_check_resolves_public_latest_redirect(self):

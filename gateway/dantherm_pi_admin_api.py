@@ -30,7 +30,7 @@ APP_DIR = Path("/opt/dantherm-passivelink-webui")
 VERSION_FILE = APP_DIR / "VERSION"
 BUILD_FILE = APP_DIR / "BUILD"
 REPOSITORY = "MRDonnii/dantherm-hch-passivelink-webui"
-BETA_REF = "beta/1.1-modern-controller"
+BETA_REF = "beta-latest"
 USER_AGENT = "HCH5-Control-Updater/1.2"
 PROFILES = {"powersave": "powersave", "balanced": "ondemand", "performance": "performance"}
 SERVICES = {
@@ -187,8 +187,8 @@ def update_info(channel: str | None = None) -> dict[str, object]:
             published = None
             update_available = current != remote_version
         else:
-            ref = BETA_REF
             remote_version = _request_text(f"https://raw.githubusercontent.com/{REPOSITORY}/{BETA_REF}/VERSION")
+            ref = f"v{remote_version}"
             available_build = remote_version
             published = None
             update_available = current != remote_version

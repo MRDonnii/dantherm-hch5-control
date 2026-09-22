@@ -6,7 +6,7 @@ Usage: sudo ./install.sh --device /dev/serial/by-id/YOUR_ADAPTER [options]
   --gateway-port PORT   Raw TCP port for Home Assistant (default: 4196)
   --web-port PORT       WebUI/controller API port (default: 8080)
   --enable-onewire      Install optional DS18B20/Pi diagnostics service
-  --beta                Install the exact v1.1.0-beta.1 prerelease
+  --beta                Install the current versioned beta prerelease
   --ref REF             Install an exact GitHub tag/branch when piping this script
 EOF
 }
@@ -27,7 +27,8 @@ done
 
 if [[ ${beta} -eq 1 ]]; then
   [[ -z ${source_ref} ]] || { echo "Use either --beta or --ref, not both." >&2; exit 2; }
-  source_ref="v1.1.0-beta.1"
+  beta_version=$(curl -fsSL "https://raw.githubusercontent.com/MRDonnii/dantherm-hch-passivelink-webui/beta-latest/VERSION")
+  source_ref="v${beta_version}"
 fi
 
 [[ ${EUID} -eq 0 ]] || { echo "Run as root with sudo." >&2; exit 1; }

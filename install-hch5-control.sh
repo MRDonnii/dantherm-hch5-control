@@ -4,10 +4,11 @@ set -euo pipefail
 command -v curl >/dev/null || { echo "curl is required." >&2; exit 1; }
 command -v tar >/dev/null || { echo "tar is required." >&2; exit 1; }
 
-ref="beta/1.1-modern-controller"
+version=$(curl -fsSL "https://raw.githubusercontent.com/MRDonnii/dantherm-hch-passivelink-webui/beta-latest/VERSION")
+ref="v${version}"
 tmp=$(mktemp -d)
 trap 'rm -rf -- "$tmp"' EXIT
-curl -fsSL "https://codeload.github.com/MRDonnii/dantherm-hch-passivelink-webui/tar.gz/refs/heads/${ref}" \
+curl -fsSL "https://codeload.github.com/MRDonnii/dantherm-hch-passivelink-webui/tar.gz/${ref}" \
   | tar -xz -C "$tmp" --strip-components=1
 
 build=$(cat "$tmp/VERSION")
