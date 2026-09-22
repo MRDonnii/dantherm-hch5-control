@@ -11,7 +11,7 @@ SupplementaryGroups=dialout video
 WorkingDirectory=/opt/dantherm-passivelink-webui
 EnvironmentFile=/etc/dantherm-passivelink-webui/gateway.env
 ExecStartPre=/bin/sh -c 'test -e "$RS485_DEVICE"'
-ExecStart=/opt/dantherm-passivelink-webui/venv/bin/python /opt/dantherm-passivelink-webui/dantherm_controller_gateway.py -c /etc/dantherm-passivelink-webui/controller.yaml
+ExecStart=/usr/bin/env DANTHERM_WEBUI_AUTH_FILE=/var/lib/dantherm-hch5-ha/webui-auth.json /opt/dantherm-passivelink-webui/venv/bin/python /opt/dantherm-passivelink-webui/dantherm_controller_gateway.py -c /etc/dantherm-passivelink-webui/controller.yaml
 Restart=always
 RestartSec=3
 NoNewPrivileges=true
@@ -19,6 +19,7 @@ PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
 StateDirectory=dantherm-hch5-ha
+StateDirectoryMode=0750
 ReadWritePaths=/var/lib/dantherm-hch5-ha
 
 [Install]
