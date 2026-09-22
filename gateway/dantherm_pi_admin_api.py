@@ -23,7 +23,6 @@ BIND = os.getenv("DANTHERM_ADMIN_BIND", "127.0.0.1")
 PORT = int(os.getenv("DANTHERM_ADMIN_PORT", "4198"))
 PROFILE_FILE = Path("/var/lib/dantherm-admin/power-profile")
 VERSION_FILE = Path("/opt/dantherm-passivelink-webui/VERSION")
-ENV_FILE = Path("/etc/dantherm-passivelink-webui/gateway.env")
 REPOSITORY = "MRDonnii/dantherm-hch-passivelink-webui"
 BETA_REF = "beta/1.1-modern-controller"
 USER_AGENT = "HCH5-Control-Updater/1.0"
@@ -44,18 +43,6 @@ def set_profile(profile):
         path.write_text(governor)
     PROFILE_FILE.parent.mkdir(parents=True, exist_ok=True)
     PROFILE_FILE.write_text(profile + "\n")
-
-
-def _read_env() -> dict[str, str]:
-    result: dict[str, str] = {}
-    try:
-        for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
-            if "=" in line and not line.lstrip().startswith("#"):
-                key, value = line.split("=", 1)
-                result[key.strip()] = value.strip()
-    except OSError:
-        pass
-    return result
 
 
 def _request_json(url: str) -> dict:
@@ -88,9 +75,7 @@ def update_info(channel: str) -> dict[str, object]:
         published = release.get("published_at")
     else:
         ref = BETA_REF
-        remote_version = _request_text(
-            f"https://raw.githubusercontent.com/{REPOSITORY}/{BETA_REF}/VERSION"
-        )
+        remote_version = _request_text(f"https://raw.githubusercontent.com/{REPOSITORY}/{BETA_REF}/VERSION")
         branch = _request_json(f"https://api.github.com/repos/{REPOSITORY}/branches/{BETA_REF}")
         published = branch.get("commit", {}).get("commit", {}).get("committer", {}).get("date")
     return {
@@ -115,6 +100,7 @@ def _download_tarball(ref: str, destination: Path) -> None:
 
 
 def _safe_extract(archive: Path, destination: Path) -> Path:
+    destination.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive, "r:gz") as tar:
         members = tar.getmembers()
         roots = {Path(member.name).parts[0] for member in members if member.name and Path(member.name).parts}
@@ -136,29 +122,16 @@ def _install_update(channel: str) -> None:
     try:
         info = update_info(channel)
         ref = str(info["ref"])
-        env = _read_env()
-        device = env.get("RS485_DEVICE")
-        if not device or not device.startswith("/dev/serial/by-id/"):
-            raise RuntimeError("stable_rs485_device_missing")
-        gateway_port = env.get("GATEWAY_PORT", "4196")
-        web_port = env.get("WEBUI_PORT", "8080")
-        onewire = bool(env.get("ONEWIRE_URL"))
         with tempfile.TemporaryDirectory(prefix="hch5-control-update-") as temporary:
             directory = Path(temporary)
             archive = directory / "source.tar.gz"
             _download_tarball(ref, archive)
             source = _safe_extract(archive, directory / "src")
-            installer = source / "install.sh"
-            if not installer.is_file():
-                raise RuntimeError("installer_missing")
-            args = [
-                "bash", str(installer), "--device", device,
-                "--gateway-port", str(gateway_port), "--web-port", str(web_port),
-            ]
-            if onewire:
-                args.append("--enable-onewire")
-            subprocess.run(args, cwd=source, check=True, timeout=900)
-    except Exception as error:  # logged through status, never execute arbitrary caller input
+            updater = source / "update.sh"
+            if not updater.is_file():
+                raise RuntimeError("updater_missing")
+            subprocess.run(["bash", str(updater)], cwd=source, check=True, timeout=300)
+    except Exception as error:
         UPDATE_STATE["last_error"] = f"{type(error).__name__}: {error}"
     finally:
         UPDATE_STATE["running"] = False
@@ -229,10 +202,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, {"ok": True, "power_profile": target})
         if action == "restart_service" and target in SERVICES:
             self.reply(202, {"ok": True, "message": "service restart scheduled"})
-            threading.Thread(
-                target=lambda: (time.sleep(.5), subprocess.run(["systemctl", "restart", SERVICES[target]], check=False)),
-                daemon=True,
-            ).start()
+            threading.Thread(target=lambda: (time.sleep(.5), subprocess.run(["systemctl", "restart", SERVICES[target]], check=False)), daemon=True).start()
             return
         if action == "check_update" and target in {"stable", "beta"}:
             try:
