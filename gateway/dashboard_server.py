@@ -15,15 +15,24 @@ RANGES = {"1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800, "30d": 2592000}
 HISTORY_FIELDS = ("outdoor_temp", "supply_temp", "extract_temp", "exhaust_temp", "hrc2_t5_temperature", "flow_temperature", "return_temperature", "co2", "fan_supply_rpm", "fan_extract_rpm", "fan_supply_percent", "fan_extract_percent", "heat_recovery_efficiency")
 
 class HistoryStore:
+    """Bounded sample history. Optional: any failure disables it without
+    ever taking down the controller, RS485, WebUI or auth."""
     def __init__(self, path: str | Path, retention_days: int = 30, sample_seconds: int = 60):
         self.path, self.retention_seconds = Path(path), max(1, retention_days) * 86400
         self.sample_seconds, self.lock, self.last_sample = max(10, sample_seconds), threading.Lock(), 0.0
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as db:
-            columns = ",".join(f'"{field}" REAL' for field in HISTORY_FIELDS)
-            db.execute(f"CREATE TABLE IF NOT EXISTS samples (ts INTEGER PRIMARY KEY,{columns})")
+        self.available, self.error = False, None
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with self._connect() as db:
+                columns = ",".join(f'"{field}" REAL' for field in HISTORY_FIELDS)
+                db.execute(f"CREATE TABLE IF NOT EXISTS samples (ts INTEGER PRIMARY KEY,{columns})")
+            self.available = True
+        except (OSError, sqlite3.Error) as error:
+            self.error = str(error)
+            LOGGER.warning("History disabled: %s", error)
     def _connect(self): return sqlite3.connect(self.path, timeout=3)
     def record(self, state: dict[str, object], now: float | None = None) -> None:
+        if not self.available: return
         now = now or time.time()
         if now - self.last_sample < self.sample_seconds: return
         values = []
@@ -33,14 +42,24 @@ class HistoryStore:
             if field == "heat_recovery_efficiency" and value is not None and not 0 <= value <= 100: value = None
             values.append(value)
         timestamp = int(now); placeholders = ",".join("?" for _ in range(len(HISTORY_FIELDS) + 1)); columns = ",".join(["ts", *(f'"{field}"' for field in HISTORY_FIELDS)])
-        with self.lock, self._connect() as db:
-            db.execute(f"INSERT OR REPLACE INTO samples ({columns}) VALUES ({placeholders})", [timestamp, *values])
-            db.execute("DELETE FROM samples WHERE ts < ?", (timestamp - self.retention_seconds,))
-        self.last_sample = now
+        try:
+            with self.lock, self._connect() as db:
+                db.execute(f"INSERT OR REPLACE INTO samples ({columns}) VALUES ({placeholders})", [timestamp, *values])
+                db.execute("DELETE FROM samples WHERE ts < ?", (timestamp - self.retention_seconds,))
+            self.last_sample = now
+        except (OSError, sqlite3.Error) as error:
+            self.available, self.error = False, str(error)
+            LOGGER.warning("History write failed, disabling: %s", error)
     def query(self, range_name: str) -> list[dict[str, object]]:
+        if not self.available: return []
         since = int(time.time()) - RANGES.get(range_name, RANGES["24h"])
-        with self.lock, self._connect() as db:
-            db.row_factory = sqlite3.Row; rows = db.execute("SELECT * FROM samples WHERE ts >= ? ORDER BY ts", (since,)).fetchall()
+        try:
+            with self.lock, self._connect() as db:
+                db.row_factory = sqlite3.Row; rows = db.execute("SELECT * FROM samples WHERE ts >= ? ORDER BY ts", (since,)).fetchall()
+        except (OSError, sqlite3.Error) as error:
+            self.available, self.error = False, str(error)
+            LOGGER.warning("History read failed, disabling: %s", error)
+            return []
         stride = max(1, len(rows) // 720)
         return [dict(row) for row in rows[::stride]]
 
@@ -161,7 +180,7 @@ class DashboardHttpServer:
                 elif parsed.path in ("/state.json", "/api"): self._json(dashboard.snapshot())
                 elif parsed.path == "/api/diagnostics/report": self._diagnostic_report()
                 elif parsed.path == "/history.json":
-                    name = parse_qs(parsed.query).get("range", ["24h"])[0]; self._json({"range": name, "samples": dashboard.history.query(name)})
+                    name = parse_qs(parsed.query).get("range", ["24h"])[0]; self._json({"range": name, "samples": dashboard.history.query(name), "available": dashboard.history.available, "error": dashboard.history.error})
                 elif parsed.path.startswith("/assets/"):
                     target = dashboard.web_root / Path(parsed.path).name; content_type = ASSET_TYPES.get(target.suffix); self._file(target, content_type) if content_type else self.send_error(404)
                 else: self.send_error(404)
