@@ -84,6 +84,31 @@
     if (active) document.querySelectorAll(".tabs button[data-tab]").forEach(button => button.classList.remove("active"));
   }
 
+  function activateDashboardTab(tab) {
+    const requested = String(tab || "overview");
+    const button = document.querySelector(`.tabs button[data-tab="${CSS.escape(requested)}"]`)
+      || document.querySelector('.tabs button[data-tab="overview"]');
+    if (!button) return false;
+    const page = document.getElementById(button.dataset.tab || "overview");
+    if (!page) return false;
+
+    document.querySelectorAll("main > .page").forEach(item => item.classList.toggle("active", item === page));
+    document.querySelectorAll(".tabs button[data-tab]").forEach(item => {
+      const active = item === button;
+      item.classList.toggle("active", active);
+      if (active) item.setAttribute("aria-current", "page");
+      else item.removeAttribute("aria-current");
+    });
+    setTechniqueNavActive(false);
+
+    // History normally loads through dashboard.js. Calling it here when it is
+    // available keeps this navigation layer independent without duplicating it.
+    if (button.dataset.tab === "history" && typeof window.loadHistory === "function") {
+      try { window.loadHistory(); } catch (e) {}
+    }
+    return true;
+  }
+
   function showTechnique() {
     const host = ensureTechniqueBridge();
     if (!host) return false;
@@ -93,13 +118,9 @@
   }
 
   function showDashboardTab(tab) {
-    const host = document.getElementById("technique-bridge");
-    if (host) host.classList.remove("active");
-    setTechniqueNavActive(false);
-    const button = document.querySelector(`.tabs button[data-tab="${CSS.escape(tab || "overview")}"]`)
-      || document.querySelector('.tabs button[data-tab="overview"]');
-    if (button) button.click();
-    history.replaceState(null, "", "/");
+    const shown = activateDashboardTab(tab);
+    if (shown) history.replaceState(null, "", "/");
+    return shown;
   }
 
   addEventListener("message", event => {
@@ -126,6 +147,9 @@
       return;
     }
 
+    // Navigation is owned here in capture phase so it remains usable even if a
+    // later dashboard/controller script throws. dashboard.js may also handle the
+    // click; both implementations resolve to the same active page.
     document.addEventListener("click", event => {
       const anchor = event.target.closest?.("a[href]");
       if (anchor) {
@@ -137,8 +161,13 @@
           return;
         }
       }
+
       const tabButton = event.target.closest?.(".tabs button[data-tab]");
-      if (tabButton) setTechniqueNavActive(false);
+      if (tabButton) {
+        event.preventDefault();
+        activateDashboardTab(tabButton.dataset.tab || "overview");
+        history.replaceState(null, "", "/");
+      }
     }, true);
 
     const requested = params.get("tab");
@@ -146,8 +175,10 @@
       showTechnique();
       history.replaceState(null, "", "/");
     } else if (location.pathname === "/" && requested) {
-      // Keep one-shot deep links, but normal refreshes still begin on Overview.
-      queueMicrotask(() => history.replaceState(null, "", "/"));
+      activateDashboardTab(requested);
+      history.replaceState(null, "", "/");
+    } else if (location.pathname === "/" || location.pathname === "/index.html") {
+      activateDashboardTab("overview");
     }
 
     // Warm Technique in the background so the first click is instant and does
