@@ -16,6 +16,7 @@ from pathlib import Path
 import serial
 import yaml
 
+from controller_observability import install_controller_observability
 from dantherm_gateway import Gateway as BaseGateway
 from master_arbitration import MasterArbitrator
 
@@ -38,6 +39,7 @@ class Gateway(BaseGateway):
         super().__init__(config)
         master_cfg = config.get("controller", {}).get("master_arbitration", {})
         self.controller.configure_master(master_cfg)
+        self.controller_observability = install_controller_observability(self.controller)
 
         # ControllerRuntime is the only Pi-side controller in this entrypoint.
         # Disable the older experimental MQTT/manual loop so it can never
@@ -49,6 +51,7 @@ class Gateway(BaseGateway):
         self.startup_mode = None
         LOG.info("Legacy gateway control loop disabled; ControllerRuntime owns Pi control")
         LOG.info("HCH5 Control local filter tracking enabled")
+        LOG.info("HCH5 Control decision log and data-health diagnostics enabled")
 
     def serial_read(self, ser: serial.Serial, size: int) -> bytes:
         data = super().serial_read(ser, size)
