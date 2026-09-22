@@ -8,6 +8,8 @@ from controller_core import HardwareAdapter
 from controller_dashboard_server import ControllerDashboardHttpServer
 from controller_runtime import ControllerRuntime
 from passivelink_parser import DanthermDecoder, RtuStreamParser
+# Sniffer: read-only Modbus/TCP mirror consumer
+from sniffer import SnifferManager
 
 LOG=logging.getLogger("passivelink-webui")
 FIELD_MAP={
@@ -32,6 +34,14 @@ class Gateway:
             web_bind,web_port,self.state,"Dantherm HCH5",preheater_url,
             controller_runtime=self.controller,
         )
+        # Attach a local, read-only sniffer manager that uses the configured
+        # raw TCP mirror source (prefer localhost). The sniffer never writes
+        # to the bus — it only reads the mirror and stores captures.
+        try:
+            self.sniffer = SnifferManager(base_dir="/var/lib/dantherm-hch5-ha/sniffer-captures", host="127.0.0.1", port=self.port)
+            self.dashboard.sniffer = self.sniffer
+        except Exception:
+            LOG.exception("Could not initialize sniffer manager")
     def on_frame(self,frame): self.last_frame=time.monotonic(); self.decoder.decode(frame)
     def on_update(self,values):
         for key,value in values.items(): self.state[FIELD_MAP.get(key,key)]=value

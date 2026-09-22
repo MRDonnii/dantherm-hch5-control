@@ -1,0 +1,12 @@
+"use strict";
+let csrf="";
+async function authStatus(){try{const r=await fetch('/api/auth/status',{cache:'no-store'});if(!r.ok)throw 0;const j=await r.json();csrf=j.csrf||'';return j}catch(e){return{authenticated:false}}}
+async function api(path,opts={}){opts.headers=opts.headers||{};if(csrf)opts.headers['X-CSRF-Token']=csrf;opts.credentials='same-origin';const r=await fetch(path,opts);if(r.status===401)throw new Error('Not authenticated');const j=await r.json().catch(()=>null);if(!r.ok)throw new Error((j&&j.error)||`HTTP ${r.status}`);return j}
+function setStatus(s){document.getElementById('status').textContent=`Status: ${s.running? 'RUNNING':'STOPPED'} ${s.connected? '(connected)':''}`;document.getElementById('counts').textContent=`Frames: ${s.frames||0} · Bytes: ${s.bytes||0}`}
+async function refresh(){try{const s=await api('/api/sniffer/status');setStatus(s);const recent=await api('/api/sniffer/recent');const lines=(recent||[]).slice(-50).map(r=>JSON.stringify(r));document.getElementById('recent').textContent=lines.join('\n')||'(ingen)'}catch(e){document.getElementById('recent').textContent=`Fejl: ${e.message}`}}
+async function start(){await api('/api/sniffer/start',{method:'POST'});await refresh();}
+async function stop(){await api('/api/sniffer/stop',{method:'POST'});await refresh();}
+async function marker(name){await api('/api/sniffer/marker',{method:'POST',body:JSON.stringify({name}),headers:{'Content-Type':'application/json'}});await refresh();}
+function makeButtons(){const names=["HCP4_CONNECTED","BYPASS_AUTO_A","BYPASS_OPEN","BYPASS_AUTO_B","BYPASS_CLOSED","BYPASS_AUTO_C","T3_OFF_A","T3_16","T3_21","T3_27","T3_30","T3_OFF_B","T5_OFF_A","T5_16","T5_21","T5_27","T5_30","T5_OFF_B","T3_20_T5_OFF","T3_OFF_T5_24","T3_OFF_T5_OFF","HCP4_DISCONNECTED"];
+ const el=document.getElementById('marker-buttons');for(const n of names){const b=document.createElement('button');b.textContent=n;b.addEventListener('click',()=>{marker(n)});el.appendChild(b)}}
+window.addEventListener('load',async()=>{await authStatus();makeButtons();document.getElementById('start').addEventListener('click',start);document.getElementById('stop').addEventListener('click',stop);document.getElementById('manual-marker').addEventListener('click',()=>{const v=document.getElementById('manual-label').value.trim();if(v)marker(v)});setInterval(refresh,1500);refresh();});

@@ -21,6 +21,10 @@ CONTROLLER_ASSETS = {
     "controller.css": "text/css; charset=utf-8",
     "controller.js": "text/javascript; charset=utf-8",
     "master_status.js": "text/javascript; charset=utf-8",
+    # Sniffer assets
+    "sniffer.html": "text/html; charset=utf-8",
+    "sniffer.js": "text/javascript; charset=utf-8",
+    "sniffer.css": "text/css; charset=utf-8",
 }
 
 
@@ -99,6 +103,20 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                     self._file(dashboard.web_root / "index.html", "text/html; charset=utf-8")
                 elif parsed.path in ("/controller", "/controller.html"):
                     self._file(dashboard.web_root / "controller.html", "text/html; charset=utf-8")
+                elif parsed.path == "/sniffer":
+                    # Sniffer UI (requires auth)
+                    self._file(dashboard.web_root / "sniffer.html", "text/html; charset=utf-8")
+                elif parsed.path == "/api/sniffer/status":
+                    session = self._require_auth()
+                    if session is None:
+                        return
+                    self._json(getattr(dashboard, "sniffer", {}).status() if getattr(dashboard, "sniffer", None) else {"running": False})
+                elif parsed.path == "/api/sniffer/recent":
+                    session = self._require_auth()
+                    if session is None:
+                        return
+                    recent = getattr(dashboard, "sniffer", None)
+                    self._json(recent.recent_frames() if recent else [])
                 elif parsed.path == "/api/controller/state":
                     self._json(dashboard.controller_runtime.snapshot())
                 elif parsed.path in ("/state.json", "/api"):
@@ -228,6 +246,28 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                     except ValueError as error:
                         return self._json_error(400, str(error))
                     return self._json({"ok": True})
+                # Sniffer control endpoints (authenticated + CSRF)
+                if self.path == "/api/sniffer/start":
+                    # start a read-only capture
+                    sniffer = getattr(dashboard, "sniffer", None)
+                    if sniffer is None:
+                        return self._json_error(503, "Sniffer unavailable")
+                    return self._json(sniffer.start())
+                if self.path == "/api/sniffer/stop":
+                    sniffer = getattr(dashboard, "sniffer", None)
+                    if sniffer is None:
+                        return self._json_error(503, "Sniffer unavailable")
+                    return self._json(sniffer.stop())
+                if self.path == "/api/sniffer/marker":
+                    sniffer = getattr(dashboard, "sniffer", None)
+                    if sniffer is None:
+                        return self._json_error(503, "Sniffer unavailable")
+                    data = self._read_json() or {}
+                    name = data.get("name") or data.get("marker") or "manual"
+                    try:
+                        return self._json(sniffer.marker(str(name)))
+                    except Exception as e:
+                        return self._json_error(500, str(e))
                 if self.path == "/api/controller/config":
                     data = self._read_json() or {}
                     try:
