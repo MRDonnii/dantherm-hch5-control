@@ -1,0 +1,12 @@
+.panel-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.panel-card { padding: 15px 16px 13px; border-radius: 13px; }
+.info-list { display: grid; gap: 0; margin: 0; }
+.info-row { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+.info-row:last-child { border-bottom: none; }
+.info-row dt { margin: 0; color: var(--muted); font-size: 9.5px; font-weight: 700; }
+.info-row dd { margin: 0; font-size: 11px; font-weight: 750; text-align: right; }
+.info-row.tone-ok dd { color: var(--green); }
+.info-row.tone-warn dd { color: var(--orange); }
+.info-row.tone-bad dd { color: var(--red); }
+.panel-empty { color: var(--muted); font-size: 10px; padding: 10px 0; }
+@media (max-width: 920px) { .panel-grid { grid-template-columns: 1fr; } }
