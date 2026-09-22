@@ -1,104 +1,123 @@
-name: Fix Manual Update Refresh
+name: Publish Beta 23 Hotfix
+
 on:
   push:
     branches: ["work/full-ui-beta22"]
+    paths:
+      - ".github/workflows/fix-manual-update-refresh.yml"
+
 permissions:
   contents: write
+
 jobs:
-  patch:
+  hotfix:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: work/full-ui-beta22
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Patch updater cache semantics
+
+      - name: Patch beta.23 updater and sandbox contract
         run: |
           python - <<'PY'
           from pathlib import Path
 
+          Path("VERSION").write_text("1.2.0-beta.23\n", encoding="utf-8")
+
+          service = Path("systemd/dantherm-webui-admin.service")
+          text = service.read_text(encoding="utf-8")
+          old = "ReadWritePaths=/opt/dantherm-passivelink-webui /opt/dantherm-webui /etc/systemd/system /var/backups /var/lib/dantherm-admin\n"
+          new = "ReadWritePaths=/opt/dantherm-passivelink-webui /opt/dantherm-webui /etc/systemd/system /var/backups /var/lib/dantherm-admin /var/lib/dantherm-hch5-ha\n"
+          if old not in text:
+              raise SystemExit("admin ReadWritePaths marker missing")
+          service.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          updater = Path("update.sh")
+          text = updater.read_text(encoding="utf-8")
+          old = '''install -d -m 0755 -o passivelink-webui -g passivelink-webui "${state_dir}"
+          state_probe="${state_dir}/.update-write-check"
+          if ! sudo -u passivelink-webui sh -c "touch '${state_probe}' && rm -f '${state_probe}'" 2>/dev/null; then
+            echo "State directory ${state_dir} failed a live write probe as passivelink-webui; refusing update." >&2
+            exit 2
+          fi
+          '''
+          new = '''[[ -d ${state_dir} ]] || { echo "Persistent state directory ${state_dir} is missing; use the installer/recovery path." >&2; exit 2; }
+          [[ -r ${state_dir} ]] || { echo "Persistent state directory ${state_dir} is not readable; refusing update." >&2; exit 2; }
+          '''
+          if old not in text:
+              raise SystemExit("state write-probe marker missing")
+          updater.write_text(text.replace(old, new, 1), encoding="utf-8")
+
           api = Path("gateway/dantherm_pi_admin_api.py")
           text = api.read_text(encoding="utf-8")
-
-          old = 'def update_info(channel: str | None = None) -> dict[str, object]:\n'
-          new = 'def update_info(channel: str | None = None, *, force_refresh: bool = False) -> dict[str, object]:\n'
-          if old not in text:
-              raise SystemExit("update_info signature marker missing")
-          text = text.replace(old, new, 1)
-
-          old = '    if cached is not None and cache_age < UPDATE_INFO_CACHE_SECONDS:\n'
-          new = '    if not force_refresh and cached is not None and cache_age < UPDATE_INFO_CACHE_SECONDS:\n'
-          if old not in text:
-              raise SystemExit("cache condition marker missing")
-          text = text.replace(old, new, 1)
-
-          old = '        info = update_info(channel)\n'
-          new = '        info = update_info(channel, force_refresh=True)\n'
-          if old not in text:
-              raise SystemExit("install update_info marker missing")
-          text = text.replace(old, new, 1)
-
-          old = '                return self.reply(200, update_info(channel))\n'
-          new = '                return self.reply(200, update_info(channel, force_refresh=True))\n'
-          if old not in text:
-              raise SystemExit("manual check marker missing")
-          text = text.replace(old, new, 1)
-
+          replacements = (
+              (
+                  "def update_info(channel: str | None = None) -> dict[str, object]:\n",
+                  "def update_info(channel: str | None = None, *, force_refresh: bool = False) -> dict[str, object]:\n",
+              ),
+              (
+                  "    if cached is not None and cache_age < UPDATE_INFO_CACHE_SECONDS:\n",
+                  "    if not force_refresh and cached is not None and cache_age < UPDATE_INFO_CACHE_SECONDS:\n",
+              ),
+              (
+                  "        info = update_info(channel)\n",
+                  "        info = update_info(channel, force_refresh=True)\n",
+              ),
+              (
+                  "                return self.reply(200, update_info(channel))\n",
+                  "                return self.reply(200, update_info(channel, force_refresh=True))\n",
+              ),
+          )
+          for old, new in replacements:
+              if old not in text:
+                  raise SystemExit(f"admin updater marker missing: {old.strip()}")
+              text = text.replace(old, new, 1)
           api.write_text(text, encoding="utf-8")
 
-          test = Path("tests/test_updater_transport.py")
-          text = test.read_text(encoding="utf-8")
-          marker = '\n\nif __name__ == "__main__":\n'
-          if marker not in text:
-              raise SystemExit("test insertion marker missing")
-          addition = r'''
-
-    def test_force_refresh_bypasses_cached_beta_result(self):
-        self.module._UPDATE_INFO_CACHE["beta"] = {
-            "ok": True,
-            "channel": "beta",
-            "current_version": "1.2.0-beta.21",
-            "current_build": "old",
-            "available_version": "1.2.0-beta.21",
-            "available_build": "1.2.0-beta.21",
-            "ref": "v1.2.0-beta.21",
-            "published_at": None,
-            "update_available": False,
-        }
-        self.module._UPDATE_INFO_CACHE_AT["beta"] = self.module.time.monotonic()
-        with (
-            mock.patch.object(self.module, "current_version", return_value="1.2.0-beta.21"),
-            mock.patch.object(self.module, "current_build", return_value="old"),
-            mock.patch.object(
-                self.module,
-                "_request_text",
-                return_value="<feed>v1.2.0-beta.21 v1.2.0-beta.22</feed>",
-            ) as request_text,
-        ):
-            cached = self.module.update_info("beta")
-            refreshed = self.module.update_info("beta", force_refresh=True)
-
-        self.assertEqual(cached["available_version"], "1.2.0-beta.21")
-        self.assertEqual(refreshed["available_version"], "1.2.0-beta.22")
-        self.assertTrue(refreshed["update_available"])
-        request_text.assert_called_once()
-'''
-          text = text.replace(marker, addition + marker, 1)
-          test.write_text(text, encoding="utf-8")
+          test = Path("tests/test_beta23_updater_hotfix.py")
+          test.write_text(
+              "from pathlib import Path\n\n"
+              "ROOT = Path(__file__).resolve().parents[1]\n\n"
+              "def test_admin_service_allows_state_directory():\n"
+              "    text = (ROOT / 'systemd/dantherm-webui-admin.service').read_text(encoding='utf-8')\n"
+              "    assert '/var/lib/dantherm-hch5-ha' in text\n\n"
+              "def test_update_does_not_write_probe_state_before_service_upgrade():\n"
+              "    text = (ROOT / 'update.sh').read_text(encoding='utf-8')\n"
+              "    assert '.update-write-check' not in text\n"
+              "    assert 'Persistent state directory' in text\n\n"
+              "def test_manual_update_check_can_force_refresh():\n"
+              "    text = (ROOT / 'gateway/dantherm_pi_admin_api.py').read_text(encoding='utf-8')\n"
+              "    assert 'force_refresh: bool = False' in text\n"
+              "    assert 'update_info(channel, force_refresh=True)' in text\n",
+              encoding="utf-8",
+          )
           PY
-      - name: Validate
+
+      - name: Validate hotfix
         run: |
           pip install pytest pyserial==3.5 paho-mqtt PyYAML
           python -m py_compile gateway/*.py
-          pytest -q tests/test_updater_transport.py
+          bash -n update.sh
+          pytest -q tests/test_beta23_updater_hotfix.py tests/test_updater_transport.py
           pytest -q
-      - name: Commit validated fix
+
+      - name: Commit and publish beta.23
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          rm -f .github/workflows/fix-manual-update-refresh.yml
+          set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add gateway/dantherm_pi_admin_api.py tests/test_updater_transport.py .github/workflows/fix-manual-update-refresh.yml
-          git commit -m 'Bypass updater cache on manual checks'
-          git push
+          git rm .github/workflows/fix-manual-update-refresh.yml
+          git add VERSION update.sh systemd/dantherm-webui-admin.service gateway/dantherm_pi_admin_api.py tests/test_beta23_updater_hotfix.py
+          git commit -m 'Fix in-place updater sandbox in 1.2.0-beta.23'
+          git push origin HEAD:work/full-ui-beta22
+          sha=$(git rev-parse HEAD)
+          git push origin "$sha":refs/heads/beta-latest
+          if ! gh release view v1.2.0-beta.23 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create v1.2.0-beta.23 --repo "$GITHUB_REPOSITORY" --target "$sha" --title "HCH5 Control 1.2.0-beta.23" --prerelease --notes "Hotfix: allows safe in-place updates from the hardened admin service, grants the admin helper write access to the persistent HCH5 state directory, and makes manual update checks bypass the five-minute cache. Includes the beta.22 night/bathroom and T2 fixes."
+          fi
