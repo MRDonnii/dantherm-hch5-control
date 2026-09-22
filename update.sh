@@ -48,12 +48,8 @@ for legacy in dantherm-gateway.service dantherm-pi-reboot-api.service; do
   fi
 done
 
-install -d -m 0755 -o passivelink-webui -g passivelink-webui "${state_dir}"
-state_probe="${state_dir}/.update-write-check"
-if ! sudo -u passivelink-webui sh -c "touch '${state_probe}' && rm -f '${state_probe}'" 2>/dev/null; then
-  echo "State directory ${state_dir} failed a live write probe as passivelink-webui; refusing update." >&2
-  exit 2
-fi
+[[ -d ${state_dir} ]] || { echo "Persistent state directory ${state_dir} is missing; use the installer/recovery path." >&2; exit 2; }
+[[ -r ${state_dir} ]] || { echo "Persistent state directory ${state_dir} is not readable; refusing update." >&2; exit 2; }
 
 stage=$(mktemp -d /tmp/hch5-control-stage.XXXXXX)
 cleanup(){ rm -rf -- "${stage}"; }

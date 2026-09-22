@@ -15,7 +15,7 @@ PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
 StateDirectory=dantherm-admin
-ReadWritePaths=/opt/dantherm-passivelink-webui /opt/dantherm-webui /etc/systemd/system /var/backups /var/lib/dantherm-admin
+ReadWritePaths=/opt/dantherm-passivelink-webui /opt/dantherm-webui /etc/systemd/system /var/backups /var/lib/dantherm-admin /var/lib/dantherm-hch5-ha
 
 [Install]
 WantedBy=multi-user.target

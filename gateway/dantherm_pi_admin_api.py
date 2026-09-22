@@ -176,14 +176,14 @@ _UPDATE_INFO_CACHE_AT: dict[str, float] = {}
 UPDATE_INFO_CACHE_SECONDS = 300
 
 
-def update_info(channel: str | None = None) -> dict[str, object]:
+def update_info(channel: str | None = None, *, force_refresh: bool = False) -> dict[str, object]:
     channel = channel or current_update_channel()
     if channel not in {"stable", "beta"}:
         raise ValueError("invalid_channel")
     now = time.monotonic()
     cached = _UPDATE_INFO_CACHE.get(channel)
     cache_age = now - _UPDATE_INFO_CACHE_AT.get(channel, 0.0)
-    if cached is not None and cache_age < UPDATE_INFO_CACHE_SECONDS:
+    if not force_refresh and cached is not None and cache_age < UPDATE_INFO_CACHE_SECONDS:
         return {**cached, "current_build": current_build(), "update": dict(UPDATE_STATE)}
     try:
         current = current_version()
@@ -279,7 +279,7 @@ def _install_update(channel: str) -> None:
     try:
         set_update_channel(channel)
         _set_update_state(progress=7, phase="checking", detail="Kontrollerer kanal og tilgængelig build…")
-        info = update_info(channel)
+        info = update_info(channel, force_refresh=True)
         ref = str(info["ref"])
         build = str(info.get("available_build") or ref)
         _set_update_state(progress=14, phase="preparing", detail="Opretter isoleret staging-område…")
@@ -421,7 +421,7 @@ class Handler(BaseHTTPRequestHandler):
         if action == "check_update":
             channel = str(target) if target in {"stable", "beta"} else current_update_channel()
             try:
-                return self.reply(200, update_info(channel))
+                return self.reply(200, update_info(channel, force_refresh=True))
             except (OSError, ValueError, KeyError, urllib.error.URLError, json.JSONDecodeError) as error:
                 return self.reply(503, {"error": f"update_check_failed: {error}"})
         if action == "install_update":
