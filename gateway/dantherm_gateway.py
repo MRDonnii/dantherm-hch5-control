@@ -1243,8 +1243,16 @@ class Gateway:
             values = [int.from_bytes(frame[i : i + 2], "big") for i in range(3, len(frame) - 2, 2)]
             if len(values) == 4:
                 # Eksperimentelt matchet mod HRC2-displayet 2026-07-15.
-                for key, raw in zip(("outdoor_temp", "supply_temp", "extract_temp", "exhaust_temp"), values):
-                    self.publish(key, raw / 100.0)
+                for legacy_key, canonical_key, raw in zip(
+                    ("outdoor_temp", "supply_temp", "extract_temp", "exhaust_temp"),
+                    ("outdoor_temperature", "supply_temperature", "extract_temperature", "exhaust_temperature"),
+                    values,
+                ):
+                    value = raw / 100.0
+                    self.publish(legacy_key, value)
+                    self.publish(canonical_key, value)
+                self.state["temperature_sample_monotonic"] = time.monotonic()
+                self.state["temperature_source"] = "hch5_fc04"
             elif len(values) == 5:
                 efficiency, extract_rpm, supply_rpm, bypass_raw, status = values
                 self.publish("heat_recovery_efficiency", efficiency)
@@ -1658,11 +1666,16 @@ class Gateway:
             self.publish("fan_extract_percent", fan_pair[0])
             self.publish("fan_supply_percent", fan_pair[1])
         if temperatures is not None:
-            for key, raw in zip(
+            for legacy_key, canonical_key, raw in zip(
                 ("outdoor_temp", "supply_temp", "extract_temp", "exhaust_temp"),
+                ("outdoor_temperature", "supply_temperature", "extract_temperature", "exhaust_temperature"),
                 temperatures,
             ):
-                self.publish(key, raw / 100.0)
+                value = raw / 100.0
+                self.publish(legacy_key, value)
+                self.publish(canonical_key, value)
+            self.state["temperature_sample_monotonic"] = time.monotonic()
+            self.state["temperature_source"] = "hch5_fc04_active"
         if status is not None:
             humidity_raw, extract_rpm, supply_rpm, bypass_raw, status_code = status
             self.publish("heat_recovery_efficiency", humidity_raw)
@@ -1757,6 +1770,43 @@ class Gateway:
                 value.to_bytes(2, "big") for value in values
             )
             self.tcp_mirror.broadcast(request + body + crc16(body).to_bytes(2, "little"))
+
+        def temperature(raw: int):
+            if raw in (0x7FFF, 0x8000):
+                return None
+            signed = raw - 65536 if raw >= 32768 else raw
+            result = signed / 100.0
+            return result if -35 <= result <= 100 else None
+
+        # 180=T1, 181=T2 before the external afterheater, 182=T3, 183=T4,
+        # 184=T5, 205=T2AH after the coil, 206=frost/water-side sensor.
+        snapshot = {
+            "outdoor_temperature": temperature(values[0]),
+            "supply_temperature": temperature(values[1]),
+            "extract_temperature": temperature(values[2]),
+            "exhaust_temperature": temperature(values[3]),
+            "room_temperature": temperature(values[4]),
+            "heating_coil_after_temperature": temperature(values[25]),
+            "heating_coil_frost_temperature": temperature(values[26]),
+        }
+        aliases = {
+            "outdoor_temperature": "outdoor_temp",
+            "supply_temperature": "supply_temp",
+            "extract_temperature": "extract_temp",
+            "exhaust_temperature": "exhaust_temp",
+            "room_temperature": "hrc2_t5_temperature",
+        }
+        for key, value in snapshot.items():
+            if value is None:
+                continue
+            self.publish(key, value)
+            if key in aliases:
+                self.publish(aliases[key], value)
+        if snapshot["supply_temperature"] is not None:
+            self.state["temperature_sample_monotonic"] = time.monotonic()
+            self.state["temperature_source"] = "hac1_snapshot_180_209"
+        if len(values) >= 30:
+            self.publish("afterheat_active", values[29] == 16)
 
     def poll_bypass_request(self, ser: serial.Serial):
         # Physical HCP4 capture: slave 1, register 68, 0=OFF and 255=ON.
