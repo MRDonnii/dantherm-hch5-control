@@ -40,9 +40,23 @@ ADMIN_SERVICE = os.getenv("DANTHERM_ADMIN_SERVICE", "dantherm-webui-admin.servic
 REPORT_SERVICES = {**SERVICES, "admin": ADMIN_SERVICE}
 DIAGNOSTICS_LOCK = threading.Lock()
 UPDATE_LOCK = threading.Lock()
-UPDATE_STATE = {"running": False, "channel": None, "started_at": None, "last_error": None}
+UPDATE_STATE = {
+    "running": False,
+    "channel": None,
+    "started_at": None,
+    "finished_at": None,
+    "progress": 0,
+    "phase": "idle",
+    "detail": "Klar",
+    "last_error": None,
+}
 FILTER_INTERVAL_MIN_DAYS = 90
 FILTER_INTERVAL_MAX_DAYS = 360
+
+
+def _set_update_state(**changes) -> None:
+    with UPDATE_LOCK:
+        UPDATE_STATE.update(changes)
 
 
 def set_profile(profile):
@@ -163,7 +177,6 @@ def update_info(channel: str | None = None) -> dict[str, object]:
         branch = _request_json(f"https://api.github.com/repos/{REPOSITORY}/branches/{BETA_REF}")
         available_build = str(branch.get("commit", {}).get("sha") or "unknown")
         published = branch.get("commit", {}).get("commit", {}).get("committer", {}).get("date")
-        # Beta follows the branch HEAD, so fixes are offered even when the semantic version stays unchanged.
         update_available = current != remote_version or installed_build != available_build
     return {
         "ok": True,
@@ -218,30 +231,50 @@ def _schedule_admin_restart() -> None:
 
 
 def _install_update(channel: str) -> None:
-    with UPDATE_LOCK:
-        UPDATE_STATE.update(running=True, channel=channel, started_at=time.time(), last_error=None)
+    _set_update_state(
+        running=True,
+        channel=channel,
+        started_at=time.time(),
+        finished_at=None,
+        progress=2,
+        phase="starting",
+        detail="Forbereder sikker opdatering…",
+        last_error=None,
+    )
     success = False
     try:
         set_update_channel(channel)
+        _set_update_state(progress=7, phase="checking", detail="Kontrollerer kanal og tilgængelig build…")
         info = update_info(channel)
         ref = str(info["ref"])
         build = str(info.get("available_build") or ref)
+        _set_update_state(progress=14, phase="preparing", detail="Opretter isoleret staging-område…")
         with tempfile.TemporaryDirectory(prefix="hch5-control-update-") as temporary:
             directory = Path(temporary)
             archive = directory / "source.tar.gz"
+            _set_update_state(progress=24, phase="downloading", detail="Downloader kildekode…")
             _download_tarball(ref, archive)
+            _set_update_state(progress=38, phase="extracting", detail="Pakker ny build ud…")
             source = _safe_extract(archive, directory / "src")
             updater = source / "update.sh"
             if not updater.is_file():
                 raise RuntimeError("updater_missing")
+            _set_update_state(progress=50, phase="validating", detail="Validerer updater og eksisterende installation…")
             env = os.environ.copy()
             env["HCH5_UPDATE_BUILD"] = build
+            _set_update_state(progress=58, phase="installing", detail="Installerer og kører failsafe-validering…")
             subprocess.run(["bash", str(updater)], cwd=source, check=True, timeout=300, env=env)
+            _set_update_state(progress=93, phase="verifying", detail="Bekræfter ny build og services…")
         success = True
+        _set_update_state(progress=100, phase="complete", detail="Opdatering installeret. Genindlæser WebUI…")
     except Exception as error:
-        UPDATE_STATE["last_error"] = f"{type(error).__name__}: {error}"
+        _set_update_state(
+            phase="failed",
+            detail="Opdateringen fejlede og failsafe har bevaret/tilbageført installationen.",
+            last_error=f"{type(error).__name__}: {error}",
+        )
     finally:
-        UPDATE_STATE["running"] = False
+        _set_update_state(running=False, finished_at=time.time())
     if success:
         _schedule_admin_restart()
 
@@ -318,6 +351,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         if action == "get_update_channel":
             return self.reply(200, {"ok": True, "channel": current_update_channel()})
+        if action == "get_update_status":
+            return self.reply(200, {
+                "ok": True,
+                "channel": current_update_channel(),
+                "current_version": current_version(),
+                "current_build": current_build(),
+                "update": dict(UPDATE_STATE),
+            })
         if action == "set_update_channel" and target in {"stable", "beta"}:
             try:
                 channel = set_update_channel(str(target))
