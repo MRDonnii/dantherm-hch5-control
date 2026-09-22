@@ -19,6 +19,13 @@
 #overview .metric[data-metric="filter"]{background:linear-gradient(145deg,var(--studio-surface),color-mix(in srgb,var(--studio-green) 3%,var(--studio-surface)))!important}
 #overview .metric[data-metric="luftkvalitet"]{background:linear-gradient(145deg,var(--studio-surface),color-mix(in srgb,var(--studio-blue) 3%,var(--studio-surface)))!important}
 #overview .metric[data-metric="varmegenvinding"]{background:linear-gradient(145deg,var(--studio-surface),color-mix(in srgb,var(--studio-amber) 3%,var(--studio-surface)))!important}
+@media(min-width:1260px){
+  #overview{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(330px,.55fr);column-gap:16px;align-items:start}
+  #studio-overview-hero,#overview>.health-strip,#overview>.daily-control,#overview>.overview-grid,#overview>#modern-automation,#overview>.filter-health-card{grid-column:1/-1}
+  #overview>.air-card{grid-column:1;margin:0!important;min-height:520px}
+  #overview>.metrics-grid{grid-column:2;display:grid!important;grid-template-columns:1fr!important;gap:12px!important;margin:0!important;align-self:stretch}
+  #overview>.metrics-grid>.metric{min-height:119px!important}
+}
 @media(max-width:1200px){.studio-overview-hero{grid-template-columns:1fr}.studio-overview-state{max-width:720px}}
 @media(max-width:700px){.studio-overview-hero{padding:19px}.studio-overview-copy h1{font-size:25px}.studio-overview-state{grid-template-columns:repeat(2,1fr)}.studio-overview-state>div:nth-child(2){border-right:0}.studio-overview-state>div:nth-child(-n+2){border-bottom:1px solid var(--studio-line)}}
 @media(max-width:430px){.studio-overview-state{grid-template-columns:1fr}.studio-overview-state>div{border-right:0;border-bottom:1px solid var(--studio-line)}.studio-overview-state>div:last-child{border-bottom:0}}
