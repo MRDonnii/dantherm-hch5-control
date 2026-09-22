@@ -1611,17 +1611,45 @@ class Gateway:
                     ]
         return None
 
+    def _mirror_active_block(self, slave: int, function: int, start: int, values: list[int]) -> None:
+        """Re-broadcast a successful active read so HA's passive parser still
+        sees it, exactly as it would have from HCP4's own polling traffic.
+
+        Without this, Home Assistant's receive-only integration loses these
+        fields the moment Pi becomes bus master, because it decodes the raw
+        RS485 stream itself and never calls this gateway's own state/API.
+        """
+        if getattr(self, "tcp_mirror", None) is None:
+            return
+        request = self.read_frame(start, len(values), slave=slave, function=function)
+        body = bytes([slave, function, len(values) * 2]) + b"".join(
+            value.to_bytes(2, "big") for value in values
+        )
+        self.tcp_mirror.broadcast(request + body + crc16(body).to_bytes(2, "little"))
+
     def poll_master_blocks(self, ser: serial.Serial):
         """Poll only blocks verified on HCH5 MK1 with HCP4 disconnected."""
         fan_pair = self.read_fan_pair(ser)
         temperatures = self.read_register_block(ser, 1, 0, 4, function=4)
+        if temperatures is not None:
+            self._mirror_active_block(1, 4, 0, temperatures)
         status = self.read_register_block(ser, 1, 4, 5, function=4)
+        if status is not None:
+            self._mirror_active_block(1, 4, 4, status)
         hac200 = self.read_register_block(ser, 0x40, 200, 5)
+        if hac200 is not None:
+            self._mirror_active_block(0x40, 3, 200, hac200)
         # Keep the two remaining native HCP4 blocks alive even though their
         # individual fields are not named yet.
         main1024 = self.read_register_block(ser, 1, 1024, 6)
+        if main1024 is not None:
+            self._mirror_active_block(1, 3, 1024, main1024)
         main1032 = self.read_register_block(ser, 1, 1032, 4)
+        if main1032 is not None:
+            self._mirror_active_block(1, 3, 1032, main1032)
         hac205 = self.read_register_block(ser, 0x40, 205, 5)
+        if hac205 is not None:
+            self._mirror_active_block(0x40, 3, 205, hac205)
         if fan_pair is not None:
             self.publish("fan_extract_percent", fan_pair[0])
             self.publish("fan_supply_percent", fan_pair[1])
