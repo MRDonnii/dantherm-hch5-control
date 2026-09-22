@@ -15,6 +15,7 @@ from typing import Callable
 VALID_MODES = {"local_auto", "smart_auto", "manual"}
 VALID_DEMANDS = {"low", "normal", "high", "boost"}
 VALID_BYPASS = {"off", "on"}
+VALID_QUICK_BOOST_MINUTES = {0, 15, 30, 60}
 
 DEFAULT_PROFILES = {
     1: {"extract": 25, "supply": 13, "name": "Lav"},
@@ -83,6 +84,27 @@ def _validate_time(value: object, label: str) -> str:
     return parsed.strftime("%H:%M")
 
 
+def _parse_until(value: object, label: str) -> float | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, (int, float)):
+        timestamp = float(value)
+        if not math.isfinite(timestamp):
+            raise ControllerError(f"{label} er ugyldig")
+        return timestamp
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        pass
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+    except ValueError as error:
+        raise ControllerError(f"{label} skal være en gyldig dato/tid") from error
+
+
 def _minutes(value: str) -> int:
     hour, minute = (int(part) for part in value.split(":", 1))
     return hour * 60 + minute
@@ -139,13 +161,11 @@ class ControllerState:
         "ha_last_seen": None,
         "ha_valid_for_seconds": 180,
         "ha_timeout_seconds": 300,
-        # OFF means normal/automatic HCH bypass behaviour. ON is explicit bypass request.
         "bypass": "off",
         "fireplace": False,
         "fireplace_until": None,
         "fireplace_duration_minutes": 0,
         "afterheat_setpoint": 20,
-        # Modern automation layer.
         "schedule_enabled": False,
         "night_enabled": False,
         "night_start": "22:00",
@@ -154,12 +174,19 @@ class ControllerState:
         "vacation_enabled": False,
         "vacation_level": 1,
         "vacation_until": None,
+        "quick_boost_until": None,
+        "quick_boost_level": 6,
+        "quick_boost_minutes": 0,
         "cooling_enabled": False,
         "cooling_room_setpoint": 23.0,
         "cooling_hysteresis": 0.5,
         "cooling_outdoor_min": 12.0,
         "cooling_min_delta": 1.5,
         "cooling_level": 4,
+        "cooling_start_delay_seconds": 180,
+        "cooling_min_on_seconds": 600,
+        "cooling_min_off_seconds": 300,
+        "cooling_transition_timeout_seconds": 90,
         "effective_source": "local_auto",
         "effective_level": 3,
         "effective_reason": "Controller starting",
@@ -167,9 +194,7 @@ class ControllerState:
     }
 
     def __init__(self, path: str | Path | None = None) -> None:
-        self.path = Path(path or os.getenv(
-            "DANTHERM_CONTROLLER_STATE", "/var/lib/dantherm-hch5-ha/controller.json"
-        ))
+        self.path = Path(path or os.getenv("DANTHERM_CONTROLLER_STATE", "/var/lib/dantherm-hch5-ha/controller.json"))
         self.lock = threading.RLock()
         self.data = dict(self.DEFAULTS)
         self.data["profiles"] = _copy_profiles()
@@ -210,7 +235,7 @@ class ControllerState:
             ("manual_level", 3), ("local_normal_level", 3),
             ("local_min_level", 1), ("local_max_level", 6),
             ("ha_requested_level", 3), ("night_level", 2),
-            ("vacation_level", 1), ("cooling_level", 4),
+            ("vacation_level", 1), ("quick_boost_level", 6), ("cooling_level", 4),
         ):
             try:
                 value = int(self.data[key])
@@ -219,14 +244,8 @@ class ControllerState:
             self.data[key] = min(6, max(1, value))
         if self.data["local_min_level"] > self.data["local_max_level"]:
             self.data["local_min_level"], self.data["local_max_level"] = 1, 6
-        self.data["local_normal_level"] = min(
-            self.data["local_max_level"],
-            max(self.data["local_min_level"], self.data["local_normal_level"]),
-        )
-        self.data["ha_requested_level"] = min(
-            self.data["local_max_level"],
-            max(self.data["local_min_level"], self.data["ha_requested_level"]),
-        )
+        self.data["local_normal_level"] = min(self.data["local_max_level"], max(self.data["local_min_level"], self.data["local_normal_level"]))
+        self.data["ha_requested_level"] = min(self.data["local_max_level"], max(self.data["local_min_level"], self.data["ha_requested_level"]))
         if self.data["bypass"] not in VALID_BYPASS:
             self.data["bypass"] = "off"
         if self.data["fireplace"] and self.data["bypass"] == "on":
@@ -248,9 +267,7 @@ class ControllerState:
             self.data["ha_demand"] = "normal"
         self.data["enabled"] = True
         try:
-            self.data["ha_valid_for_seconds"] = min(
-                900, max(30, int(self.data.get("ha_valid_for_seconds", 180)))
-            )
+            self.data["ha_valid_for_seconds"] = min(900, max(30, int(self.data.get("ha_valid_for_seconds", 180))))
         except (TypeError, ValueError):
             self.data["ha_valid_for_seconds"] = 180
         self.data["ha_reason"] = str(self.data.get("ha_reason") or "No Home Assistant room data")[:160]
@@ -265,6 +282,24 @@ class ControllerState:
             self.data["night_end"] = _validate_time(self.data.get("night_end"), "Nat slut")
         except ControllerError:
             self.data["night_start"], self.data["night_end"] = "22:00", "06:00"
+        try:
+            _parse_until(self.data.get("vacation_until"), "Ferie slut")
+        except ControllerError:
+            self.data["vacation_until"] = None
+        try:
+            quick_boost_until = _parse_until(self.data.get("quick_boost_until"), "Quick Boost slut")
+        except ControllerError:
+            quick_boost_until = None
+        try:
+            quick_boost_minutes = int(self.data.get("quick_boost_minutes", 0))
+        except (TypeError, ValueError):
+            quick_boost_minutes = 0
+        if quick_boost_minutes not in VALID_QUICK_BOOST_MINUTES or not quick_boost_until or quick_boost_until <= time.time():
+            self.data["quick_boost_until"] = None
+            self.data["quick_boost_minutes"] = 0
+        else:
+            self.data["quick_boost_until"] = quick_boost_until
+            self.data["quick_boost_minutes"] = quick_boost_minutes
         for key, default, low, high in (
             ("cooling_room_setpoint", 23.0, 18.0, 30.0),
             ("cooling_hysteresis", 0.5, 0.2, 3.0),
@@ -273,6 +308,16 @@ class ControllerState:
         ):
             try:
                 self.data[key] = min(high, max(low, float(self.data.get(key, default))))
+            except (TypeError, ValueError):
+                self.data[key] = default
+        for key, default, low, high in (
+            ("cooling_start_delay_seconds", 180, 0, 1800),
+            ("cooling_min_on_seconds", 600, 0, 3600),
+            ("cooling_min_off_seconds", 300, 0, 3600),
+            ("cooling_transition_timeout_seconds", 90, 30, 300),
+        ):
+            try:
+                self.data[key] = min(high, max(low, int(self.data.get(key, default))))
             except (TypeError, ValueError):
                 self.data[key] = default
         schedule = _copy_schedule(self.data.get("schedule"))
@@ -311,9 +356,11 @@ class ControllerState:
                 "boost_hold_seconds", "ha_timeout_seconds", "bypass", "fireplace",
                 "fireplace_minutes", "afterheat_setpoint", "profiles", "schedule_enabled",
                 "schedule", "night_enabled", "night_start", "night_end", "night_level",
-                "vacation_enabled", "vacation_level", "vacation_until", "cooling_enabled",
+                "vacation_enabled", "vacation_level", "vacation_until",
+                "quick_boost_minutes", "quick_boost_level", "cooling_enabled",
                 "cooling_room_setpoint", "cooling_hysteresis", "cooling_outdoor_min",
-                "cooling_min_delta", "cooling_level",
+                "cooling_min_delta", "cooling_level", "cooling_start_delay_seconds",
+                "cooling_min_on_seconds", "cooling_min_off_seconds", "cooling_transition_timeout_seconds",
             }
             unknown = set(patch) - allowed
             if unknown:
@@ -322,10 +369,7 @@ class ControllerState:
                 if patch["mode"] not in VALID_MODES:
                     raise ControllerError("Ugyldig controller-mode")
                 self.data["mode"] = patch["mode"]
-            for key in (
-                "manual_level", "local_normal_level", "local_min_level", "local_max_level",
-                "night_level", "vacation_level", "cooling_level",
-            ):
+            for key in ("manual_level", "local_normal_level", "local_min_level", "local_max_level", "night_level", "vacation_level", "quick_boost_level", "cooling_level"):
                 if key in patch:
                     value = int(patch[key])
                     if not 1 <= value <= 6:
@@ -346,6 +390,8 @@ class ControllerState:
                 ("co2_setpoint", 500, 2000), ("co2_hysteresis", 25, 500),
                 ("auto_step_co2", 50, 1000), ("ha_timeout_seconds", 60, 3600),
                 ("downshift_delay_seconds", 30, 3600), ("boost_hold_seconds", 60, 3600),
+                ("cooling_start_delay_seconds", 0, 1800), ("cooling_min_on_seconds", 0, 3600),
+                ("cooling_min_off_seconds", 0, 3600), ("cooling_transition_timeout_seconds", 30, 300),
             ):
                 if key in patch:
                     value = int(patch[key])
@@ -362,7 +408,16 @@ class ControllerState:
                     self.data[key] = _validate_time(patch[key], label)
             if "vacation_until" in patch:
                 value = patch["vacation_until"]
+                _parse_until(value, "Ferie slut")
                 self.data["vacation_until"] = str(value)[:40] if value else None
+            if "quick_boost_minutes" in patch:
+                minutes = int(patch["quick_boost_minutes"])
+                if minutes not in VALID_QUICK_BOOST_MINUTES:
+                    raise ControllerError("Quick Boost skal være 0, 15, 30 eller 60 minutter")
+                if minutes and self.data.get("fireplace"):
+                    raise ControllerError("Quick Boost kan ikke startes under pejsefunktion")
+                self.data["quick_boost_minutes"] = minutes
+                self.data["quick_boost_until"] = time.time() + minutes * 60 if minutes else None
             if "schedule" in patch:
                 incoming = patch["schedule"]
                 if not isinstance(incoming, dict):
@@ -399,6 +454,9 @@ class ControllerState:
                 self.data["fireplace"] = minutes > 0
                 self.data["fireplace_until"] = time.time() + minutes * 60 if minutes else None
                 self.data["fireplace_duration_minutes"] = minutes
+                if minutes:
+                    self.data["quick_boost_until"] = None
+                    self.data["quick_boost_minutes"] = 0
             if "fireplace_minutes" in patch:
                 minutes = int(patch["fireplace_minutes"])
                 if minutes not in (0, 15, 30):
@@ -408,6 +466,9 @@ class ControllerState:
                 self.data["fireplace"] = minutes > 0
                 self.data["fireplace_until"] = time.time() + minutes * 60 if minutes else None
                 self.data["fireplace_duration_minutes"] = minutes
+                if minutes:
+                    self.data["quick_boost_until"] = None
+                    self.data["quick_boost_minutes"] = 0
             if "afterheat_setpoint" in patch:
                 value = int(patch["afterheat_setpoint"])
                 if not 18 <= value <= 30:
@@ -440,8 +501,7 @@ class ControllerState:
             self.save()
             return self.snapshot()
 
-    def heartbeat(self, demand: str = "normal", *, requested_level: int | None = None,
-                  valid_for_s: int | None = None, reason: str | None = None) -> dict[str, object]:
+    def heartbeat(self, demand: str = "normal", *, requested_level: int | None = None, valid_for_s: int | None = None, reason: str | None = None) -> dict[str, object]:
         if demand not in VALID_DEMANDS:
             raise ControllerError("Ugyldigt HA-demand")
         if requested_level is not None and not 1 <= int(requested_level) <= 6:
@@ -469,10 +529,41 @@ class ControllerState:
             self.data["updated_at"] = now
             self.save()
 
+    def _expire_vacation(self, now: float | None = None) -> None:
+        now = now or time.time()
+        if not self.data.get("vacation_enabled") or not self.data.get("vacation_until"):
+            return
+        try:
+            until = _parse_until(self.data.get("vacation_until"), "Ferie slut")
+        except ControllerError:
+            until = None
+        if until is not None and until <= now:
+            self.data["vacation_enabled"] = False
+            self.data["vacation_until"] = None
+            self.data["updated_at"] = now
+            self.save()
+
+    def _expire_quick_boost(self, now: float | None = None) -> None:
+        now = now or time.time()
+        until = self.data.get("quick_boost_until")
+        if until is None:
+            return
+        try:
+            active_until = float(until)
+        except (TypeError, ValueError):
+            active_until = 0.0
+        if active_until <= now:
+            self.data["quick_boost_until"] = None
+            self.data["quick_boost_minutes"] = 0
+            self.data["updated_at"] = now
+            self.save()
+
     def snapshot(self) -> dict[str, object]:
         with self.lock:
             now = time.time()
             self._expire_fireplace(now)
+            self._expire_vacation(now)
+            self._expire_quick_boost(now)
             result = dict(self.data)
             result["profiles"] = _copy_profiles(self.data["profiles"])
             result["schedule"] = _copy_schedule(self.data["schedule"])
@@ -482,6 +573,10 @@ class ControllerState:
             result["ha_age_seconds"] = round(now - float(seen), 1) if seen else None
             until = result.get("fireplace_until")
             result["fireplace_remaining_seconds"] = max(0, int(float(until) - now)) if until else 0
+            boost_until = result.get("quick_boost_until")
+            result["quick_boost_remaining_seconds"] = max(0, int(float(boost_until) - now)) if boost_until else 0
+            vacation_until = _parse_until(result.get("vacation_until"), "Ferie slut") if result.get("vacation_until") else None
+            result["vacation_remaining_seconds"] = max(0, int(vacation_until - now)) if vacation_until else None
             level = result.get("effective_level")
             result["effective_profile"] = result["profiles"].get(int(level)) if level else None
             return result
@@ -499,6 +594,10 @@ class ControllerEngine:
         self.last_level_change = 0.0
         self.boost_until = 0.0
         self.cooling_active = False
+        self.cooling_qualifying_since: float | None = None
+        self.cooling_last_on_at: float | None = None
+        self.cooling_last_off_at: float | None = None
+        self.cooling_reason = "disabled"
         self.last_applied: dict[str, object] = {}
         self.last_write_at: float | None = None
         self.last_error: str | None = None
@@ -567,10 +666,17 @@ class ControllerEngine:
         self.current_auto_level = current
         return current, held
 
+    def _stop_cooling(self, now_ts: float, reason: str) -> None:
+        if self.cooling_active:
+            self.cooling_last_off_at = now_ts
+        self.cooling_active = False
+        self.cooling_qualifying_since = None
+        self.cooling_reason = reason
+
     def _automation_overlay(self, level: int, source: str, reason: str, now_ts: float) -> tuple[int, str, str, str, dict[str, bool]]:
         d = self.config.data
         now = datetime.fromtimestamp(now_ts).astimezone()
-        flags = {"schedule_active": False, "night_active": False, "vacation_active": False, "cooling_active": False}
+        flags = {"schedule_active": False, "night_active": False, "vacation_active": False, "quick_boost_active": False, "cooling_active": False}
         effective_bypass = "on" if d["bypass"] == "on" else "off"
 
         if d.get("vacation_enabled"):
@@ -578,7 +684,7 @@ class ControllerEngine:
             level = int(d["vacation_level"])
             source = "vacation"
             reason = f"Ferie mode · trin {level}"
-            self.cooling_active = False
+            self._stop_cooling(now_ts, "vacation")
         elif d["mode"] != "manual":
             if d.get("schedule_enabled"):
                 entry = d["schedule"].get(str(now.weekday()))
@@ -610,20 +716,72 @@ class ControllerEngine:
                 minimum = float(d["cooling_outdoor_min"])
                 delta_min = float(d["cooling_min_delta"])
                 delta = room - outdoor
+                start_ok = room >= setpoint + hysteresis and outdoor >= minimum and delta >= delta_min
+                keep_ok = room > setpoint - hysteresis and outdoor >= minimum and delta >= max(0.2, delta_min - hysteresis)
+                min_on = int(d["cooling_min_on_seconds"])
+                min_off = int(d["cooling_min_off_seconds"])
+                start_delay = int(d["cooling_start_delay_seconds"])
+
                 if self.cooling_active:
-                    self.cooling_active = room > setpoint - hysteresis and outdoor >= minimum and delta >= max(0.2, delta_min - hysteresis)
+                    on_age = now_ts - (self.cooling_last_on_at or now_ts)
+                    if keep_ok:
+                        self.cooling_reason = "active"
+                    elif on_age < min_on:
+                        self.cooling_reason = "minimum_on_hold"
+                    else:
+                        if outdoor < minimum:
+                            stop_reason = "outdoor_too_cold"
+                        elif delta < max(0.2, delta_min - hysteresis):
+                            stop_reason = "not_cooler_outside"
+                        else:
+                            stop_reason = "room_satisfied"
+                        self._stop_cooling(now_ts, stop_reason)
                 else:
-                    self.cooling_active = room >= setpoint + hysteresis and outdoor >= minimum and delta >= delta_min
+                    if not start_ok:
+                        self.cooling_qualifying_since = None
+                        if outdoor < minimum:
+                            self.cooling_reason = "outdoor_too_cold"
+                        elif delta < delta_min:
+                            self.cooling_reason = "not_cooler_outside"
+                        elif room < setpoint + hysteresis:
+                            self.cooling_reason = "room_below_start"
+                        else:
+                            self.cooling_reason = "standby"
+                    elif self.cooling_last_off_at is not None and now_ts - self.cooling_last_off_at < min_off:
+                        self.cooling_qualifying_since = None
+                        self.cooling_reason = "minimum_off_hold"
+                    else:
+                        if self.cooling_qualifying_since is None:
+                            self.cooling_qualifying_since = now_ts
+                        if now_ts - self.cooling_qualifying_since >= start_delay:
+                            self.cooling_active = True
+                            self.cooling_last_on_at = now_ts
+                            self.cooling_qualifying_since = None
+                            self.cooling_reason = "opening"
+                        else:
+                            self.cooling_reason = "qualifying"
+
                 if self.cooling_active:
                     flags["cooling_active"] = True
                     effective_bypass = "on"
                     level = max(level, int(d["cooling_level"]))
                     source = "free_cooling"
-                    reason = f"Frikøling: inde {room:.1f}°C / ude {outdoor:.1f}°C"
+                    reason = f"Frikøling ({self.cooling_reason}): inde {room:.1f}°C / ude {outdoor:.1f}°C"
             else:
-                self.cooling_active = False
+                if d.get("cooling_enabled"):
+                    self._stop_cooling(now_ts, "sensor_missing")
+                else:
+                    self._stop_cooling(now_ts, "disabled")
         else:
-            self.cooling_active = False
+            self._stop_cooling(now_ts, "manual_mode")
+
+        boost_until = d.get("quick_boost_until")
+        if not d.get("fireplace") and boost_until and float(boost_until) > now_ts:
+            flags["quick_boost_active"] = True
+            level = max(level, int(d["quick_boost_level"]))
+            source = "quick_boost"
+            remaining = max(1, math.ceil((float(boost_until) - now_ts) / 60))
+            reason = f"Quick Boost · trin {int(d['quick_boost_level'])} · ca. {remaining} min tilbage"
 
         if d.get("fireplace"):
             effective_bypass = "off"
@@ -634,6 +792,8 @@ class ControllerEngine:
         now = now or time.time()
         with self.config.lock, self.lock:
             self.config._expire_fireplace(now)
+            self.config._expire_vacation(now)
+            self.config._expire_quick_boost(now)
             d = self.config.data
             if d["mode"] == "manual":
                 source, level, reason = "manual", int(d["manual_level"]), "Manuelt valgt niveau"
@@ -661,12 +821,26 @@ class ControllerEngine:
             d["effective_reason"] = reason
             d["updated_at"] = now
             profile = d["profiles"].get(level) if level else None
+            start_delay = int(d["cooling_start_delay_seconds"])
+            qualifying_remaining = None
+            if self.cooling_reason == "qualifying" and self.cooling_qualifying_since is not None:
+                qualifying_remaining = max(0, math.ceil(start_delay - (now - self.cooling_qualifying_since)))
+            min_on_remaining = 0
+            if self.cooling_active and self.cooling_last_on_at is not None:
+                min_on_remaining = max(0, math.ceil(int(d["cooling_min_on_seconds"]) - (now - self.cooling_last_on_at)))
+            min_off_remaining = 0
+            if not self.cooling_active and self.cooling_last_off_at is not None:
+                min_off_remaining = max(0, math.ceil(int(d["cooling_min_off_seconds"]) - (now - self.cooling_last_off_at)))
             result = {
                 **self.config.snapshot(),
                 "measurements": dict(self.measurements),
                 "effective_profile": dict(profile) if profile else None,
                 "effective_bypass": effective_bypass,
                 **flags,
+                "cooling_state": self.cooling_reason,
+                "cooling_qualification_remaining_seconds": qualifying_remaining,
+                "cooling_min_on_remaining_seconds": min_on_remaining,
+                "cooling_min_off_remaining_seconds": min_off_remaining,
                 "last_write_at": self.last_write_at,
                 "last_error": self.last_error,
                 "write_failures": self.write_failures,
