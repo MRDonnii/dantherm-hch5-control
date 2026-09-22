@@ -24,4 +24,5 @@ jobs:
       - run: node --check gateway/webui/smartcontrol.js
       - run: node --check gateway/webui/modern-controls.js
       - run: node --check gateway/webui/prepaint.js
+      - run: node --check gateway/webui/studio.js
       - run: node --check gateway/webui/sniffer.js
