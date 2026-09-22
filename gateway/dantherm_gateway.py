@@ -1218,9 +1218,12 @@ class Gateway:
             if values[:3] == [0x3000, 0x1100, 0] and 300 <= values[3] <= 10000:
                 self.publish("co2", values[3])
             # Registerblok 185-189. Register 186 er verificeret med
-            # 20 °C=5120 og 21 °C=5376, altså heltal °C * 256.
+            # 20 °C=5120 og 21 °C=5376, altså heltal °C * 256. Register 185
+            # er kun verificeret på bit 0 (=1); resten af ordet er ustabile
+            # HAC1-statusflag (fx 8193 = 0x2001 observeret i drift), så kun
+            # bit 0 kontrolleres.
             elif (
-                values[0] == 1
+                values[0] & 1 == 1
                 and values[2] == 15
                 and values[1] % 256 == 0
                 and 5 <= values[1] // 256 <= 40
@@ -1483,13 +1486,17 @@ class Gateway:
             raise ValueError("afterheat setpoint must be 18..30 C")
         # A single active read can race a live HAC1 update on the bus and
         # return a transient/partial block right after the gateway becomes
-        # master. Retry the read+identity check before giving up instead of
-        # failing on the first mismatch (no change to the identity check
-        # itself: word 185=1 and word 187=15 must still hold).
+        # master. Retry the read+identity check before giving up.
+        # Only bit 0 of word 185 was ever verified (captures showed both a
+        # bare 1 and, in live operation, 8193 = 0x2001 with unrelated HAC1
+        # status flags in the high bits) and word 187=15 is the other
+        # verified constant, so those are what identify the block. Every
+        # other live word, including the untouched high bits of word 185,
+        # is preserved exactly as read.
         current = None
         for _attempt in range(3):
             candidate = self.read_register_block(ser, 0x40, 185, 5)
-            if candidate is not None and len(candidate) == 5 and candidate[0] == 1 and candidate[2] == 15:
+            if candidate is not None and len(candidate) == 5 and candidate[0] & 1 == 1 and candidate[2] == 15:
                 current = candidate
                 break
             time.sleep(0.05)
@@ -1497,8 +1504,6 @@ class Gateway:
             candidate = self.read_register_block(ser, 0x40, 185, 5)
             if candidate is None or len(candidate) != 5:
                 raise RuntimeError("afterheat source block unavailable")
-            # Captures and parser tests verify word 185=1, word 186=C*256 and
-            # word 187=15. Preserve every other live HAC1 word exactly.
             raise RuntimeError(f"unexpected afterheat source block: {candidate}")
         if current[1] == value * 256:
             self.publish("afterheat_setpoint", value)
@@ -1715,7 +1720,7 @@ class Gateway:
             )
             self.tcp_mirror.broadcast(body + crc16(body).to_bytes(2, "little"))
         if (
-            values[0] == 1
+            values[0] & 1 == 1
             and values[2] == 15
             and values[1] % 256 == 0
             and 5 * 256 <= values[1] <= 40 * 256
