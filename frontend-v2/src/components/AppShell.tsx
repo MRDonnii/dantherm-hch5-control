@@ -29,17 +29,22 @@ const navigation = [
 
 type ThemeMode = "system" | "light" | "dark";
 
-function readStored<T extends string>(key: string, fallback: T): T {
+function readStored(key: string, fallback: string): string {
   try {
-    return (localStorage.getItem(key) as T | null) ?? fallback;
+    return localStorage.getItem(key) ?? fallback;
   } catch {
     return fallback;
   }
 }
 
+function readTheme(): ThemeMode {
+  const value = readStored("hch5-v2-theme", "system");
+  return value === "light" || value === "dark" ? value : "system";
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(() => readStored("hch5-v2-sidebar", "0") === "1");
-  const [theme, setTheme] = useState<ThemeMode>(() => readStored("hch5-v2-theme", "system"));
+  const [theme, setTheme] = useState<ThemeMode>(readTheme);
   const effectiveTheme = useMemo(() => {
     if (theme !== "system") return theme;
     return matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
