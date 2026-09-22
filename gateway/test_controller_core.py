@@ -83,12 +83,12 @@ class ControllerTests(unittest.TestCase):
         low = engine.resolve(now=1040)
         self.assertEqual(low["effective_level"], state.data["local_normal_level"])
 
-    def test_smart_auto_uses_ha_when_fresh(self):
+    def test_smart_auto_uses_exact_ha_target_when_fresh(self):
         state, engine = self.make()
         state.configure({"enabled": True, "mode": "smart_auto"})
-        state.heartbeat("high")
+        state.heartbeat("high", target_level=5, reason="CO2 Bedroom")
         self.assertEqual(engine.resolve()["effective_level"], 5)
-        state.heartbeat("boost")
+        state.heartbeat("boost", target_level=6, reason="RH Bathroom")
         self.assertEqual(engine.resolve()["effective_level"], 6)
 
     def test_smart_auto_falls_back_to_local(self):
