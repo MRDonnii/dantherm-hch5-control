@@ -158,27 +158,45 @@ def _schedule_service_restart(service: str, delay: float = 0.7) -> None:
     threading.Thread(target=restart, daemon=True).start()
 
 
+_UPDATE_INFO_CACHE: dict[str, dict[str, object]] = {}
+_UPDATE_INFO_CACHE_AT: dict[str, float] = {}
+UPDATE_INFO_CACHE_SECONDS = 300
+
+
 def update_info(channel: str | None = None) -> dict[str, object]:
     channel = channel or current_update_channel()
     if channel not in {"stable", "beta"}:
         raise ValueError("invalid_channel")
-    current = current_version()
-    installed_build = current_build()
-    available_build = None
-    if channel == "stable":
-        release = _request_json(f"https://api.github.com/repos/{REPOSITORY}/releases/latest")
-        ref = str(release["tag_name"])
-        remote_version = ref.lstrip("v")
-        published = release.get("published_at")
-        update_available = current != remote_version
-    else:
-        ref = BETA_REF
-        remote_version = _request_text(f"https://raw.githubusercontent.com/{REPOSITORY}/{BETA_REF}/VERSION")
-        branch = _request_json(f"https://api.github.com/repos/{REPOSITORY}/branches/{BETA_REF}")
-        available_build = str(branch.get("commit", {}).get("sha") or "unknown")
-        published = branch.get("commit", {}).get("commit", {}).get("committer", {}).get("date")
-        update_available = current != remote_version or installed_build != available_build
-    return {
+    now = time.monotonic()
+    cached = _UPDATE_INFO_CACHE.get(channel)
+    cache_age = now - _UPDATE_INFO_CACHE_AT.get(channel, 0.0)
+    if cached is not None and cache_age < UPDATE_INFO_CACHE_SECONDS:
+        return {**cached, "current_build": current_build(), "update": dict(UPDATE_STATE)}
+    try:
+        current = current_version()
+        installed_build = current_build()
+        available_build = None
+        if channel == "stable":
+            release = _request_json(f"https://api.github.com/repos/{REPOSITORY}/releases/latest")
+            ref = str(release["tag_name"])
+            remote_version = ref.lstrip("v")
+            published = release.get("published_at")
+            update_available = current != remote_version
+        else:
+            ref = BETA_REF
+            remote_version = _request_text(f"https://raw.githubusercontent.com/{REPOSITORY}/{BETA_REF}/VERSION")
+            branch = _request_json(f"https://api.github.com/repos/{REPOSITORY}/branches/{BETA_REF}")
+            available_build = str(branch.get("commit", {}).get("sha") or "unknown")
+            published = branch.get("commit", {}).get("commit", {}).get("committer", {}).get("date")
+            update_available = current != remote_version or installed_build != available_build
+    except (OSError, ValueError, KeyError, urllib.error.URLError, json.JSONDecodeError) as error:
+        # A GitHub rate limit (HTTP 403) or transient network error should not
+        # spam the UI with a failure on every poll. Fall back to the last
+        # known-good check instead of raising, if one exists.
+        if cached is not None:
+            return {**cached, "current_build": current_build(), "update": dict(UPDATE_STATE), "check_error": str(error)}
+        raise
+    result = {
         "ok": True,
         "channel": channel,
         "current_version": current,
@@ -188,8 +206,10 @@ def update_info(channel: str | None = None) -> dict[str, object]:
         "ref": ref,
         "published_at": published,
         "update_available": update_available,
-        "update": dict(UPDATE_STATE),
     }
+    _UPDATE_INFO_CACHE[channel] = result
+    _UPDATE_INFO_CACHE_AT[channel] = now
+    return {**result, "update": dict(UPDATE_STATE)}
 
 
 def _download_tarball(ref: str, destination: Path) -> None:

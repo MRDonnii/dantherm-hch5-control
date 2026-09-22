@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.0-beta.15
+
+- Fixes `update_check_failed: HTTP Error 403` from GitHub's unauthenticated API rate limit: `update_info()` now caches the version/build check for 5 minutes (shared across all WebUI tabs/sessions in the process) and falls back to the last known-good result instead of failing the request when GitHub is rate-limited or unreachable.
+
 ## 1.2.0-beta.14
 
 - Replaces the thin dashed air-flow streaks in the Overview unit diagram with wide, heavily blurred, layered fog/mist bands that drift slowly through the whole heat-exchanger face, closer to how air actually spreads across it. A faint dashed guide line is kept for a clear sense of direction.
