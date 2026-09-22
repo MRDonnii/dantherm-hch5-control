@@ -5,9 +5,10 @@ export default defineConfig({
   plugins: [react()],
   base: "/",
   build: {
-    outDir: "dist",
+    outDir: "../gateway/webui-v2",
     emptyOutDir: true,
-    sourcemap: true,
+    assetsDir: "assets",
+    sourcemap: false,
     target: "es2022",
   },
   server: {
