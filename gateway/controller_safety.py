@@ -5,7 +5,8 @@ The base gateway keeps the last decoded values in memory, which is useful for
 telemetry but dangerous for automation if the RS485 stream goes stale. This
 wrapper clears control measurements whenever the local bus has not produced a
 fresh frame, so Local Auto/free-cooling cannot make new decisions from old
-sensor values. It does not add any Modbus write path.
+sensor values. It also makes arbitration use age-aware bus health. No new
+Modbus write path is introduced here.
 """
 from __future__ import annotations
 
@@ -88,6 +89,9 @@ def install_controller_safety(runtime, *, stale_after: float = STALE_AFTER_SECON
     def snapshot_with_guard():
         return guard.augment(original_snapshot())
 
+    # Arbitration must not keep considering the bus healthy just because the
+    # last decoded boolean stayed True after serial traffic stopped.
+    runtime._bus_healthy = guard.fresh
     runtime.refresh_measurements = refresh_with_guard
     runtime.snapshot = snapshot_with_guard
     runtime._hch_safety_guard = guard
