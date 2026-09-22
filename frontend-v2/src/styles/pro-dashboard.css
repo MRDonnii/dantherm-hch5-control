@@ -97,11 +97,24 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .hch-port-extract path,.hch-port-exhaust path { stroke: #ff8e46; }
 .hch-port-outdoor path { stroke: #4fbaff; }
 .hch-port-extract path { stroke: #ff6f6f; }
-.hch-airflow { fill: none; stroke-width: 6; stroke-linecap: round; stroke-dasharray: 3 22; opacity: .75; animation: pro-airflow var(--flow-speed) linear infinite; }
 .hch-supply-flow { stroke: url(#supplyFlow); }
 .hch-extract-flow { stroke: url(#extractFlow); }
-.hch-airflow[style*="0s"] { animation: none; opacity: .22; }
-@keyframes pro-airflow { to { stroke-dashoffset: -50; } }
+
+/* Diffuse fog/mist flow: wide, blurred, soft-edged bands drifting slowly
+   through the whole exchanger face rather than a crisp dashed streak. */
+.hch-fog-group { mix-blend-mode: screen; }
+.hch-fog { fill: none; stroke-linecap: round; stroke-dasharray: 130 90; animation: pro-fog-drift var(--flow-speed) linear infinite; }
+.hch-fog-a { stroke-width: 46; opacity: .32; }
+.hch-fog-b { stroke-width: 30; opacity: .22; animation-direction: reverse; }
+.hch-fog-supply { stroke: url(#supplyFlow); }
+.hch-fog-extract { stroke: url(#extractFlow); }
+.hch-fog-wash { fill: none; stroke-linecap: round; stroke-width: 92; stroke-dasharray: 180 60; opacity: .16; animation: pro-fog-drift var(--flow-speed) linear infinite; }
+.hch-fog[style*="0s"], .hch-fog-wash[style*="0s"] { animation: none; opacity: .05; }
+@keyframes pro-fog-drift { to { stroke-dashoffset: -220; } }
+
+.hch-airflow-guide { fill: none; stroke-width: 2; stroke-linecap: round; stroke-dasharray: 1 26; opacity: .55; animation: pro-airflow var(--flow-speed) linear infinite; }
+.hch-airflow-guide[style*="0s"] { animation: none; opacity: .16; }
+@keyframes pro-airflow { to { stroke-dashoffset: -54; } }
 .hch-temp-badge rect { fill: #0a1822; stroke: #274557; }
 .hch-temp-title { fill: #91a7b5; font-size: 10px; font-weight: 700; }
 .hch-temp-value { fill: #f2f8fb; font-size: 18px; font-weight: 850; }

@@ -117,6 +117,8 @@ export function Hch5UnitDiagram(props: Hch5UnitDiagramProps) {
           <linearGradient id="supplyFlow" x1="0" x2="1"><stop offset="0" stopColor="#46bfff"/><stop offset=".55" stopColor="#69d6bd"/><stop offset="1" stopColor="#55e39b"/></linearGradient>
           <linearGradient id="extractFlow" x1="1" x2="0"><stop offset="0" stopColor="#ff6969"/><stop offset=".48" stopColor="#ffae55"/><stop offset="1" stopColor="#ff923f"/></linearGradient>
           <filter id="airGlow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="1.6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          <filter id="fogBlur" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="13" /></filter>
+          <filter id="fogBlurSoft" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="22" /></filter>
           <filter id="unitShadow" x="-20%" y="-30%" width="150%" height="180%"><feDropShadow dx="0" dy="18" stdDeviation="18" floodColor="#000" floodOpacity=".42"/></filter>
           <pattern id="filterMesh" width="8" height="8" patternUnits="userSpaceOnUse"><path d="M0 8 L8 0 M-2 2 L2 -2 M6 10 L10 6" stroke="#9db0ba" strokeWidth="1" opacity=".55"/></pattern>
           <marker id="arrowSupply" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0 0 L8 3 L0 6Z" fill="#5fe0a0"/></marker>
@@ -169,8 +171,18 @@ export function Hch5UnitDiagram(props: Hch5UnitDiagramProps) {
         <g className="hch-port hch-port-extract"><rect x="922" y="160" width="54" height="44" rx="16"/><path d="M1028 182 H976" markerEnd="url(#arrowExtract)" /></g>
         <g className="hch-port hch-port-supply"><rect x="922" y="378" width="54" height="44" rx="16"/><path d="M976 400 H1028" markerEnd="url(#arrowSupply)" /></g>
 
-        <path className="hch-airflow hch-supply-flow" d={supplyPath} style={{ "--flow-speed": supplySpeed ? `${supplySpeed}s` : "0s" } as CSSProperties}/>
-        <path className="hch-airflow hch-extract-flow" d={extractPath} style={{ "--flow-speed": extractSpeed ? `${extractSpeed}s` : "0s" } as CSSProperties}/>
+        <g className="hch-fog-group" filter="url(#fogBlur)">
+          <path className="hch-fog hch-fog-supply hch-fog-a" d={supplyPath} style={{ "--flow-speed": supplySpeed ? `${supplySpeed}s` : "0s" } as CSSProperties}/>
+          <path className="hch-fog hch-fog-supply hch-fog-b" d={supplyPath} style={{ "--flow-speed": supplySpeed ? `${supplySpeed * 1.35}s` : "0s" } as CSSProperties}/>
+          <path className="hch-fog hch-fog-extract hch-fog-a" d={extractPath} style={{ "--flow-speed": extractSpeed ? `${extractSpeed}s` : "0s" } as CSSProperties}/>
+          <path className="hch-fog hch-fog-extract hch-fog-b" d={extractPath} style={{ "--flow-speed": extractSpeed ? `${extractSpeed * 1.35}s` : "0s" } as CSSProperties}/>
+        </g>
+        <g className="hch-fog-group soft" filter="url(#fogBlurSoft)">
+          <path className="hch-fog-wash hch-fog-supply" d={supplyPath} style={{ "--flow-speed": supplySpeed ? `${supplySpeed * 1.7}s` : "0s" } as CSSProperties}/>
+          <path className="hch-fog-wash hch-fog-extract" d={extractPath} style={{ "--flow-speed": extractSpeed ? `${extractSpeed * 1.7}s` : "0s" } as CSSProperties}/>
+        </g>
+        <path className="hch-airflow-guide hch-supply-flow" d={supplyPath} style={{ "--flow-speed": supplySpeed ? `${supplySpeed}s` : "0s" } as CSSProperties}/>
+        <path className="hch-airflow-guide hch-extract-flow" d={extractPath} style={{ "--flow-speed": extractSpeed ? `${extractSpeed}s` : "0s" } as CSSProperties}/>
 
         <TempBadge x={10} y={115} title="Udeluft · T1" value={fmt(outdoor)} tone="cold" />
         <TempBadge x={10} y={426} title="Afkast · T4" value={fmt(exhaust)} tone="warm" />
