@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.0-beta.13
+
+- Builds the Historik page in the same visual style as Overview: range selector (1h/6h/24h/7d/30d), temperature, water, fan, CO₂ and heat-recovery charts backed by the existing `/history.json` sample store. Shows "Ingen data" instead of any fake values when a range has too few samples.
+
 ## 1.2.0-beta.12
 
 - Fixes `unexpected afterheat source block` on real hardware: word 185 was only ever verified on bit 0, but live HAC1 traffic sets extra unrelated status bits (observed 8193 = 0x2001). The identity check, the passive parser and the setpoint poller now all check bit 0 instead of requiring an exact 1; word 187=15 stays a required constant and every other live word is preserved unchanged.
