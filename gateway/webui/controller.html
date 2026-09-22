@@ -3,21 +3,29 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#0b1118">
-  <title>Dantherm HCH5 · Teknik</title>
+  <meta name="theme-color" content="#0c141b">
+  <title>HCH5 Control · Teknik</title>
   <link rel="stylesheet" href="/assets/dashboard.css">
   <link rel="stylesheet" href="/assets/theme.css">
   <link rel="stylesheet" href="/assets/controller.css">
   <script defer src="/assets/controller.js"></script>
   <script defer src="/assets/master_status.js"></script>
+  <script defer src="/assets/smartcontrol.js"></script>
 </head>
 <body>
 <header class="topbar">
-  <div class="brand"><span class="brand-mark">D</span><div><b>DANTHERM HCH5</b><small>Teknik · controller og kalibrering</small></div></div>
-  <div class="headline-status"><span class="status-dot" id="controller-dot"></span><strong id="controller-status">FORBINDER…</strong><span class="badge" id="source-badge">—</span></div>
+  <div class="brand"><span class="brand-mark">H</span><div><b>HCH5 CONTROL</b><small>Teknik · controller og kalibrering</small></div></div>
+  <div class="headline-status"><span class="status-dot" id="controller-dot"></span><strong id="controller-status">FORBINDER…</strong><span class="badge" id="source-badge">—</span><button class="sc-theme-toggle" id="sc-theme-toggle" type="button" aria-label="Skift mellem lyst og mørkt tema">☾</button></div>
 </header>
 <nav class="tabs" aria-label="Dashboard-sektioner">
-  <a class="tab-link" href="/?tab=overview">Overblik og styring</a><a class="tab-link" href="/?tab=history">Historik</a><a class="tab-link active" href="/controller" aria-current="page">Teknik</a><a class="tab-link" href="/?tab=system">System</a><a class="tab-link" href="/?tab=homeassistant">Home Assistant</a><a class="tab-link" href="/?tab=diagnostics">Diagnostik</a><a class="tab-link" href="/?tab=updates">Opdateringer</a><a class="tab-link" href="/?tab=settings">Indstillinger</a>
+  <a class="tab-link" href="/?tab=overview">Overblik og styring</a>
+  <a class="tab-link" href="/?tab=history">Historik</a>
+  <a class="tab-link active" href="/controller" aria-current="page">Teknik</a>
+  <a class="tab-link" href="/?tab=system">System</a>
+  <a class="tab-link" href="/?tab=homeassistant">Home Assistant</a>
+  <a class="tab-link" href="/?tab=diagnostics">Diagnostik</a>
+  <a class="tab-link" href="/?tab=updates">Opdateringer</a>
+  <a class="tab-link" href="/?tab=settings">Indstillinger</a>
 </nav>
 <main class="controller-main">
   <section class="controller-hero card">
@@ -26,7 +34,7 @@
       <h1>Controlleropsætning</h1>
       <p id="effective-reason">Afventer controller…</p>
     </div>
-    <span class="badge safe">PI AUTOMATISK MASTER</span>
+    <div class="headline-status"><span class="badge safe">AUTOMATISK MASTER</span><span class="badge" id="ha-badge">HA —</span></div>
   </section>
 
   <section class="card controller-diagnostics master-card">
@@ -47,6 +55,19 @@
 
   <section class="controller-grid">
     <article class="card control-card">
+      <div class="section-heading"><div><small>DRIFT</small><h2>Controller-mode</h2></div><span class="badge" id="effective-source">—</span></div>
+      <div class="mode-buttons">
+        <button type="button" data-mode="local_auto"><b>Local Auto</b><span>Pi bruger lokale RH/CO₂ værdier</span></button>
+        <button type="button" data-mode="smart_auto"><b>Smart Auto</b><span>Home Assistant rumdata med lokal fallback</span></button>
+        <button type="button" data-mode="manual"><b>Manuel</b><span>Fast ventilationsniveau</span></button>
+      </div>
+      <div class="level-buttons" aria-label="Manuelt ventilationsniveau">
+        <button type="button" data-level="1"><b>1</b><span>Lav</span></button><button type="button" data-level="2"><b>2</b><span>Lav+</span></button><button type="button" data-level="3"><b>3</b><span>Normal</span></button><button type="button" data-level="4"><b>4</b><span>Høj</span></button><button type="button" data-level="5"><b>5</b><span>Høj+</span></button><button type="button" data-level="6"><b>6</b><span>Boost</span></button>
+      </div>
+      <div class="controller-status-list"><dt>Aktuelt niveau</dt><dd id="effective-level">—</dd><dt>Udsugning / indblæsning</dt><dd id="effective-pair">—</dd></div>
+    </article>
+
+    <article class="card control-card">
       <div class="section-heading"><div><small>LOCAL AUTO</small><h2>Luftkvalitet</h2></div><span class="badge" id="auto-level-badge">—</span></div>
       <div class="live-air"><div><small>RH</small><strong><span id="live-rh">—</span>%</strong></div><div><small>CO₂</small><strong><span id="live-co2">—</span> ppm</strong></div></div>
       <div class="form-grid">
@@ -61,6 +82,20 @@
       <button class="primary-action" id="save-auto">Gem Local Auto</button>
     </article>
 
+    <article class="card control-card">
+      <div class="section-heading"><div><small>KLIMA</small><h2>Eftervarme og specialfunktioner</h2></div><span class="badge" id="afterheat-active-badge">—</span></div>
+      <div class="setpoint-row">
+        <button class="step-button" id="afterheat-minus" type="button" aria-label="Sænk setpunkt">−</button>
+        <div><strong><span id="afterheat-display">20</span>°C</strong><small>ønsket indblæsning</small></div>
+        <button class="step-button" id="afterheat-plus" type="button" aria-label="Hæv setpunkt">+</button>
+      </div>
+      <div class="quick-setpoints"><button type="button" data-afterheat="18">18°</button><button type="button" data-afterheat="20">20°</button><button type="button" data-afterheat="22">22°</button><button type="button" data-afterheat="24">24°</button><button type="button" data-afterheat="26">26°</button></div>
+      <div class="technical-specials">
+        <div class="technical-special"><h3>Pejsetilstand</h3><label class="login-switch fireplace-switch"><input id="fireplace-toggle" type="checkbox"><span>Aktivér pejsefunktion</span></label><p>Controlleren håndterer den eksisterende verificerede pejse-sekvens og blokkerer bypass-request samtidig.</p></div>
+        <div class="technical-special"><h3>Fysisk status</h3><dl class="controller-status-list"><dt>Bypass spjæld</dt><dd id="bypass-actual">—</dd><dt>Pejs</dt><dd id="fireplace-actual">—</dd><dt>Eftervarme</dt><dd id="afterheat-actual">—</dd></dl><p>Fysisk bypass-status er separat fra ønsket bypass-request.</p></div>
+      </div>
+    </article>
+
     <article class="card control-card profile-card">
       <div class="section-heading"><div><small>KALIBRERING</small><h2>6 ventilationsprofiler</h2></div><span class="badge">UDSUGNING &gt; INDBLÆSNING</span></div>
       <div class="profile-table-wrap"><table class="profile-table"><thead><tr><th>Niveau</th><th>Udsugning %</th><th>Indblæsning %</th><th>Forskel</th></tr></thead><tbody id="profile-body"></tbody></table></div>
@@ -71,7 +106,13 @@
 
   <section class="card controller-diagnostics">
     <div class="section-heading"><div><small>DIAGNOSTIK</small><h2>Controllerstatus</h2></div><span class="badge" id="write-badge">—</span></div>
-    <dl class="controller-status-list diagnostic-list"><dt>Aktiv kilde</dt><dd id="effective-source">—</dd><dt>Aktuelt niveau</dt><dd id="effective-level">—</dd><dt>Udsugning / indblæsning</dt><dd id="effective-pair">—</dd><dt>HA heartbeat</dt><dd id="ha-age">—</dd><dt>Seneste write</dt><dd id="last-write">—</dd><dt>Write-fejl</dt><dd id="write-failures">—</dd><dt>Seneste fejl</dt><dd id="last-error">—</dd><dt>Controller uptime</dt><dd id="controller-uptime">—</dd></dl>
+    <dl class="controller-status-list diagnostic-list">
+      <dt>HA heartbeat</dt><dd id="ha-age">—</dd>
+      <dt>Seneste write</dt><dd id="last-write">—</dd>
+      <dt>Write-fejl</dt><dd id="write-failures">—</dd>
+      <dt>Seneste fejl</dt><dd id="last-error">—</dd>
+      <dt>Controller uptime</dt><dd id="controller-uptime">—</dd>
+    </dl>
     <p class="notice" id="controller-result">Klar.</p>
   </section>
 </main>
