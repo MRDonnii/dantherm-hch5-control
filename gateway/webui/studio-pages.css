@@ -1,0 +1,64 @@
+/* Secondary-page polish for HCH5 Control. */
+#history .card,#system .card,#homeassistant .card,#diagnostics .card,#updates .card,#settings .card{border-radius:18px!important;}
+#history .chart-grid,#system .system-grid,#diagnostics .diagnostic-grid{gap:16px!important;}
+#system .system-grid>*,#diagnostics .diagnostic-grid>*,#settings .setting-card,#updates .update-card,#homeassistant .ha-connect-card{padding:21px!important;}
+#system .system-grid h2,#diagnostics .diagnostic-grid h2,#settings h2,#updates h2,#homeassistant h2{font-size:16px!important;letter-spacing:-.02em!important;}
+#system .system-grid p,#diagnostics .diagnostic-grid p,#settings p,#updates p,#homeassistant p{color:var(--studio-sub)!important;line-height:1.6!important;}
+
+/* History */
+#history .ranges{display:flex;gap:6px;padding:4px;border:1px solid var(--studio-line);border-radius:11px;background:var(--studio-surface-2)}
+#history .ranges button{min-width:50px;border:0!important;border-radius:8px!important;background:transparent!important;color:var(--studio-sub)!important;font-size:9px!important;font-weight:800!important;padding:7px 10px!important;box-shadow:none!important}
+#history .ranges button.active{background:var(--studio-surface)!important;color:var(--studio-blue)!important;box-shadow:0 1px 4px rgba(0,0,0,.06)!important}
+#history .chart-card{padding:20px!important;min-height:260px}
+#history .chart-card header h2{font-size:15px!important}
+#history .chart-empty{display:grid;place-items:center;min-height:190px;border:1px dashed var(--studio-line);border-radius:12px;background:var(--studio-surface-2);color:var(--studio-sub);font-size:10px}
+
+/* System */
+#system .system-grid{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important}
+#system .system-grid .card{box-shadow:none!important;background:var(--studio-surface)!important}
+#system .flags,#system .service-list{display:grid;gap:7px;margin-top:12px}
+#system .flags span,#system .service-list>div{padding:10px 11px!important;border:1px solid var(--studio-line)!important;border-radius:10px!important;background:var(--studio-surface-2)!important}
+
+/* Home Assistant */
+#homeassistant .ha-connect-grid{gap:16px!important}
+#homeassistant .ha-connect-card{min-height:150px;border-radius:18px!important;box-shadow:none!important}
+#homeassistant .ha-logo{width:52px!important;height:52px!important;border-radius:15px!important}
+#homeassistant .ha-links a{border-radius:10px!important;padding:10px 13px!important}
+#homeassistant .admin-actions{gap:8px!important}
+#homeassistant .admin-actions button{border-radius:10px!important;background:var(--studio-surface-2)!important;border-color:var(--studio-line)!important;color:var(--studio-ink)!important;box-shadow:none!important}
+
+/* Diagnostics */
+#diagnostics .diagnostic-grid{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important}
+#diagnostics details{border:1px solid var(--studio-line);border-radius:12px;background:var(--studio-surface-2);padding:11px 13px}
+#diagnostics summary{cursor:pointer;font-size:10px;font-weight:800;color:var(--studio-ink)}
+#diagnostics pre{border:1px solid var(--studio-line)!important;border-radius:12px!important;background:color-mix(in srgb,var(--studio-rail) 96%,#000)!important;color:#d8e5eb!important;padding:14px!important;font-size:10px!important;line-height:1.55!important}
+
+/* Updates */
+#updates .update-card{position:relative;overflow:hidden}
+#updates .update-card:before{content:"";position:absolute;inset:0 0 auto;height:2px;background:linear-gradient(90deg,var(--studio-blue),var(--studio-green));opacity:.7}
+#updates .channel-picker,#updates .update-channel-picker{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px!important;margin-top:16px!important}
+#updates .channel-picker button,#updates .update-channel-picker button{min-height:76px;border:1px solid var(--studio-line)!important;border-radius:13px!important;background:var(--studio-surface-2)!important;color:var(--studio-ink)!important;text-align:left!important;padding:13px!important;box-shadow:none!important}
+#updates .channel-picker button.active,#updates .update-channel-picker button.active{border-color:color-mix(in srgb,var(--studio-green) 55%,var(--studio-line))!important;background:color-mix(in srgb,var(--studio-green) 7%,var(--studio-surface))!important;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--studio-green) 18%,transparent)!important}
+#updates .update-actions{display:flex!important;gap:8px!important;flex-wrap:wrap!important;margin-top:15px!important}
+#updates .update-actions button{border-radius:10px!important;min-height:40px!important;box-shadow:none!important}
+
+/* Settings */
+#settings .appearance-card{padding:22px!important}
+#settings .appearance-options{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:10px!important;margin-top:15px!important}
+#settings .appearance-options button{min-height:90px!important;padding:15px!important;text-align:left!important;background:var(--studio-surface-2)!important;border:1px solid var(--studio-line)!important;color:var(--studio-ink)!important;box-shadow:none!important}
+#settings .appearance-options button.active{border-color:var(--studio-blue)!important;background:color-mix(in srgb,var(--studio-blue) 7%,var(--studio-surface))!important}
+#settings .appearance-options strong{display:block;font-size:12px!important}
+#settings .appearance-options small{display:block;margin-top:5px;line-height:1.4;text-transform:none!important;letter-spacing:0!important}
+#settings .nav-preference{margin-top:14px!important;padding:13px 14px!important;border:1px solid var(--studio-line)!important;border-radius:12px!important;background:var(--studio-surface-2)!important}
+#settings .auth-settings{box-shadow:none!important}
+
+/* Sniffer */
+.sniffer-shell{max-width:1180px!important;margin:0 auto!important;padding:34px 24px 50px!important}
+.sniffer-head{display:flex!important;justify-content:space-between!important;gap:20px!important;align-items:flex-end!important;margin-bottom:18px!important;padding:22px 24px!important;border:1px solid var(--studio-line)!important;border-radius:18px!important;background:var(--studio-surface)!important;box-shadow:var(--studio-shadow)!important}
+.sniffer-head h1{margin:5px 0 5px!important;font-size:28px!important;letter-spacing:-.03em!important;color:var(--studio-ink)!important}
+.sniffer-head p{margin:0!important;color:var(--studio-sub)!important;font-size:11px!important}
+.sniffer-back{display:inline-flex!important;align-items:center!important;min-height:38px!important;padding:0 12px!important;border:1px solid var(--studio-line)!important;border-radius:10px!important;background:var(--studio-surface-2)!important;color:var(--studio-ink)!important;text-decoration:none!important;font-size:10px!important;font-weight:800!important}
+.sniffer-shell>.card{padding:21px!important;margin-top:14px!important}
+
+@media(max-width:1100px){#system .system-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+@media(max-width:800px){#system .system-grid,#diagnostics .diagnostic-grid{grid-template-columns:1fr!important}#settings .appearance-options{grid-template-columns:1fr!important}.sniffer-head{align-items:flex-start!important;flex-direction:column!important}}
