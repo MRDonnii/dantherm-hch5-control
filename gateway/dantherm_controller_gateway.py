@@ -26,6 +26,15 @@ class Gateway(BaseGateway):
     """Base gateway plus immediate HCP4 detection and hard bus-master gate."""
 
     def __init__(self, config: dict):
+        # HCH5 Control owns the local maintenance timer when it runs as the
+        # replacement controller. Passive installations keep the legacy
+        # opt-in behaviour because they use the base gateway entry point.
+        filter_cfg = config.get("filter")
+        if not isinstance(filter_cfg, dict):
+            filter_cfg = {}
+            config["filter"] = filter_cfg
+        filter_cfg["enabled"] = True
+
         super().__init__(config)
         master_cfg = config.get("controller", {}).get("master_arbitration", {})
         self.controller.configure_master(master_cfg)
@@ -39,6 +48,7 @@ class Gateway(BaseGateway):
         self.override_mode = None
         self.startup_mode = None
         LOG.info("Legacy gateway control loop disabled; ControllerRuntime owns Pi control")
+        LOG.info("HCH5 Control local filter tracking enabled")
 
     def serial_read(self, ser: serial.Serial, size: int) -> bytes:
         data = super().serial_read(ser, size)
