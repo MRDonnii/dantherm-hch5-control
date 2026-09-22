@@ -1,5 +1,6 @@
 @import url("/assets/studio.css");
 @import url("/assets/studio-panels.css");
+@import url("/assets/studio-pages.css");
 html.ui-prepaint *,html.ui-prepaint *::before,html.ui-prepaint *::after{transition:none!important}
 html.ui-prepaint body{transition:none!important}
 @media(min-width:901px){
