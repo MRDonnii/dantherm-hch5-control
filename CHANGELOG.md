@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0-beta.17
+
+- Reroutes the normal-mode supply/extract paths through the exact exchanger rotation center so they cross it as a clean X, matching real cross-flow.
+- Removes the dash pattern from the fog layers so the smoke is one continuous, evenly solid band the whole way — no more thin/thick patches — using the previously densest opacity throughout.
+- Enlarges the outdoor/exhaust/extract/supply duct ports, and fades the fog out with a mask as it approaches the ends of the flow paths instead of ending abruptly.
+
 ## 1.2.0-beta.16
 
 - Builds the Teknik and System pages in the same visual style as Overview/Historik, both read-only: Teknik shows master arbitration, hardware-write safety state, the active decision and its reason, Smart Auto input freshness and hardware readbacks (from the existing `/api/controller/state`); System shows Pi CPU/memory/disk, network, service health (gateway/1-Wire/SSH) and version status (from the existing `/state.json` and update-check).

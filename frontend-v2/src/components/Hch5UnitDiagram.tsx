@@ -31,8 +31,11 @@ function int(value: Num) {
   return value === null ? "—" : Math.round(value).toLocaleString("da-DK");
 }
 
-const NORMAL_SUPPLY = "M76 182 H242 C294 182 330 196 369 225 L493 314 C535 344 588 359 650 360 H782 C826 360 853 380 888 400 H1018";
-const NORMAL_EXTRACT = "M1018 182 H856 C804 182 769 199 731 227 L612 313 C571 342 520 358 456 360 H318 C270 360 239 381 203 400 H76";
+// Both normal-mode paths are anchored through the exchanger's exact
+// rotation center (550 295) so they cross it as a clean X, matching the
+// physical cross-flow through the heat exchanger.
+const NORMAL_SUPPLY = "M76 182 H260 C305 182 332 196 360 222 L550 295 L740 368 C768 379 795 391 838 400 H1018";
+const NORMAL_EXTRACT = "M1018 182 H840 C795 182 768 196 740 222 L550 295 L360 368 C332 379 305 391 262 400 H76";
 const BYPASS_SUPPLY = "M76 182 H267 C310 182 337 201 337 239 V333 C337 373 366 400 410 400 H1018";
 const BYPASS_EXTRACT = "M1018 182 H816 C774 182 746 202 746 240 V318 C746 353 718 374 678 374 H407 C362 374 333 386 303 400 H76";
 
@@ -123,6 +126,13 @@ export function Hch5UnitDiagram(props: Hch5UnitDiagramProps) {
           <pattern id="filterMesh" width="8" height="8" patternUnits="userSpaceOnUse"><path d="M0 8 L8 0 M-2 2 L2 -2 M6 10 L10 6" stroke="#9db0ba" strokeWidth="1" opacity=".55"/></pattern>
           <marker id="arrowSupply" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0 0 L8 3 L0 6Z" fill="#5fe0a0"/></marker>
           <marker id="arrowExtract" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0 0 L8 3 L0 6Z" fill="#ff8e46"/></marker>
+          <linearGradient id="fogFadeGradient" x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0" stopColor="#fff" stopOpacity="0" />
+            <stop offset=".09" stopColor="#fff" stopOpacity="1" />
+            <stop offset=".91" stopColor="#fff" stopOpacity="1" />
+            <stop offset="1" stopColor="#fff" stopOpacity="0" />
+          </linearGradient>
+          <mask id="fogFadeMask"><rect x="0" y="0" width="1100" height="560" fill="url(#fogFadeGradient)" /></mask>
         </defs>
 
         <ellipse className="hch-floor-shadow" cx="550" cy="487" rx="365" ry="35" />
@@ -166,18 +176,18 @@ export function Hch5UnitDiagram(props: Hch5UnitDiagramProps) {
           <text className="hch-part-label" x="315" y="405" textAnchor="middle">Elektronik</text>
         </g>
 
-        <g className="hch-port hch-port-outdoor"><rect x="145" y="160" width="54" height="44" rx="16"/><path d="M145 182 H82" markerEnd="url(#arrowSupply)" /></g>
-        <g className="hch-port hch-port-exhaust"><rect x="145" y="378" width="54" height="44" rx="16"/><path d="M145 400 H82" markerEnd="url(#arrowExtract)" /></g>
-        <g className="hch-port hch-port-extract"><rect x="922" y="160" width="54" height="44" rx="16"/><path d="M1028 182 H976" markerEnd="url(#arrowExtract)" /></g>
-        <g className="hch-port hch-port-supply"><rect x="922" y="378" width="54" height="44" rx="16"/><path d="M976 400 H1028" markerEnd="url(#arrowSupply)" /></g>
+        <g className="hch-port hch-port-outdoor"><rect x="135" y="152" width="74" height="60" rx="18"/><path d="M135 182 H82" markerEnd="url(#arrowSupply)" /></g>
+        <g className="hch-port hch-port-exhaust"><rect x="135" y="370" width="74" height="60" rx="18"/><path d="M135 400 H82" markerEnd="url(#arrowExtract)" /></g>
+        <g className="hch-port hch-port-extract"><rect x="912" y="152" width="74" height="60" rx="18"/><path d="M1028 182 H986" markerEnd="url(#arrowExtract)" /></g>
+        <g className="hch-port hch-port-supply"><rect x="912" y="370" width="74" height="60" rx="18"/><path d="M986 400 H1028" markerEnd="url(#arrowSupply)" /></g>
 
-        <g className="hch-fog-group" filter="url(#fogBlur)">
+        <g className="hch-fog-group" filter="url(#fogBlur)" mask="url(#fogFadeMask)">
           <path className="hch-fog hch-fog-supply hch-fog-a" d={supplyPath} style={{ "--flow-speed": supplySpeed ? `${supplySpeed}s` : "0s" } as CSSProperties}/>
           <path className="hch-fog hch-fog-supply hch-fog-b" d={supplyPath} style={{ "--flow-speed": supplySpeed ? `${supplySpeed * 1.35}s` : "0s" } as CSSProperties}/>
           <path className="hch-fog hch-fog-extract hch-fog-a" d={extractPath} style={{ "--flow-speed": extractSpeed ? `${extractSpeed}s` : "0s" } as CSSProperties}/>
           <path className="hch-fog hch-fog-extract hch-fog-b" d={extractPath} style={{ "--flow-speed": extractSpeed ? `${extractSpeed * 1.35}s` : "0s" } as CSSProperties}/>
         </g>
-        <g className="hch-fog-group soft" filter="url(#fogBlurSoft)">
+        <g className="hch-fog-group soft" filter="url(#fogBlurSoft)" mask="url(#fogFadeMask)">
           <path className="hch-fog-wash hch-fog-supply" d={supplyPath} style={{ "--flow-speed": supplySpeed ? `${supplySpeed * 1.7}s` : "0s" } as CSSProperties}/>
           <path className="hch-fog-wash hch-fog-extract" d={extractPath} style={{ "--flow-speed": extractSpeed ? `${extractSpeed * 1.7}s` : "0s" } as CSSProperties}/>
         </g>

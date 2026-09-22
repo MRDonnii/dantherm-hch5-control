@@ -100,17 +100,18 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .hch-supply-flow { stroke: url(#supplyFlow); }
 .hch-extract-flow { stroke: url(#extractFlow); }
 
-/* Diffuse fog/mist flow: wide, blurred, soft-edged bands drifting slowly
-   through the whole exchanger face rather than a crisp dashed streak. */
+/* Diffuse fog/mist flow: one continuous, evenly solid blurred band the
+   full length of the path — no dashes, so opacity/width never thins out
+   partway along it, matching the density of the previous densest spots. */
 .hch-fog-group { mix-blend-mode: screen; }
-.hch-fog { fill: none; stroke-linecap: round; stroke-dasharray: 130 90; animation: pro-fog-drift var(--flow-speed) linear infinite; }
-.hch-fog-a { stroke-width: 46; opacity: .32; }
-.hch-fog-b { stroke-width: 30; opacity: .22; animation-direction: reverse; }
+.hch-fog { fill: none; stroke-linecap: round; }
+.hch-fog-a { stroke-width: 46; opacity: .34; }
+.hch-fog-b { stroke-width: 30; opacity: .24; }
 .hch-fog-supply { stroke: url(#supplyFlow); }
 .hch-fog-extract { stroke: url(#extractFlow); }
-.hch-fog-wash { fill: none; stroke-linecap: round; stroke-width: 92; stroke-dasharray: 180 60; opacity: .16; animation: pro-fog-drift var(--flow-speed) linear infinite; }
-.hch-fog[style*="0s"], .hch-fog-wash[style*="0s"] { animation: none; opacity: .05; }
-@keyframes pro-fog-drift { to { stroke-dashoffset: -220; } }
+.hch-fog-wash { fill: none; stroke-linecap: round; stroke-width: 92; opacity: .17; }
+.hch-fog[style*="0s"], .hch-fog-a[style*="0s"] { opacity: .1; }
+.hch-fog-wash[style*="0s"] { opacity: .05; }
 
 .hch-airflow-guide { fill: none; stroke-width: 2; stroke-linecap: round; stroke-dasharray: 1 26; opacity: .55; animation: pro-airflow var(--flow-speed) linear infinite; }
 .hch-airflow-guide[style*="0s"] { animation: none; opacity: .16; }
