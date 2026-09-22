@@ -59,6 +59,8 @@ fi
 
 install -d -o passivelink-webui -g passivelink-webui /opt/dantherm-passivelink-webui
 install -d -o root -g passivelink-webui -m 0750 /etc/dantherm-passivelink-webui
+install -d -o passivelink-webui -g passivelink-webui -m 0750 /var/lib/dantherm-hch5-ha
+chown -R passivelink-webui:passivelink-webui /var/lib/dantherm-hch5-ha
 
 backup="/var/backups/dantherm-webui-$(date +%Y%m%d-%H%M%S)"
 install -d -m 0700 "${backup}"

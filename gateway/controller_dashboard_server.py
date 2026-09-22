@@ -160,8 +160,15 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                         dashboard.auth.save(data.get("username", ""), data.get("password", ""), True)
                     except ValueError as error:
                         return self._json_error(400, str(error))
-                    remember = data.get("remember") is True
-                    sid, csrf = dashboard.auth.session(data["username"].strip(), remember=remember)
+                    except OSError:
+                        LOG.exception("Could not save the initial WebUI user")
+                        return self._json_error(500, "Kunne ikke gemme login-konfigurationen")
+                    try:
+                        remember = data.get("remember") is True
+                        sid, csrf = dashboard.auth.session(data["username"].strip(), remember=remember)
+                    except OSError:
+                        LOG.exception("Could not create the initial WebUI session")
+                        return self._json_error(500, "Kunne ikke gemme login-sessionen")
                     return self._login_reply(sid, csrf)
 
                 if self.path == "/api/auth/login":
@@ -169,11 +176,20 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                     ip = self.client_address[0]
                     if not dashboard.auth.allow_attempt(ip):
                         return self._json_error(429, "For mange forsøg. Vent fem minutter.")
-                    if not dashboard.auth.verify(data.get("username", ""), data.get("password", "")):
+                    try:
+                        verified = dashboard.auth.verify(data.get("username", ""), data.get("password", ""))
+                    except (OSError, ValueError):
+                        LOG.exception("Could not read the WebUI authentication store")
+                        return self._json_error(500, "Kunne ikke læse login-konfigurationen")
+                    if not verified:
                         dashboard.auth.failed(ip)
                         return self._json_error(401, "Forkert brugernavn eller adgangskode")
-                    remember = data.get("remember") is True
-                    sid, csrf = dashboard.auth.session(data["username"], remember=remember)
+                    try:
+                        remember = data.get("remember") is True
+                        sid, csrf = dashboard.auth.session(data["username"], remember=remember)
+                    except OSError:
+                        LOG.exception("Could not create the WebUI login session")
+                        return self._json_error(500, "Kunne ikke gemme login-sessionen")
                     return self._login_reply(sid, csrf)
 
                 # Machine-to-machine endpoints for Home Assistant. HA sends

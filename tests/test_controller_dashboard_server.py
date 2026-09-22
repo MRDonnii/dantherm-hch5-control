@@ -6,6 +6,7 @@ import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+from unittest.mock import Mock
 
 import sys
 
@@ -22,6 +23,33 @@ class FakeRuntime:
 
 
 class ControllerDashboardTests(unittest.TestCase):
+    def test_setup_returns_json_when_auth_store_cannot_be_written(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = FakeRuntime()
+            server = ControllerDashboardHttpServer(
+                "127.0.0.1", 0, {}, "Test", None,
+                web_root=ROOT / "gateway/webui", history_path=Path(tmp) / "history.sqlite3",
+                controller_runtime=runtime,
+            )
+            server.auth.path = Path(tmp) / "auth.json"
+            server.auth.save = Mock(side_effect=PermissionError("read-only auth store"))
+            server.start(); port = server.server.server_address[1]
+            try:
+                setup = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/api/auth/setup",
+                    data=json.dumps({"username": "admin", "password": "long-test-password"}).encode(),
+                    headers={"Content-Type": "application/json"}, method="POST",
+                )
+                with self.assertRaises(urllib.error.HTTPError) as error:
+                    urllib.request.urlopen(setup)
+                self.assertEqual(error.exception.code, 500)
+                self.assertEqual(
+                    json.load(error.exception),
+                    {"error": "Kunne ikke gemme login-konfigurationen"},
+                )
+            finally:
+                server.stop()
+
     def test_config_needs_session_and_csrf_while_heartbeat_needs_machine_token(self):
         with tempfile.TemporaryDirectory() as tmp:
             old = os.environ.get("DANTHERM_CONTROLLER_TOKEN")
