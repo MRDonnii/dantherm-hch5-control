@@ -4,15 +4,17 @@ import { ApiError, postJson, requestJson } from "../lib/api";
 
 type Channel = "stable" | "beta";
 
-interface AuthStatus {
-  csrf?: string | null;
-}
-
+interface AuthStatus { csrf?: string | null; }
 interface UpdateState {
   running?: boolean;
+  channel?: Channel | null;
+  started_at?: number | null;
+  finished_at?: number | null;
+  progress?: number;
+  phase?: string;
+  detail?: string;
   last_error?: string | null;
 }
-
 interface UpdateInfo {
   ok?: boolean;
   channel?: Channel;
@@ -30,6 +32,17 @@ interface UpdateInfo {
 function shortBuild(value?: string | null) {
   if (!value || value === "unknown") return "—";
   return value.slice(0, 8);
+}
+function clamp(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(0, Math.min(100, number)) : 0;
+}
+function phaseLabel(value?: string) {
+  const labels: Record<string, string> = {
+    idle: "Klar", starting: "Starter", checking: "Kontrollerer", preparing: "Forbereder", downloading: "Downloader",
+    extracting: "Pakker ud", validating: "Validerer", installing: "Installerer", verifying: "Verificerer", complete: "Færdig", failed: "Fejlet",
+  };
+  return labels[value ?? ""] ?? value ?? "Klar";
 }
 
 export function UpdatesPage() {
@@ -86,6 +99,10 @@ export function UpdatesPage() {
     if (busy) return;
     setBusy(true);
     setMessage("Opdateringen er startet. Controlleren fortsætter, mens den nye build valideres…");
+    setInfo(current => ({
+      ...current,
+      update: { ...current?.update, running: true, progress: 2, phase: "starting", detail: "Forbereder sikker opdatering…", last_error: null },
+    }));
     try {
       await action("install_update", channel);
     } catch (error) {
@@ -100,31 +117,41 @@ export function UpdatesPage() {
       try {
         const auth = await requestJson<AuthStatus>("/api/auth/status", { timeoutMs: 2500 });
         const token = auth.csrf ?? csrf;
-        const next = await postJson<UpdateInfo>("/api/admin/action", { action: "check_update", target: channel }, token);
+        const local = await postJson<UpdateInfo>("/api/admin/action", { action: "get_update_status" }, token);
         if (!mounted.current) return;
-        setInfo(next);
-        if (next.update?.last_error) {
+        setInfo(current => ({ ...current, ...local, update: local.update ?? current?.update }));
+        if (local.update?.last_error) {
           window.clearInterval(timer);
           setBusy(false);
-          setMessage(`Opdatering rullet tilbage: ${next.update.last_error}`);
+          setMessage(`Opdatering rullet tilbage: ${local.update.last_error}`);
           return;
         }
-        if (!next.update?.running && next.update_available === false) {
+        if (!local.update?.running && clamp(local.update?.progress) >= 100) {
           window.clearInterval(timer);
-          setMessage("Opdateringen er installeret. Genindlæser den nye WebUI…");
-          window.setTimeout(() => window.location.reload(), 900);
+          setMessage("Opdateringen er installeret. Kontrollerer den nye build…");
+          window.setTimeout(async () => {
+            try {
+              const final = await postJson<UpdateInfo>("/api/admin/action", { action: "check_update", target: channel }, token);
+              setInfo(final);
+            } catch {}
+            window.location.reload();
+          }, 1200);
           return;
         }
       } catch {
-        // Gateway/admin may briefly restart. Keep polling until it is back.
+        // Gateway/admin kan genstarte kortvarigt. Fortsæt polling.
       }
-      if (Date.now() - started > 120_000) {
+      if (Date.now() - started > 180_000) {
         window.clearInterval(timer);
         setBusy(false);
         setMessage("Opdateringen tager længere tid end forventet. Tryk Kontroller igen om lidt.");
       }
-    }, 2500);
+    }, 1200);
   }
+
+  const progress = clamp(info?.update?.progress);
+  const running = info?.update?.running === true;
+  const detail = info?.update?.detail ?? (running ? "Installerer…" : message);
 
   return (
     <section className="page-view page-enter">
@@ -170,9 +197,15 @@ export function UpdatesPage() {
           </article>
           <article className="surface control-card-v2">
             <div className="section-head compact"><div><span className="eyebrow">FAILSAFE</span><h2>Installer næste build</h2></div></div>
-            <p>Den valgte kanal gemmes på Pi’en. Ved fejl skal updateren rulle applikationsfilerne tilbage og holde controlleren online.</p>
-            <button type="button" className="primary-action" onClick={() => void installUpdate()} disabled={busy || !info?.update_available}>
-              {busy ? "Arbejder…" : info?.update_available ? "Opdater nu" : "Ingen update"}
+            <p>Den valgte kanal gemmes på Pi’en. Ved fejl ruller updateren applikationsfilerne tilbage og holder controlleren i sikker drift.</p>
+            <div className="update-progress-panel" aria-live="polite">
+              <div className="update-progress-meta"><strong>{detail}</strong><span>{Math.round(progress)}%</span></div>
+              <div className="update-progress-track"><i style={{ width: `${progress}%` }}/></div>
+              <div className="update-stage">{phaseLabel(info?.update?.phase)}</div>
+            </div>
+            {info?.update?.last_error && <div className="control-notice error">{info.update.last_error}</div>}
+            <button type="button" className="primary-action" onClick={() => void installUpdate()} disabled={busy || running || !info?.update_available}>
+              {running ? "Installerer…" : busy ? "Arbejder…" : info?.update_available ? "Opdater nu" : "Ingen update"}
             </button>
           </article>
         </aside>
