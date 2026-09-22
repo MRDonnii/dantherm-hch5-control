@@ -104,6 +104,19 @@ class SmartRoomControllerTests(unittest.TestCase):
         self.assertEqual(resolved["effective_level"], 4)
         self.assertIn("Bedroom", resolved["effective_reason"])
 
+    def test_expired_room_lease_forces_local_fallback(self):
+        runtime = self.make_runtime()
+        runtime.room_inputs({
+            "valid_for_s": 30,
+            "rooms": {"Bedroom": {"co2": 1400, "priority": "auto", "control": True}},
+        })
+        self.assertEqual(runtime.engine.resolve()["effective_source"], "ha_smart")
+        runtime.smart_inputs_received_at = time.time() - 31
+        runtime._expire_smart_lease()
+        result = runtime.engine.resolve()
+        self.assertEqual(result["effective_source"], "local_fallback")
+        self.assertIsNone(runtime.config.data["ha_last_seen"])
+
 
 class SmartTargetCoreTests(unittest.TestCase):
     def test_smart_auto_uses_exact_ha_target_level(self):
