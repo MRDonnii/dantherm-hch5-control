@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { Flame, Gauge, Leaf, Wind } from "lucide-react";
 import { postJson, requestJson } from "../lib/api";
 import "../styles/overview.css";
@@ -29,6 +29,11 @@ function first(source: Data, ...keys: string[]): number | null {
     if (value !== null) return value;
   }
   return null;
+}
+function measurement(source: Data, key: string): number | null {
+  const values = source.measurements;
+  if (!values || typeof values !== "object") return null;
+  return n((values as Record<string, unknown>)[key]);
 }
 function t(value: unknown, fallback = "—") {
   return value === null || value === undefined || value === "" ? fallback : String(value);
@@ -133,7 +138,7 @@ export function OverviewPage() {
   const exhaust = first(unit, "exhaust_temp", "exhaust_temperature");
   const beforeHeater = first(controller, "actual_supply_before_heater_temperature") ?? first(unit, "supply_temp");
   const afterHeater = first(controller, "actual_supply_air_temperature") ?? first(unit, "heating_coil_after_temperature", "supply_temp");
-  const room = first(controller, "measurements.room") ?? first(unit, "hrc2_t5_temperature", "room_temp", "extract_temp");
+  const room = measurement(controller, "room") ?? first(unit, "hrc2_t5_temperature", "room_temp", "extract_temp");
   const frost = first(controller, "actual_afterheat_frost_temperature") ?? first(unit, "heating_coil_frost_temperature");
   const flowWater = first(unit, "flow_temperature");
   const returnWater = first(unit, "return_temperature");
@@ -161,17 +166,12 @@ export function OverviewPage() {
   }, [bypassActual, outdoor, extract, exhaust]);
   const supplySpeed = supplyRpm && supplyRpm > 0 ? Math.max(0.75, 3.2 - supplyRpm / 750) : 0;
   const extractSpeed = extractRpm && extractRpm > 0 ? Math.max(0.75, 3.2 - extractRpm / 750) : 0;
-
   const levelPatch = mode === "manual" ? "manual_level" : "local_normal_level";
 
   return (
     <section className="page-view page-enter overview-live">
       <header className="page-hero overview-hero">
-        <div>
-          <span className="eyebrow">OVERBLIK</span>
-          <h1>Ventilation, samlet ét sted</h1>
-          <p>Live HCH5, HAC1, temperaturer, luftstrømme og den styring der faktisk er aktiv lige nu.</p>
-        </div>
+        <div><span className="eyebrow">OVERBLIK</span><h1>Ventilation, samlet ét sted</h1><p>Live HCH5, HAC1, temperaturer, luftstrømme og den styring der faktisk er aktiv lige nu.</p></div>
         <div className="hero-status-grid">
           <div><span>Master</span><strong>{masterLabel(controller.active_master)}</strong></div>
           <div><span>Bus</span><strong className={busHealthy ? "ok-text" : "warn-text"}>{busHealthy ? "Sund" : "Afventer"}</strong></div>
@@ -195,53 +195,24 @@ export function OverviewPage() {
                 <linearGradient id="warmAir" x1="0" x2="1"><stop offset="0" stopColor="#ffb45b"/><stop offset="1" stopColor="#d67b5b"/></linearGradient>
                 <linearGradient id="supplyAir" x1="0" x2="1"><stop offset="0" stopColor="#63d1b1"/><stop offset="1" stopColor="#5eb9ea"/></linearGradient>
               </defs>
-
               <rect className="unit-shell live-shell" x="276" y="82" width="500" height="350" rx="38" />
               <text className="unit-title" x="526" y="111" textAnchor="middle">HCH5 · HCH5 CONTROL</text>
-
-              <path className="duct-bg" d={routes.outdoor}/><path className="duct-bg" d={routes.supply}/>
-              <path className="duct-bg" d={routes.extract}/><path className="duct-bg" d={routes.exhaust}/>
+              <path className="duct-bg" d={routes.outdoor}/><path className="duct-bg" d={routes.supply}/><path className="duct-bg" d={routes.extract}/><path className="duct-bg" d={routes.exhaust}/>
               <path className={`flow-line outdoor-flow ${supplySpeed === 0 ? "stopped" : ""}`} style={{ animationDuration: supplySpeed ? `${supplySpeed}s` : undefined }} d={routes.outdoor}/>
               <path className={`flow-line supply-flow ${supplySpeed === 0 ? "stopped" : ""}`} style={{ animationDuration: supplySpeed ? `${supplySpeed}s` : undefined }} d={routes.supply}/>
               <path className={`flow-line extract-flow ${extractSpeed === 0 ? "stopped" : ""}`} style={{ animationDuration: extractSpeed ? `${extractSpeed}s` : undefined }} d={routes.extract}/>
               <path className={`flow-line exhaust-flow ${extractSpeed === 0 ? "stopped" : ""}`} style={{ animationDuration: extractSpeed ? `${extractSpeed}s` : undefined }} d={routes.exhaust}/>
-
-              <g className={`exchanger live-exchanger ${bypassActual ? "bypassed" : ""}`} transform="translate(505 258) rotate(45)">
-                <rect x="-78" y="-78" width="156" height="156" rx="27" />
-                <path d="M-51 -38 H51 M-51 -13 H51 M-51 12 H51 M-51 37 H51" />
-              </g>
-              <text className="recovery-label" x="505" y="252" textAnchor="middle">{recovery === null ? "—" : `${recovery}%`}</text>
-              <text className="recovery-sub" x="505" y="272" textAnchor="middle">{bypassActual ? "BYPASSET" : "GENVINDING"}</text>
-
-              <g className={`bypass-gate ${bypassActual ? "open" : "closed"}`} transform="translate(638 205)">
-                <rect x="-54" y="-19" width="108" height="38" rx="12" />
-                <path d="M-32 0 H32" />
-                <circle cx={bypassActual ? 27 : -27} cy="0" r="9" />
-                <text x="0" y="38" textAnchor="middle">BYPASS {bypassActual ? "ÅBEN" : "LUKKET"}</text>
-              </g>
-
-              <g className={`fan-v2 live-fan extract-fan ${extractSpeed === 0 ? "stopped" : ""}`} style={{ "--fan-speed": extractSpeed ? `${extractSpeed}s` : "0s" } as React.CSSProperties} transform="translate(742 160)">
-                <circle r="33"/><path d="M0-21c18 0 23 13 12 21C5 6-2 0 0-21Zm19 12c8 16-1 26-15 21-9-3-4-11 15-21Zm-19 19c-17 2-24-11-14-21 8-8 13-1 14 21Z" />
-              </g>
-              <g className={`fan-v2 live-fan supply-fan ${supplySpeed === 0 ? "stopped" : ""}`} style={{ "--fan-speed": supplySpeed ? `${supplySpeed}s` : "0s" } as React.CSSProperties} transform="translate(742 346)">
-                <circle r="33"/><path d="M0-21c18 0 23 13 12 21C5 6-2 0 0-21Zm19 12c8 16-1 26-15 21-9-3-4-11 15-21Zm-19 19c-17 2-24-11-14-21 8-8 13-1 14 21Z" />
-              </g>
-
-              <g className={`heater-coil ${heating ? "active" : ""}`} transform="translate(860 346)">
-                <rect x="-31" y="-41" width="62" height="82" rx="12" />
-                <path d="M-16-26 C18-18-18-5 16 3 C-18 12 18 24-16 31" />
-                <text x="0" y="61" textAnchor="middle">EFTERVARME</text>
-              </g>
-              <path className="water-loop flow" d="M842 390 V445 H910 V390" />
-              <path className="water-loop return" d="M856 390 V426 H896 V390" />
-              <text className="water-label" x="924" y="427">F {temperature(flowWater)}</text>
-              <text className="water-label" x="924" y="444">R {temperature(returnWater)}</text>
-
+              <g className={`exchanger live-exchanger ${bypassActual ? "bypassed" : ""}`} transform="translate(505 258) rotate(45)"><rect x="-78" y="-78" width="156" height="156" rx="27" /><path d="M-51 -38 H51 M-51 -13 H51 M-51 12 H51 M-51 37 H51" /></g>
+              <text className="recovery-label" x="505" y="252" textAnchor="middle">{recovery === null ? "—" : `${recovery}%`}</text><text className="recovery-sub" x="505" y="272" textAnchor="middle">{bypassActual ? "BYPASSET" : "GENVINDING"}</text>
+              <g className={`bypass-gate ${bypassActual ? "open" : "closed"}`} transform="translate(638 205)"><rect x="-54" y="-19" width="108" height="38" rx="12" /><path d="M-32 0 H32" /><circle cx={bypassActual ? 27 : -27} cy="0" r="9" /><text x="0" y="38" textAnchor="middle">BYPASS {bypassActual ? "ÅBEN" : "LUKKET"}</text></g>
+              <g className={`fan-v2 live-fan extract-fan ${extractSpeed === 0 ? "stopped" : ""}`} style={{ "--fan-speed": extractSpeed ? `${extractSpeed}s` : "0s" } as CSSProperties} transform="translate(742 160)"><circle r="33"/><path d="M0-21c18 0 23 13 12 21C5 6-2 0 0-21Zm19 12c8 16-1 26-15 21-9-3-4-11 15-21Zm-19 19c-17 2-24-11-14-21 8-8 13-1 14 21Z" /></g>
+              <g className={`fan-v2 live-fan supply-fan ${supplySpeed === 0 ? "stopped" : ""}`} style={{ "--fan-speed": supplySpeed ? `${supplySpeed}s` : "0s" } as CSSProperties} transform="translate(742 346)"><circle r="33"/><path d="M0-21c18 0 23 13 12 21C5 6-2 0 0-21Zm19 12c8 16-1 26-15 21-9-3-4-11 15-21Zm-19 19c-17 2-24-11-14-21 8-8 13-1 14 21Z" /></g>
+              <g className={`heater-coil ${heating ? "active" : ""}`} transform="translate(860 346)"><rect x="-31" y="-41" width="62" height="82" rx="12" /><path d="M-16-26 C18-18-18-5 16 3 C-18 12 18 24-16 31" /><text x="0" y="61" textAnchor="middle">EFTERVARME</text></g>
+              <path className="water-loop flow" d="M842 390 V445 H910 V390" /><path className="water-loop return" d="M856 390 V426 H896 V390" /><text className="water-label" x="924" y="427">F {temp(flowWater)}</text><text className="water-label" x="924" y="444">R {temp(returnWater)}</text>
               <g className="air-label endpoint left top"><text x="36" y="119">UDELUFT</text><text className="temp" x="36" y="144">{temp(outdoor)}</text></g>
               <g className="air-label endpoint left bottom"><text x="36" y="390">AFKAST</text><text className="temp" x="36" y="415">{temp(exhaust)}</text></g>
               <g className="air-label endpoint right top"><text x="1064" y="119" textAnchor="end">UDSUGNING</text><text className="temp" x="1064" y="144" textAnchor="end">{temp(extract)}</text></g>
               <g className="air-label endpoint right bottom"><text x="1064" y="390" textAnchor="end">INDBLÆSNING</text><text className="temp" x="1064" y="415" textAnchor="end">{temp(afterHeater)}</text></g>
-
               <SensorTag x={300} y={118} code="T1" label="Udeluftsensor" value={temp(outdoor)} tone="cold" />
               <SensorTag x={300} y={367} code="T4" label="Afkasttemperatur" value={temp(exhaust)} tone="neutral" />
               <SensorTag x={646} y={118} code="T3" label="Udsugningstemperatur" value={temp(extract)} tone="warm" />
@@ -253,61 +224,24 @@ export function OverviewPage() {
           </div>
 
           <div className="airflow-footer live-footer">
-            <span><i className="legend-dot supply" /> Indblæsning {whole(supplyRpm)} RPM · {whole(supplyPercent)}%</span>
-            <span><i className="legend-dot extract" /> Udsugning {whole(extractRpm)} RPM · {whole(extractPercent)}%</span>
-            <span><i className={`legend-dot ${bypassActual ? "active" : "neutral"}`} /> Bypass faktisk {bypassActual ? "åben" : "lukket"}</span>
-            <span>Ønske: {bypassRequest === "on" || bypassRequest === "255" ? "On" : "Auto"}</span>
-            <span>Eftervarme: {heating ? "aktiv" : "inaktiv"}</span>
+            <span><i className="legend-dot supply" /> Indblæsning {whole(supplyRpm)} RPM · {whole(supplyPercent)}%</span><span><i className="legend-dot extract" /> Udsugning {whole(extractRpm)} RPM · {whole(extractPercent)}%</span><span><i className={`legend-dot ${bypassActual ? "active" : "neutral"}`} /> Bypass faktisk {bypassActual ? "åben" : "lukket"}</span><span>Ønske: {bypassRequest === "on" || bypassRequest === "255" ? "On" : "Auto"}</span><span>Eftervarme: {heating ? "aktiv" : "inaktiv"}</span>
           </div>
-
-          <div className="inline-bypass-control">
-            <div><span>Bypass styring</span><small>Auto lader HCH5 bestemme fysisk position. On beder om bypass.</small></div>
-            <div className="mini-segmented">
-              <button disabled={busy !== null} className={controller.bypass !== "on" ? "active" : ""} onClick={() => void command("bypass", { bypass: "off" }, "Bypass sat til Auto")}>Auto</button>
-              <button disabled={busy !== null || fireplace} className={controller.bypass === "on" ? "active" : ""} onClick={() => void command("bypass", { bypass: "on" }, "Bypass ønskes åbnet")}>On</button>
-            </div>
-          </div>
+          <div className="inline-bypass-control"><div><span>Bypass styring</span><small>Auto lader HCH5 bestemme fysisk position. On beder om bypass.</small></div><div className="mini-segmented"><button disabled={busy !== null} className={controller.bypass !== "on" ? "active" : ""} onClick={() => void command("bypass", { bypass: "off" }, "Bypass sat til Auto")}>Auto</button><button disabled={busy !== null || fireplace} className={controller.bypass === "on" ? "active" : ""} onClick={() => void command("bypass", { bypass: "on" }, "Bypass ønskes åbnet")}>On</button></div></div>
         </article>
 
         <aside className="control-column">
           <article className="surface control-card-v2">
             <div className="section-head compact"><div><span className="eyebrow">DAGLIG STYRING</span><h2>Ventilation</h2></div><Gauge size={21} /></div>
-            <div className="segmented-v2">
-              {(["local_auto", "smart_auto", "manual"] as const).map(value => <button key={value} disabled={busy !== null} className={mode === value ? "active" : ""} onClick={() => void command("mode", { mode: value }, `${modeLabel(value)} valgt`)}>{modeLabel(value)}</button>)}
-            </div>
+            <div className="segmented-v2">{(["local_auto", "smart_auto", "manual"] as const).map(value => <button key={value} disabled={busy !== null} className={mode === value ? "active" : ""} onClick={() => void command("mode", { mode: value }, `${modeLabel(value)} valgt`)}>{modeLabel(value)}</button>)}</div>
             <div className="level-row"><span>{mode === "manual" ? "Manuelt niveau" : "Normalniveau"}</span><div>{[1,2,3,4,5,6].map(item => <button disabled={busy !== null} key={item} className={Number(level) === item ? "active" : ""} onClick={() => void command("level", { [levelPatch]: item }, `Niveau ${item} gemt`)}>{item}</button>)}</div></div>
             <div className="control-summary"><span>Aktiv beslutning</span><strong>Trin {level} · {sourceLabel(controller.effective_source)}</strong><small>{t(controller.effective_reason, "Afventer controllerbeslutning")}</small></div>
             {notice && <div className={`control-notice ${notice.startsWith("Kunne") ? "error" : ""}`}>{notice}</div>}
           </article>
 
-          <article className="surface quick-card quick-card-live">
-            <div className="quick-icon"><Wind size={20}/></div>
-            <div><span>Quick Boost</span><strong>{quickBoostActive ? remaining(controller.quick_boost_remaining_seconds) : "15 · 30 · 60 min"}</strong></div>
-            <div className="quick-actions">
-              {quickBoostActive ? <button disabled={busy !== null} onClick={() => void command("boost", { quick_boost_minutes: 0 }, "Quick Boost stoppet")}>Stop</button> : [15,30,60].map(minutes => <button disabled={busy !== null || fireplace} key={minutes} onClick={() => void command("boost", { quick_boost_minutes: minutes }, `Quick Boost startet i ${minutes} min`)}>{minutes}</button>)}
-            </div>
-          </article>
-
-          <article className="surface quick-card quick-card-live">
-            <div className="quick-icon warm"><Flame size={20}/></div>
-            <div><span>Eftervarme</span><strong>{afterheatSetpoint}° setpunkt · {heating ? "aktiv" : "inaktiv"}</strong></div>
-            <div className="quick-actions stepper">
-              <button disabled={busy !== null || afterheatSetpoint <= 18} onClick={() => void command("afterheat", { afterheat_setpoint: afterheatSetpoint - 1 }, `Eftervarme ønsket ${afterheatSetpoint - 1}°`)}>−</button>
-              <button disabled={busy !== null || afterheatSetpoint >= 30} onClick={() => void command("afterheat", { afterheat_setpoint: afterheatSetpoint + 1 }, `Eftervarme ønsket ${afterheatSetpoint + 1}°`)}>+</button>
-            </div>
-          </article>
-
-          <article className="surface quick-card quick-card-live">
-            <div className="quick-icon green"><Leaf size={20}/></div>
-            <div><span>Frikøling</span><strong>{controller.cooling_enabled === true ? coolingLabel(controller.cooling_state) : "Deaktiveret"}</strong></div>
-            <button disabled={busy !== null || mode === "manual"} onClick={() => void command("cooling", { cooling_enabled: controller.cooling_enabled !== true }, controller.cooling_enabled === true ? "Frikøling deaktiveret" : "Frikøling aktiveret")}>{controller.cooling_enabled === true ? "Slå fra" : "Aktiver"}</button>
-          </article>
-
-          <article className="surface quick-card quick-card-live">
-            <div className="quick-icon warm"><Flame size={20}/></div>
-            <div><span>Pejsefunktion</span><strong>{fireplace ? remaining(controller.fireplace_remaining_seconds) : "Slukket"}</strong></div>
-            <div className="quick-actions">{fireplace ? <button disabled={busy !== null} onClick={() => void command("fireplace", { fireplace_minutes: 0 }, "Pejsefunktion stoppet")}>Stop</button> : <><button disabled={busy !== null || controller.bypass === "on"} onClick={() => void command("fireplace", { fireplace_minutes: 15 }, "Pejsefunktion 15 min")}>15</button><button disabled={busy !== null || controller.bypass === "on"} onClick={() => void command("fireplace", { fireplace_minutes: 30 }, "Pejsefunktion 30 min")}>30</button></>}</div>
-          </article>
+          <article className="surface quick-card quick-card-live"><div className="quick-icon"><Wind size={20}/></div><div><span>Quick Boost</span><strong>{quickBoostActive ? remaining(controller.quick_boost_remaining_seconds) : "15 · 30 · 60 min"}</strong></div><div className="quick-actions">{quickBoostActive ? <button disabled={busy !== null} onClick={() => void command("boost", { quick_boost_minutes: 0 }, "Quick Boost stoppet")}>Stop</button> : [15,30,60].map(minutes => <button disabled={busy !== null || fireplace} key={minutes} onClick={() => void command("boost", { quick_boost_minutes: minutes }, `Quick Boost startet i ${minutes} min`)}>{minutes}</button>)}</div></article>
+          <article className="surface quick-card quick-card-live"><div className="quick-icon warm"><Flame size={20}/></div><div><span>Eftervarme</span><strong>{afterheatSetpoint}° setpunkt · {heating ? "aktiv" : "inaktiv"}</strong></div><div className="quick-actions stepper"><button disabled={busy !== null || afterheatSetpoint <= 18} onClick={() => void command("afterheat", { afterheat_setpoint: afterheatSetpoint - 1 }, `Eftervarme ønsket ${afterheatSetpoint - 1}°`)}>−</button><button disabled={busy !== null || afterheatSetpoint >= 30} onClick={() => void command("afterheat", { afterheat_setpoint: afterheatSetpoint + 1 }, `Eftervarme ønsket ${afterheatSetpoint + 1}°`)}>+</button></div></article>
+          <article className="surface quick-card quick-card-live"><div className="quick-icon green"><Leaf size={20}/></div><div><span>Frikøling</span><strong>{controller.cooling_enabled === true ? coolingLabel(controller.cooling_state) : "Deaktiveret"}</strong></div><button disabled={busy !== null || mode === "manual"} onClick={() => void command("cooling", { cooling_enabled: controller.cooling_enabled !== true }, controller.cooling_enabled === true ? "Frikøling deaktiveret" : "Frikøling aktiveret")}>{controller.cooling_enabled === true ? "Slå fra" : "Aktiver"}</button></article>
+          <article className="surface quick-card quick-card-live"><div className="quick-icon warm"><Flame size={20}/></div><div><span>Pejsefunktion</span><strong>{fireplace ? remaining(controller.fireplace_remaining_seconds) : "Slukket"}</strong></div><div className="quick-actions">{fireplace ? <button disabled={busy !== null} onClick={() => void command("fireplace", { fireplace_minutes: 0 }, "Pejsefunktion stoppet")}>Stop</button> : <><button disabled={busy !== null || controller.bypass === "on"} onClick={() => void command("fireplace", { fireplace_minutes: 15 }, "Pejsefunktion 15 min")}>15</button><button disabled={busy !== null || controller.bypass === "on"} onClick={() => void command("fireplace", { fireplace_minutes: 30 }, "Pejsefunktion 30 min")}>30</button></>}</div></article>
         </aside>
       </div>
 
