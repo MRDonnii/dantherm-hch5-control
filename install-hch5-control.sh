@@ -12,6 +12,11 @@ curl -fsSL "https://api.github.com/repos/MRDonnii/dantherm-hch-passivelink-webui
 
 bash "$tmp/install.sh" "$@"
 install -o passivelink-webui -g passivelink-webui -m 0644 "$tmp/VERSION" /opt/dantherm-passivelink-webui/VERSION
+build=$(curl -fsSL "https://api.github.com/repos/MRDonnii/dantherm-hch-passivelink-webui/branches/beta%2F1.1-modern-controller" \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["commit"]["sha"])' 2>/dev/null || true)
+printf '%s\n' "${build:-unknown}" > /opt/dantherm-passivelink-webui/BUILD
+chown passivelink-webui:passivelink-webui /opt/dantherm-passivelink-webui/BUILD
+chmod 0644 /opt/dantherm-passivelink-webui/BUILD
 # Install the safe in-place updater source for diagnostics/reference.
 install -o root -g root -m 0755 "$tmp/update.sh" /opt/dantherm-webui/update.sh
 
