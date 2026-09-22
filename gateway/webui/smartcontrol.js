@@ -1,185 +1,94 @@
 "use strict";
 (() => {
   const q=(s,r=document)=>r.querySelector(s), qa=(s,r=document)=>[...r.querySelectorAll(s)];
-  const days=["Man","Tir","Ons","Tor","Fre","Lør","Søn"];
-  const longDays=["Mandag","Tirsdag","Onsdag","Torsdag","Fredag","Lørdag","Søndag"];
+  const days=["Man","Tir","Ons","Tor","Fre","Lør","Søn"], longDays=["Mandag","Tirsdag","Onsdag","Torsdag","Fredag","Lørdag","Søndag"];
   const live=()=>typeof state!=="undefined"&&state?state:(typeof liveState!=="undefined"&&liveState?liveState:{});
   const ctrl=()=>typeof controllerState!=="undefined"&&controllerState?controllerState:{};
-  const setText=(selector,value)=>{const el=q(selector);if(el)el.textContent=value==null||value===""?"—":String(value)};
-  const setValue=(selector,value)=>{const el=q(selector);if(el&&document.activeElement!==el)el.value=value??""};
-  const setChecked=(selector,value)=>{const el=q(selector);if(el&&document.activeElement!==el)el.checked=value===true};
-  const checked=selector=>q(selector)?.checked===true;
-  const value=(selector,fallback="")=>q(selector)?.value??fallback;
-  const number=(v,d=1)=>Number.isFinite(Number(v))?Number(v).toLocaleString("da-DK",{maximumFractionDigits:d}):"—";
+  const num=(v,d=1)=>Number.isFinite(Number(v))?Number(v).toLocaleString("da-DK",{maximumFractionDigits:d}):"—";
+  const text=(s,v)=>{const e=q(s);if(e)e.textContent=v==null||v===""?"—":String(v)};
+  const val=(s,v)=>{const e=q(s);if(e&&document.activeElement!==e)e.value=v??""};
+  const check=(s,v)=>{const e=q(s);if(e&&document.activeElement!==e)e.checked=v===true};
+  const checked=s=>q(s)?.checked===true;
+  const field=(s,f="")=>q(s)?.value??f;
+  const escapeHtml=s=>String(s??"").replace(/[&<>\"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+  function saveController(patch,message="Gemt"){
+    if(typeof postController==="function")return postController(patch,message);
+    if(typeof config==="function")return config(patch,message);
+    const token=(typeof authState!=="undefined"&&authState?.csrf)||"";
+    return fetch("/api/controller/config",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":token},body:JSON.stringify(patch)}).then(async r=>{const p=await r.json().catch(()=>({}));if(!r.ok)throw Error(p.error||`HTTP ${r.status}`);if(typeof controllerState!=="undefined")controllerState=p;return p});
+  }
 
   function brandIcon(){return '<span class="modern-logo" aria-hidden="true"><svg viewBox="0 0 64 64"><path d="M12 31 32 13l20 18v20H39V38H25v13H12Z"/><path class="wave" d="M10 44c9-7 16-7 25 0 8 6 13 6 20 0"/></svg></span>'}
-
-  function cleanupLegacyLabels(){
-    const skip=new Set(["SCRIPT","STYLE","PRE","CODE","TEXTAREA"]);
-    const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
-    const nodes=[];while(walker.nextNode())nodes.push(walker.currentNode);
-    for(const node of nodes){
-      if(skip.has(node.parentElement?.tagName))continue;
-      let text=node.nodeValue||"";
-      text=text.replaceAll("Dantherm HCH PassiveLink","HCH5 Control").replaceAll("Dantherm PassiveLink","HCH5 Control").replaceAll("PassiveLink","HCH5 Control");
-      if(text!==node.nodeValue)node.nodeValue=text;
-    }
+  function cleanupLegacy(){
+    const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT),nodes=[];while(walker.nextNode())nodes.push(walker.currentNode);
+    for(const n of nodes){if(["SCRIPT","STYLE","PRE","CODE","TEXTAREA"].includes(n.parentElement?.tagName))continue;const next=(n.nodeValue||"").replaceAll("Dantherm HCH PassiveLink","HCH5 Control").replaceAll("Dantherm PassiveLink","HCH5 Control").replaceAll("PassiveLink","HCH5 Control");if(next!==n.nodeValue)n.nodeValue=next}
   }
 
   function installBranding(){
-    document.title=document.location.pathname==="/controller"?"HCH5 Control · Teknik":document.location.pathname==="/sniffer"?"HCH5 Control · Modbus Sniffer":"HCH5 Control";
-    const oldBrand=q(".topbar .brand");
-    if(oldBrand){oldBrand.hidden=false;oldBrand.innerHTML='<span class="brand-mark" aria-hidden="true">H</span><div><b>HCH5 CONTROL</b><small>Smart ventilation</small></div>'}
+    document.title=location.pathname==="/controller"?"HCH5 Control · Teknik":location.pathname==="/sniffer"?"HCH5 Control · Modbus Sniffer":"HCH5 Control";
+    const brand=q(".topbar .brand");if(brand)brand.innerHTML='<span class="brand-mark" aria-hidden="true">H</span><div><b>HCH5 CONTROL</b><small>Smart ventilation</small></div>';
     const tabs=q(".tabs");
     if(tabs&&!q(".modern-brand",tabs)){
-      const brand=document.createElement("div");brand.className="modern-brand";
-      brand.innerHTML=`${brandIcon()}<div><strong>HCH5 <span>Control</span></strong><small>Smart ventilation · local first</small></div>`;
-      tabs.prepend(brand);
-      const status=document.createElement("div");status.className="sidebar-status";
-      status.innerHTML='<i></i><span>Anlæg online</span><small>HCH5 MK1 · lokal styring</small>';
-      tabs.append(status);
+      const b=document.createElement("div");b.className="modern-brand";b.innerHTML=`${brandIcon()}<div class="modern-brand-copy"><strong>HCH5 <span>Control</span></strong><small>Smart ventilation · local first</small></div><button id="sidebar-collapse" type="button" aria-label="Fold sidemenu sammen" title="Fold sidemenu sammen">‹</button>`;tabs.prepend(b);
+      const status=document.createElement("div");status.className="sidebar-status";status.innerHTML='<i></i><span>Anlæg online</span><small>Afventer masterstatus</small>';tabs.append(status);
     }
-    const iconMap={"Overblik og styring":"⌂","Historik":"⌁","Teknik":"⌘","System":"▣","Home Assistant":"⌂","Diagnostik":"⌕","Opdateringer":"↻","Indstillinger":"⚙"};
-    qa(".tabs button,.tabs .tab-link").forEach(el=>{el.dataset.navIcon=iconMap[el.textContent.trim()]||"•"});
+    const icons={"Overblik og styring":"⌂","Historik":"⌁","Teknik":"⌘","System":"▣","Home Assistant":"⌂","Diagnostik":"⌕","Opdateringer":"↻","Indstillinger":"⚙"};
+    qa(".tabs button,.tabs .tab-link").forEach(el=>{const name=el.textContent.trim();el.dataset.navIcon=icons[name]||"•";el.title=name});
     const badge=q(".headline-status .badge.safe");if(badge)badge.textContent="BETA";
     const footer=q("footer span:last-child");if(footer)footer.textContent="HCH5 Control · lokal styring";
-    const bypassOff=q('[data-bypass="off"]'),bypassOn=q('[data-bypass="on"]');
-    if(bypassOff)bypassOff.textContent="Auto";if(bypassOn)bypassOn.textContent="Åbn";
-    const bypassBox=bypassOff?.closest(".fireplace-control");
-    if(bypassBox){const title=q(":scope > span",bypassBox);if(title)title.textContent="Bypass request"}
-    const ha=q("#homeassistant");
-    if(ha){
-      const h1=q(".page-title h1",ha);if(h1)h1.textContent="Forbind HCH5 Control til Home Assistant";
-      const heads=qa("h2",ha);if(heads[0])heads[0].textContent="Installér HCH5 Control integrationen";
-      const ps=qa("p",ha);if(ps[0])ps[0].innerHTML='Installér <strong>HCH5 Control</strong> som custom integration via HACS. Den eksisterende interne domain bevares, så opgraderinger ikke skaber nye entities.';
-      if(ps[1])ps[1].innerHTML='Brug denne Raspberry Pi som vært og port <strong>4196</strong> til live data. Controller-API bruges separat til de funktioner, der må styres.';
-    }
-    const diagnostics=q("#diagnostics");
-    if(diagnostics){
-      const title=q(".page-title h1",diagnostics);if(title)title.textContent="HCH5 Control og rå data";
-      const support=q(".support-card",diagnostics);
-      if(support&&!q(".sniffer-link",support)){
-        const link=document.createElement("a");link.className="sniffer-link";link.href="/sniffer";link.textContent="Åbn Modbus Sniffer";support.append(link);
-      }
-    }
-    cleanupLegacyLabels();
+    const off=q('[data-bypass="off"]'),on=q('[data-bypass="on"]');if(off)off.textContent="Auto";if(on)on.textContent="Åbn";
+    const box=off?.closest(".fireplace-control");if(box){const t=q(":scope > span",box);if(t)t.textContent="Bypass request"}
+    cleanupLegacy();
   }
 
-  function preferredTheme(){
-    try{return localStorage.getItem("hch5-theme-preference")||"system"}catch(e){return"system"}
-  }
-  function resolvedTheme(pref){return pref==="system"?(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"):pref}
-  function applyPreferredTheme(pref,save=true){
-    if(!["system","light","dark"].includes(pref))pref="system";
-    const resolved=resolvedTheme(pref);
-    if(save){try{localStorage.setItem("hch5-theme-preference",pref)}catch(e){}}
-    try{localStorage.setItem("dantherm-theme",resolved)}catch(e){}
-    if(typeof applyTheme==="function")applyTheme(resolved);else document.documentElement.dataset.theme=resolved;
-    qa("[data-theme-choice]").forEach(button=>button.classList.toggle("active",button.dataset.themeChoice===pref));
-    const toggle=q("#theme-toggle")||q("#sc-theme-toggle");if(toggle)toggle.textContent=resolved==="dark"?"☀":"☾";
-    const meta=q('meta[name="theme-color"]');if(meta)meta.content=resolved==="dark"?"#0c141b":"#f7fafc";
-  }
+  function collapsed(){try{return localStorage.getItem("hch5-sidebar-collapsed")==="1"}catch(e){return false}}
+  function setCollapsed(on,save=true){document.body.classList.toggle("sidebar-collapsed",!!on);const b=q("#sidebar-collapse");if(b){b.textContent=on?"›":"‹";b.title=on?"Fold sidemenu ud":"Fold sidemenu sammen";b.setAttribute("aria-label",b.title)}if(save){try{localStorage.setItem("hch5-sidebar-collapsed",on?"1":"0")}catch(e){}}}
+  function installSidebar(){setCollapsed(collapsed(),false);q("#sidebar-collapse")?.addEventListener("click",()=>setCollapsed(!document.body.classList.contains("sidebar-collapsed")))}
+
+  function preferredTheme(){try{return localStorage.getItem("hch5-theme-preference")||"system"}catch(e){return"system"}}
+  function resolveTheme(p){return p==="system"?(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"):p}
+  function applyPreferredTheme(pref,save=true){if(!["system","light","dark"].includes(pref))pref="system";const r=resolveTheme(pref);if(save){try{localStorage.setItem("hch5-theme-preference",pref)}catch(e){}}try{localStorage.setItem("dantherm-theme",r)}catch(e){};if(typeof applyTheme==="function")applyTheme(r);else document.documentElement.dataset.theme=r;qa("[data-theme-choice]").forEach(b=>b.classList.toggle("active",b.dataset.themeChoice===pref));const t=q("#theme-toggle")||q("#sc-theme-toggle");if(t)t.textContent=r==="dark"?"☀":"☾";const m=q('meta[name="theme-color"]');if(m)m.content=r==="dark"?"#0c141b":"#f7fafc"}
   function installTheme(){
-    if(!q("#theme-toggle")){
-      const top=q(".headline-status");if(top){const button=document.createElement("button");button.id="sc-theme-toggle";button.className="sc-theme-toggle";button.type="button";button.setAttribute("aria-label","Skift mellem lyst og mørkt tema");button.textContent="☾";top.append(button);button.addEventListener("click",()=>applyPreferredTheme(document.documentElement.dataset.theme==="dark"?"light":"dark"))}
-    }else{
-      q("#theme-toggle")?.addEventListener("click",()=>setTimeout(()=>{const current=document.documentElement.dataset.theme||"light";try{localStorage.setItem("hch5-theme-preference",current)}catch(e){};qa("[data-theme-choice]").forEach(button=>button.classList.toggle("active",button.dataset.themeChoice===current))},0));
-    }
-    const settings=q("#settings");
-    if(settings&&!q("#appearance-card")){
-      const card=document.createElement("article");card.className="card appearance-card";card.id="appearance-card";
-      card.innerHTML='<div class="section-heading"><div><small>UDSEENDE</small><h2>Farvetema</h2></div><span class="badge">GEMMES LOKALT</span></div><div class="appearance-options"><button type="button" data-theme-choice="system"><strong>System</strong><small>Følg enhedens lyse/mørke tilstand</small></button><button type="button" data-theme-choice="light"><strong>Lys</strong><small>Lyst professionelt kontrolpanel</small></button><button type="button" data-theme-choice="dark"><strong>Mørk</strong><small>Mørkt kontrolrum med høj kontrast</small></button></div>';
-      settings.insertBefore(card,settings.querySelector(".auth-settings")||null);
-      qa("[data-theme-choice]",card).forEach(button=>button.addEventListener("click",()=>applyPreferredTheme(button.dataset.themeChoice)));
-    }
-    applyPreferredTheme(preferredTheme(),false);
-    const media=matchMedia("(prefers-color-scheme: dark)");
-    const listener=()=>{if(preferredTheme()==="system")applyPreferredTheme("system",false)};
-    if(media.addEventListener)media.addEventListener("change",listener);else if(media.addListener)media.addListener(listener);
+    if(!q("#theme-toggle")&&!q("#sc-theme-toggle")){const host=q(".headline-status");if(host){const b=document.createElement("button");b.id="sc-theme-toggle";b.className="sc-theme-toggle";b.type="button";b.title="Skift lyst/mørkt tema";b.textContent="☾";host.append(b);b.addEventListener("click",()=>applyPreferredTheme(document.documentElement.dataset.theme==="dark"?"light":"dark"))}}
+    else q("#theme-toggle")?.addEventListener("click",()=>setTimeout(()=>{const current=document.documentElement.dataset.theme||"light";try{localStorage.setItem("hch5-theme-preference",current)}catch(e){}},0));
+    applyPreferredTheme(preferredTheme(),false);const media=matchMedia("(prefers-color-scheme: dark)");const listener=()=>{if(preferredTheme()==="system")applyPreferredTheme("system",false)};media.addEventListener?.("change",listener);
   }
 
-  function scheduleRows(){return days.map((day,index)=>`<div class="schedule-row" data-schedule-row="${index}"><label class="switch switch-mini" title="Aktivér ${longDays[index]}"><input id="sc-day-${index}-enabled" type="checkbox"><span></span></label><div class="schedule-day">${day}</div><input id="sc-day-${index}-start" type="time" aria-label="${longDays[index]} start"><span class="schedule-arrow">→</span><input id="sc-day-${index}-end" type="time" aria-label="${longDays[index]} slut"><select id="sc-day-${index}-level" aria-label="${longDays[index]} niveau">${[1,2,3,4,5,6].map(v=>`<option value="${v}">Trin ${v}</option>`).join("")}</select></div>`).join("")}
+  function hero(page,kicker,title,subtitle){if(!page||q(".modern-page-hero",page))return;const old=q(".page-title",page);const h=document.createElement("div");h.className="modern-page-hero";h.innerHTML=`<div><small>${escapeHtml(kicker)}</small><h1>${escapeHtml(title)}</h1><p>${escapeHtml(subtitle)}</p></div>`;if(old){const extras=[...old.children].filter(c=>!c.matches("small,h1"));extras.forEach(c=>h.append(c));old.replaceWith(h)}else page.prepend(h)}
+  function installPageDesign(){
+    hero(q("#history"),"HISTORIK","Udvikling over tid","Se temperatur, luftkvalitet, ventilatorer og varmegenvinding i samme moderne analysevisning.");
+    hero(q("#system"),"SYSTEM","Raspberry Pi og gateway","Et samlet driftsoverblik over hardware, services, netværk og platformens helbred.");
+    hero(q("#homeassistant"),"HOME ASSISTANT","Integration og forbindelse","HCH5 Control er den lokale controller; Home Assistant leverer ekstra rumdata og bruger de stabile integration-entities.");
+    hero(q("#diagnostics"),"DIAGNOSTIK","Fejlsøgning og rå data","Sikker læseadgang til busstatus, supportdata og Modbus-captures uden at omgå master-beskyttelsen.");
+    hero(q("#updates"),"OPDATERINGER","Software og kanaler","Stable er standard. Beta kan vælges eksplicit, så nye rettelser kan installeres direkte fra WebUI.");
+    hero(q("#settings"),"INDSTILLINGER","Udseende og adgang","Tilpas tema, navigation og login uden at ændre den fysiske ventilationskonfiguration.");
 
-  function automationMarkup(){return `<section class="modern-automation card" id="modern-automation">
-    <div class="modern-section-head"><div><small>INTELLIGENT STYRING</small><h2>Planlægning og automatik</h2><p>HCH5 Control kombinerer luftkvalitet, ugeskema, natsænkning, ferie og frikøling. Sikker master-arbitration ligger under alle funktioner.</p></div><div class="automation-state"><i></i><span id="auto-active-label">Afventer controller</span></div></div>
-    <div class="automation-summary"><div><small>AKTIV KILDE</small><b id="sc-effective-source">—</b></div><div><small>NIVEAU</small><b id="sc-effective-level">—</b></div><div><small>BYPASS REQUEST</small><b id="sc-effective-bypass">—</b></div><div><small>FYSISK BYPASS</small><b id="sc-physical-bypass">—</b></div></div>
-    <div class="automation-layout">
-      <section class="automation-panel"><div class="automation-panel-head"><span class="tile-icon">▣</span><div><b>Ugeskema</b><small id="schedule-active-label">Ikke aktivt nu</small></div><label class="switch"><input id="schedule-enabled" type="checkbox"><span></span></label></div><div class="schedule-table">${scheduleRows()}</div></section>
-      <div class="automation-side">
-        <section class="automation-panel"><div class="automation-panel-head"><span class="tile-icon">☾</span><div><b>Natsænkning</b><small id="night-active-label">Standby</small></div><label class="switch"><input id="night-enabled" type="checkbox"><span></span></label></div><div class="automation-fields"><label class="automation-field"><span>Fra</span><input id="night-start" type="time"></label><label class="automation-field"><span>Til</span><input id="night-end" type="time"></label><label class="automation-field full"><span>Maks. normalniveau om natten</span><select id="night-level">${[1,2,3,4,5,6].map(v=>`<option value="${v}">Trin ${v}</option>`).join("")}</select></label></div><p class="automation-help">CO₂ og fugt kan stadig hæve ventilationen, så luftkvaliteten ikke ofres for støjniveauet.</p></section>
-        <section class="automation-panel"><div class="automation-panel-head"><span class="tile-icon">⌂</span><div><b>Ferie mode</b><small id="vacation-active-label">Ikke aktiv</small></div><label class="switch"><input id="vacation-enabled" type="checkbox"><span></span></label></div><div class="automation-fields"><label class="automation-field full"><span>Fast ventilationsniveau</span><select id="vacation-level">${[1,2,3,4,5,6].map(v=>`<option value="${v}">Trin ${v}</option>`).join("")}</select></label></div><p class="automation-help">Ferie har høj prioritet, holder et sikkert grundskifte og pauser automatisk frikøling, indtil ferie-mode slås fra.</p></section>
-        <section class="automation-panel"><div class="automation-panel-head"><span class="tile-icon">❄</span><div><b>Frikøling</b><small id="cooling-active-label">Standby</small></div><label class="switch"><input id="cooling-enabled" type="checkbox"><span></span></label></div><div class="automation-fields"><label class="automation-field"><span>Inde mål</span><input id="cooling-setpoint" type="number" min="18" max="30" step="0.5"></label><label class="automation-field"><span>Hysterese</span><input id="cooling-hysteresis" type="number" min="0.2" max="3" step="0.1"></label><label class="automation-field"><span>Min. udetemp.</span><input id="cooling-outdoor-min" type="number" min="-10" max="25" step="0.5"></label><label class="automation-field"><span>Min. inde/ude ΔT</span><input id="cooling-delta" type="number" min="0.5" max="10" step="0.5"></label><label class="automation-field full"><span>Minimum ventilation under køling</span><select id="cooling-level">${[1,2,3,4,5,6].map(v=>`<option value="${v}">Trin ${v}</option>`).join("")}</select></label></div><div class="automation-live">Inde <b id="sc-room-temp">—</b> · Ude <b id="sc-outdoor-temp">—</b> · ΔT <b id="sc-cooling-delta-live">—</b></div><p class="automation-help">Bypass-request sættes automatisk til åben, når huset er varmt og udeluften kan give reel gratis køling. Fysisk spjældstatus vises separat.</p></section>
-      </div>
-    </div>
-    <div class="automation-footer"><span id="automation-save-result">Indstillinger gemmes persistent på Raspberry Pi.</span><button id="save-modern-automation" type="button">Gem automatik</button></div>
-  </section>`}
-
-  function installAutomation(){
-    const overview=q("#overview");if(!overview||q("#modern-automation"))return;
-    const holder=document.createElement("div");holder.innerHTML=automationMarkup();const section=holder.firstElementChild;
-    const daily=q(".daily-control",overview);if(daily)daily.after(section);else overview.append(section);
-    q("#save-modern-automation")?.addEventListener("click",saveAutomation);
-    for(let day=0;day<7;day++)q(`#sc-day-${day}-enabled`)?.addEventListener("change",()=>updateScheduleRowState(day));
-  }
-  function updateScheduleRowState(day){q(`[data-schedule-row="${day}"]`)?.classList.toggle("disabled",!checked(`#sc-day-${day}-enabled`))}
-
-  async function saveAutomation(){
-    const button=q("#save-modern-automation"),result=q("#automation-save-result");if(button)button.disabled=true;if(result)result.textContent="Gemmer…";
-    const schedule={};for(let day=0;day<7;day++)schedule[String(day)]={enabled:checked(`#sc-day-${day}-enabled`),start:value(`#sc-day-${day}-start`),end:value(`#sc-day-${day}-end`),level:Number(value(`#sc-day-${day}-level`,3))};
-    const patch={schedule_enabled:checked("#schedule-enabled"),schedule,night_enabled:checked("#night-enabled"),night_start:value("#night-start"),night_end:value("#night-end"),night_level:Number(value("#night-level",2)),vacation_enabled:checked("#vacation-enabled"),vacation_level:Number(value("#vacation-level",1)),cooling_enabled:checked("#cooling-enabled"),cooling_room_setpoint:Number(value("#cooling-setpoint",23)),cooling_hysteresis:Number(value("#cooling-hysteresis",0.5)),cooling_outdoor_min:Number(value("#cooling-outdoor-min",12)),cooling_min_delta:Number(value("#cooling-delta",1.5)),cooling_level:Number(value("#cooling-level",4))};
-    try{
-      if(typeof postController!=="function")throw Error("Controller API er ikke tilgængelig på denne side");
-      await postController(patch,"Automatik gemt");if(result)result.textContent="Gemt. Controlleren bruger de nye regler med det samme, når Pi er sikker master.";
-    }catch(error){if(result)result.textContent=`Fejl: ${error.message}`}
-    finally{if(button)button.disabled=false}
+    const system=q("#system");if(system&&!q("#system-summary",system)){const x=document.createElement("div");x.id="system-summary";x.className="modern-summary-strip card";x.innerHTML='<div><small>CPU</small><b data-number="pi_cpu_temperature">—</b><span>°C</span></div><div><small>RAM</small><b data-number="pi_memory_used_percent">—</b><span>%</span></div><div><small>DISK</small><b data-number="pi_disk_used_percent">—</b><span>%</span></div><div><small>GATEWAY</small><b data-value="service_gateway_activestate">—</b></div><div><small>NETVÆRK</small><b data-value="network_link_status">—</b></div>';const grid=q(".system-grid",system);grid?.before(x)}
+    const diag=q("#diagnostics");if(diag&&!q("#diag-summary",diag)){const x=document.createElement("div");x.id="diag-summary";x.className="modern-summary-strip card";x.innerHTML='<div><small>BUS</small><b data-value="bus_traffic">—</b></div><div><small>MASTER</small><b id="diag-master">—</b></div><div><small>WRITES</small><b id="diag-writes">—</b></div><div><small>HAC1</small><b data-value="hac1_connected">—</b></div><div><small>FEJL</small><b data-value="diagnostic_failed_units">—</b></div>';const grid=q(".diagnostic-grid",diag);grid?.before(x)}
+    const ha=q("#homeassistant");if(ha&&!q("#ha-summary",ha)){const x=document.createElement("div");x.id="ha-summary";x.className="modern-summary-strip card";x.innerHTML='<div><small>PI API</small><b id="ha-pi-status">—</b></div><div><small>SMART DATA</small><b id="ha-smart-status">—</b></div><div><small>TCP DATA</small><b>4196</b></div><div><small>CONTROLLER</small><b id="ha-controller-source">—</b></div>';q(".ha-connect-grid",ha)?.before(x)}
+    const settings=q("#settings");if(settings&&!q("#appearance-card",settings)){const a=document.createElement("article");a.id="appearance-card";a.className="card appearance-card";a.innerHTML='<div class="section-heading"><div><small>UDSEENDE</small><h2>Tema og navigation</h2></div><span class="badge">LOKAL INDSTILLING</span></div><div class="appearance-options"><button type="button" data-theme-choice="system"><strong>System</strong><small>Følg enhedens tema</small></button><button type="button" data-theme-choice="light"><strong>Lys</strong><small>Professionelt lyst panel</small></button><button type="button" data-theme-choice="dark"><strong>Mørk</strong><small>Mørkt kontrolrum</small></button></div><label class="nav-preference"><input id="settings-sidebar-collapsed" type="checkbox"><span><b>Kompakt sidemenu</b><small>Vis kun ikoner på desktop. Kan også skiftes direkte i sidebaren.</small></span></label>';settings.insertBefore(a,settings.querySelector(".auth-settings")||null);qa("[data-theme-choice]",a).forEach(b=>b.addEventListener("click",()=>applyPreferredTheme(b.dataset.themeChoice)));const c=q("#settings-sidebar-collapsed");if(c){c.checked=collapsed();c.addEventListener("change",()=>setCollapsed(c.checked))}}
   }
 
-  function semanticBypassRequest(s,l){
-    const raw=s.actual_bypass_request??l.bypass_request??l.bypass_request_raw??s.effective_bypass??s.bypass;
-    const text=String(raw??"").trim().toLowerCase();
-    if(["on","255","open","åbn","manual_on"].includes(text))return"Åbn";
-    if(["off","0","auto"].includes(text))return"Auto";
-    return raw==null?"—":String(raw);
-  }
-  function physicalBypass(l){
-    if(l.bypass_active===true)return"Åben";
-    if(l.bypass_active===false)return"Lukket";
-    const raw=Number(l.bypass_raw);if(Number.isFinite(raw)&&raw>0&&raw<255)return`Bevæger sig · ${raw}`;
-    return"—";
-  }
+  function scheduleRows(){return days.map((d,i)=>`<div class="schedule-row" data-schedule-row="${i}"><label class="switch switch-mini"><input id="sc-day-${i}-enabled" type="checkbox"><span></span></label><div class="schedule-day">${d}</div><input id="sc-day-${i}-start" type="time" aria-label="${longDays[i]} start"><span class="schedule-arrow">→</span><input id="sc-day-${i}-end" type="time" aria-label="${longDays[i]} slut"><select id="sc-day-${i}-level">${[1,2,3,4,5,6].map(v=>`<option value="${v}">Trin ${v}</option>`).join("")}</select></div>`).join("")}
+  function automationMarkup(){return `<section class="modern-automation card" id="modern-automation"><div class="modern-section-head"><div><small>INTELLIGENT STYRING</small><h2>Planlægning og automatik</h2><p>Ugeskema, natsænkning, ferie og frikøling arbejder oven på Local/Smart Auto og respekterer altid RS485-masterbeskyttelsen.</p></div><div class="automation-state"><i></i><span id="auto-active-label">Afventer controller</span></div></div><div class="automation-summary"><div><small>AKTIV KILDE</small><b id="sc-effective-source">—</b></div><div><small>NIVEAU</small><b id="sc-effective-level">—</b></div><div><small>BYPASS REQUEST</small><b id="sc-effective-bypass">—</b></div><div><small>FYSISK BYPASS</small><b id="sc-physical-bypass">—</b></div></div><div class="automation-layout"><section class="automation-panel"><div class="automation-panel-head"><span class="tile-icon">▣</span><div><b>Ugeskema</b><small id="schedule-active-label">Klar</small></div><label class="switch"><input id="schedule-enabled" type="checkbox"><span></span></label></div><div class="schedule-table">${scheduleRows()}</div></section><div class="automation-side"><section class="automation-panel"><div class="automation-panel-head"><span class="tile-icon">☾</span><div><b>Natsænkning</b><small id="night-active-label">Standby</small></div><label class="switch"><input id="night-enabled" type="checkbox"><span></span></label></div><div class="automation-fields"><label class="automation-field"><span>Fra</span><input id="night-start" type="time"></label><label class="automation-field"><span>Til</span><input id="night-end" type="time"></label><label class="automation-field full"><span>Maks. normalniveau</span><select id="night-level">${[1,2,3,4,5,6].map(v=>`<option value="${v}">Trin ${v}</option>`).join("")}</select></label></div><p class="automation-help">Høj CO₂ eller fugt har stadig prioritet over støjreduktionen.</p></section><section class="automation-panel"><div class="automation-panel-head"><span class="tile-icon">⌂</span><div><b>Ferie mode</b><small id="vacation-active-label">Ikke aktiv</small></div><label class="switch"><input id="vacation-enabled" type="checkbox"><span></span></label></div><div class="automation-fields"><label class="automation-field full"><span>Ventilationsniveau</span><select id="vacation-level">${[1,2,3,4,5,6].map(v=>`<option value="${v}">Trin ${v}</option>`).join("")}</select></label></div><p class="automation-help">Ferie har høj prioritet og pauser frikøling, indtil tilstanden slås fra.</p></section><section class="automation-panel"><div class="automation-panel-head"><span class="tile-icon">❄</span><div><b>Frikøling</b><small id="cooling-active-label">Standby</small></div><label class="switch"><input id="cooling-enabled" type="checkbox"><span></span></label></div><div class="automation-fields"><label class="automation-field"><span>Inde mål</span><input id="cooling-setpoint" type="number" min="18" max="30" step="0.5"></label><label class="automation-field"><span>Hysterese</span><input id="cooling-hysteresis" type="number" min="0.2" max="3" step="0.1"></label><label class="automation-field"><span>Min. udetemp.</span><input id="cooling-outdoor-min" type="number" min="-10" max="25" step="0.5"></label><label class="automation-field"><span>Min. ΔT</span><input id="cooling-delta" type="number" min="0.5" max="10" step="0.5"></label><label class="automation-field full"><span>Minimum ventilation</span><select id="cooling-level">${[1,2,3,4,5,6].map(v=>`<option value="${v}">Trin ${v}</option>`).join("")}</select></label></div><div class="automation-live">Inde <b id="sc-room-temp">—</b> · Ude <b id="sc-outdoor-temp">—</b> · ΔT <b id="sc-cooling-delta-live">—</b></div></section></div></div><div class="automation-footer"><span id="automation-save-result">Indstillinger gemmes persistent på Raspberry Pi.</span><button id="save-modern-automation" type="button">Gem automatik</button></div></section>`}
+  function installAutomation(){const overview=q("#overview");if(!overview||q("#modern-automation"))return;const h=document.createElement("div");h.innerHTML=automationMarkup();const section=h.firstElementChild;const daily=q(".daily-control",overview);daily?daily.after(section):overview.append(section);q("#save-modern-automation")?.addEventListener("click",saveAutomation);for(let i=0;i<7;i++)q(`#sc-day-${i}-enabled`)?.addEventListener("change",()=>rowState(i))}
+  function rowState(i){q(`[data-schedule-row="${i}"]`)?.classList.toggle("disabled",!checked(`#sc-day-${i}-enabled`))}
+  async function saveAutomation(){const b=q("#save-modern-automation"),r=q("#automation-save-result");if(b)b.disabled=true;if(r)r.textContent="Gemmer…";const schedule={};for(let i=0;i<7;i++)schedule[String(i)]={enabled:checked(`#sc-day-${i}-enabled`),start:field(`#sc-day-${i}-start`),end:field(`#sc-day-${i}-end`),level:Number(field(`#sc-day-${i}-level`,3))};const patch={schedule_enabled:checked("#schedule-enabled"),schedule,night_enabled:checked("#night-enabled"),night_start:field("#night-start"),night_end:field("#night-end"),night_level:Number(field("#night-level",2)),vacation_enabled:checked("#vacation-enabled"),vacation_level:Number(field("#vacation-level",1)),cooling_enabled:checked("#cooling-enabled"),cooling_room_setpoint:Number(field("#cooling-setpoint",23)),cooling_hysteresis:Number(field("#cooling-hysteresis",0.5)),cooling_outdoor_min:Number(field("#cooling-outdoor-min",12)),cooling_min_delta:Number(field("#cooling-delta",1.5)),cooling_level:Number(field("#cooling-level",4))};try{await saveController(patch,"Automatik gemt");if(r)r.textContent="Gemt. Reglerne anvendes, når Pi er sikker master."}catch(e){if(r)r.textContent=`Fejl: ${e.message}`}finally{if(b)b.disabled=false}}
 
-  function renderAutomation(){
-    if(!q("#modern-automation"))return;const s=ctrl(),l=live(),schedule=s.schedule||{};
-    setChecked("#schedule-enabled",s.schedule_enabled);setChecked("#night-enabled",s.night_enabled);setChecked("#vacation-enabled",s.vacation_enabled);setChecked("#cooling-enabled",s.cooling_enabled);
-    for(let day=0;day<7;day++){const entry=schedule[String(day)]||schedule[day]||{};setChecked(`#sc-day-${day}-enabled`,entry.enabled!==false);setValue(`#sc-day-${day}-start`,entry.start||"07:00");setValue(`#sc-day-${day}-end`,entry.end||"22:00");setValue(`#sc-day-${day}-level`,entry.level||3);updateScheduleRowState(day)}
-    setValue("#night-start",s.night_start||"22:00");setValue("#night-end",s.night_end||"06:00");setValue("#night-level",s.night_level||2);setValue("#vacation-level",s.vacation_level||1);
-    setValue("#cooling-setpoint",s.cooling_room_setpoint??23);setValue("#cooling-hysteresis",s.cooling_hysteresis??0.5);setValue("#cooling-outdoor-min",s.cooling_outdoor_min??12);setValue("#cooling-delta",s.cooling_min_delta??1.5);setValue("#cooling-level",s.cooling_level||4);
-    const status=[["#schedule-active-label",s.schedule_active,"Aktivt nu","Klar"],["#night-active-label",s.night_active,"Aktiv nu","Standby"],["#vacation-active-label",s.vacation_active,"Aktiv nu","Ikke aktiv"],["#cooling-active-label",s.cooling_active,"Køler nu","Standby"]];
-    status.forEach(([selector,active,on,off])=>{const el=q(selector);if(el){el.textContent=active?on:off;el.classList.toggle("active",!!active)}});
-    const master=s.active_master||"unknown";setText("#auto-active-label",master==="pi"?"Pi styrer sikkert":master==="hcp4"?"HCP4 har prioritet":"Afventer sikker master");
-    setText("#sc-effective-source",String(s.effective_source||"—").replaceAll("_"," "));setText("#sc-effective-level",s.effective_level?`Trin ${s.effective_level}`:"—");
-    setText("#sc-effective-bypass",(s.effective_bypass||s.bypass||"—")==="on"?"Åbn":"Auto");setText("#sc-physical-bypass",physicalBypass(l));
-    setText("#overview-bypass-request",semanticBypassRequest(s,l));setText("#overview-bypass-actual",physicalBypass(l));
-    const room=Number(s.measurements?.room),outdoor=Number(s.measurements?.outdoor??l.outdoor_temp);setText("#sc-room-temp",Number.isFinite(room)?`${number(room)} °C`:"—");setText("#sc-outdoor-temp",Number.isFinite(outdoor)?`${number(outdoor)} °C`:"—");setText("#sc-cooling-delta-live",Number.isFinite(room)&&Number.isFinite(outdoor)?`${number(room-outdoor)} K`:"—");
-    const side=q(".sidebar-status");if(side){const online=l.available===true||master==="pi"||master==="hcp4";side.classList.toggle("offline",!online);const span=q("span",side);if(span)span.textContent=online?"Anlæg online":"Forbindelse mangler";const small=q("small",side);if(small)small.textContent=master==="pi"?"Pi master · writes tilladt efter arbitration":master==="hcp4"?"HCP4 master · Pi passiv":"Afventer master"}
-  }
+  function installFilterCard(){const overview=q("#overview");if(!overview||q("#filter-health-card"))return;const metrics=q(".metrics-grid",overview);const card=document.createElement("section");card.id="filter-health-card";card.className="filter-health-card card";card.innerHTML='<div class="modern-section-head"><div><small>VEDLIGEHOLDELSE</small><h2>Filtertilstand</h2><p>Filterstatus følger den synkroniserede HCP4-filterperiode. Visningen er read-only og ændrer ikke registerdata.</p></div><span class="filter-status-pill" id="filter-state-pill">Afventer</span></div><div class="filter-health-grid"><div class="filter-life-ring" id="filter-life-ring"><span><b id="filter-life-value">—</b><small>levetid</small></span></div><div class="filter-health-details"><div><small>Status</small><b id="filter-status-label">—</b></div><div><small>Dage tilbage</small><b id="filter-days-value">—</b></div><div><small>Interval</small><b id="filter-interval-value">—</b></div><div><small>Kilde</small><b id="filter-source-value">—</b></div></div></div><div class="filter-health-note" id="filter-health-note">Afventer filterdata fra gatewayen.</div>';metrics?metrics.after(card):overview.append(card)}
 
-  function installUpdatePanel(){
-    const page=q("#updates"),card=q(".update-card",page);if(!card)return;card.classList.add("modern-update-card");
-    card.innerHTML='<div class="update-icon">↻</div><div class="update-body"><div class="modern-section-head"><div><small>HCH5 CONTROL</small><h2>Softwareopdatering</h2><p>Stable er standard. Beta-kanalen skal vælges eksplicit og følger den aktive beta-branch, så rettelser kan installeres direkte fra WebUI.</p></div><label class="beta-opt"><input id="update-beta-channel" type="checkbox"><span>Brug beta-kanal</span></label></div><div class="version-grid"><div><small>Installeret</small><b id="update-current">—</b></div><div><small>Tilgængelig</small><b id="update-available">—</b></div><div><small>Kanal</small><b id="update-channel">Stable</b></div></div><div class="update-actions"><button id="check-update" type="button">Søg efter opdatering</button><button id="install-update" class="primary" type="button" disabled>Installer opdatering</button></div><p id="update-result" class="notice">Opdateringer er manuelle. Programfiler sikkerhedskopieres før udskiftning, mens persistent controller-state og login bevares.</p></div>';
-    q("#update-beta-channel")?.addEventListener("change",()=>{setText("#update-channel",checked("#update-beta-channel")?"Beta":"Stable");q("#install-update").disabled=true;setText("#update-available","—")});
-    q("#check-update")?.addEventListener("click",checkUpdate);q("#install-update")?.addEventListener("click",installUpdate);
-  }
-  async function adminAction(action,target){const response=await fetch("/api/admin/action",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":typeof authState!=="undefined"?(authState?.csrf||""):""},body:JSON.stringify({action,target})});let payload={};try{payload=await response.json()}catch(e){}if(!response.ok)throw Error(payload.error||`HTTP ${response.status}`);return payload}
-  async function checkUpdate(){const channel=checked("#update-beta-channel")?"beta":"stable",result=q("#update-result"),button=q("#check-update");if(button)button.disabled=true;if(result)result.textContent="Kontrollerer GitHub…";try{const info=await adminAction("check_update",channel);setText("#update-current",info.current_version||"ukendt");setText("#update-available",info.available_version||"—");setText("#update-channel",channel==="beta"?"Beta":"Stable");q("#install-update").disabled=!info.update_available;if(result)result.textContent=info.update_available?"En nyere build er klar. Installationen bevarer persistent config, state og login.":"Du kører allerede den nyeste build på denne kanal."}catch(error){if(result)result.textContent=`Kunne ikke kontrollere opdateringer: ${error.message}`}finally{if(button)button.disabled=false}}
-  async function installUpdate(){const channel=checked("#update-beta-channel")?"beta":"stable";if(!confirm(`Installer seneste ${channel==="beta"?"beta":"stable"} build nu? WebUI genstarter under opdateringen.`))return;const result=q("#update-result"),button=q("#install-update");if(button)button.disabled=true;if(result)result.textContent="Opdateringen er startet. Siden genindlæses automatisk…";try{await adminAction("install_update",channel);setTimeout(()=>location.reload(),15000)}catch(error){if(result)result.textContent=`Opdatering kunne ikke startes: ${error.message}`;if(button)button.disabled=false}}
+  function installUpdatePanel(){const page=q("#updates"),card=q(".update-card",page);if(!card||card.dataset.modernized)return;card.dataset.modernized="1";card.classList.add("modern-update-card");card.innerHTML='<div class="update-icon">↻</div><div class="update-body"><div class="modern-section-head"><div><small>HCH5 CONTROL</small><h2>Softwareopdatering</h2><p>Stable er standard. Beta kræver eksplicit opt-in og kan følge den aktive beta-branch mellem releases.</p></div><label class="beta-opt"><input id="update-beta-channel" type="checkbox"><span>Brug beta-kanal</span></label></div><div class="version-grid"><div><small>Installeret</small><b id="update-current">—</b></div><div><small>Tilgængelig</small><b id="update-available">—</b></div><div><small>Kanal</small><b id="update-channel">Stable</b></div></div><div class="update-actions"><button id="check-update" type="button">Søg efter opdatering</button><button id="install-update" class="primary" type="button" disabled>Installer opdatering</button></div><p id="update-result" class="notice">Persistent config, login og controller-state bevares under opdatering.</p></div>';q("#update-beta-channel")?.addEventListener("change",()=>{text("#update-channel",checked("#update-beta-channel")?"Beta":"Stable");q("#install-update").disabled=true;text("#update-available","—")});q("#check-update")?.addEventListener("click",checkUpdate);q("#install-update")?.addEventListener("click",installUpdate)}
+  async function adminAction(action,target){const token=(typeof authState!=="undefined"&&authState?.csrf)||"";const r=await fetch("/api/admin/action",{method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":token},body:JSON.stringify({action,target})});const p=await r.json().catch(()=>({}));if(!r.ok)throw Error(p.error||`HTTP ${r.status}`);return p}
+  async function checkUpdate(){const channel=checked("#update-beta-channel")?"beta":"stable",r=q("#update-result"),b=q("#check-update");if(b)b.disabled=true;if(r)r.textContent="Kontrollerer GitHub…";try{const i=await adminAction("check_update",channel);text("#update-current",i.current_version||"ukendt");text("#update-available",i.available_version||"—");text("#update-channel",channel==="beta"?"Beta":"Stable");q("#install-update").disabled=!i.update_available;if(r)r.textContent=i.update_available?"En nyere build er klar.":"Du kører allerede nyeste build på denne kanal."}catch(e){if(r)r.textContent=`Kunne ikke kontrollere opdateringer: ${e.message}`}finally{if(b)b.disabled=false}}
+  async function installUpdate(){const channel=checked("#update-beta-channel")?"beta":"stable";if(!confirm(`Installer seneste ${channel} build nu?`))return;const r=q("#update-result"),b=q("#install-update");if(b)b.disabled=true;if(r)r.textContent="Opdateringen er startet…";try{await adminAction("install_update",channel);setTimeout(()=>location.reload(),15000)}catch(e){if(r)r.textContent=`Opdatering kunne ikke startes: ${e.message}`;if(b)b.disabled=false}}
+
+  function renderFilter(){const s=live(),pct=Number(s.filter_life_percent),daysLeft=Number(s.filter_days_remaining),interval=Number(s.filter_interval),status=String(s.filter_status||"").toLowerCase(),alarm=s.filter_alarm===true;const has=Number.isFinite(pct)||Number.isFinite(daysLeft)||status;if(!q("#filter-health-card"))return;text("#filter-life-value",Number.isFinite(pct)?`${Math.max(0,Math.min(100,pct))}%`:"—");text("#filter-days-value",Number.isFinite(daysLeft)?`${daysLeft} dage`:"—");text("#filter-interval-value",Number.isFinite(interval)?`${interval} dage`:"—");text("#filter-source-value",s.filter_source||"—");const label=alarm||status==="overskredet"?"Skift filter":status==="skift_snart"?"Skift snart":status==="ok"?"OK":has?status.replaceAll("_"," "):"Ingen data";text("#filter-status-label",label);text("#filter-state-pill",label);const pill=q("#filter-state-pill");if(pill)pill.dataset.state=alarm||status==="overskredet"?"bad":status==="skift_snart"?"warn":status==="ok"?"good":"idle";const ring=q("#filter-life-ring");if(ring&&Number.isFinite(pct))ring.style.setProperty("--filter-life",`${Math.max(0,Math.min(100,pct))*3.6}deg`);text("#filter-health-note",!has?"Filtermodulet leverer endnu ingen status. Når gatewayens filterfunktion er aktiv, vises interval og resterende levetid her.":alarm?"Filterintervallet er overskredet. Skift filter og synkronisér derefter nulstillingen.":status==="skift_snart"?"Filteret nærmer sig udløb. Planlæg et filterskift.":"Filterperioden er inden for det valgte interval.")}
+
+  function renderAutomation(){if(!q("#modern-automation"))return;const s=ctrl(),l=live(),schedule=s.schedule||{};check("#schedule-enabled",s.schedule_enabled);check("#night-enabled",s.night_enabled);check("#vacation-enabled",s.vacation_enabled);check("#cooling-enabled",s.cooling_enabled);for(let i=0;i<7;i++){const e=schedule[String(i)]||schedule[i]||{};check(`#sc-day-${i}-enabled`,e.enabled!==false);val(`#sc-day-${i}-start`,e.start||"07:00");val(`#sc-day-${i}-end`,e.end||"22:00");val(`#sc-day-${i}-level`,e.level||3);rowState(i)}val("#night-start",s.night_start||"22:00");val("#night-end",s.night_end||"06:00");val("#night-level",s.night_level||2);val("#vacation-level",s.vacation_level||1);val("#cooling-setpoint",s.cooling_room_setpoint??23);val("#cooling-hysteresis",s.cooling_hysteresis??0.5);val("#cooling-outdoor-min",s.cooling_outdoor_min??12);val("#cooling-delta",s.cooling_min_delta??1.5);val("#cooling-level",s.cooling_level||4);[["#schedule-active-label",s.schedule_active,"Aktivt nu","Klar"],["#night-active-label",s.night_active,"Aktiv nu","Standby"],["#vacation-active-label",s.vacation_active,"Aktiv nu","Ikke aktiv"],["#cooling-active-label",s.cooling_active,"Køler nu","Standby"]].forEach(([sel,a,on,off])=>{text(sel,a?on:off);q(sel)?.classList.toggle("active",!!a)});const master=s.active_master||"unknown";text("#auto-active-label",master==="pi"?"Pi styrer sikkert":master==="hcp4"?"HCP4 har prioritet":"Afventer sikker master");text("#sc-effective-source",String(s.effective_source||"—").replaceAll("_"," "));text("#sc-effective-level",s.effective_level?`Trin ${s.effective_level}`:"—");text("#sc-effective-bypass",(s.effective_bypass||s.bypass)==="on"?"Åbn":"Auto");const raw=Number(l.bypass_raw);text("#sc-physical-bypass",raw>0&&raw<255?"Bevæger sig":l.bypass_active===true?"Åben":l.bypass_active===false?"Lukket":"—");const room=Number(s.measurements?.room),out=Number(s.measurements?.outdoor??l.outdoor_temp);text("#sc-room-temp",Number.isFinite(room)?`${num(room)} °C`:"—");text("#sc-outdoor-temp",Number.isFinite(out)?`${num(out)} °C`:"—");text("#sc-cooling-delta-live",Number.isFinite(room)&&Number.isFinite(out)?`${num(room-out)} K`:"—");const side=q(".sidebar-status");if(side){const online=l.available===true||master==="pi"||master==="hcp4";side.classList.toggle("offline",!online);q("span",side).textContent=online?"Anlæg online":"Forbindelse mangler";q("small",side).textContent=master==="pi"?"Pi master · sikker styring":master==="hcp4"?"HCP4 master · Pi passiv":"Afventer sikker master"}text("#diag-master",master.toUpperCase());text("#diag-writes",s.hardware_writes_allowed===true?"Tilladt":s.hardware_writes_allowed===false?"Blokeret":"—");text("#ha-pi-status",master==="pi"||master==="hcp4"?"Online":"Afventer");text("#ha-smart-status",s.smart_inputs_online===true?"Online":s.smart_inputs_online===false?"Offline":"—");text("#ha-controller-source",String(s.effective_source||"—").replaceAll("_"," "))}
 
   function installFavicon(){if(q('link[rel="icon"]'))return;const svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#132230"/><path d="M12 31 32 13l20 18v20H39V38H25v13H12Z" fill="none" stroke="#edf5f8" stroke-width="5"/><path d="M10 44c9-7 16-7 25 0 8 6 13 6 20 0" fill="none" stroke="#67afe5" stroke-width="4" stroke-linecap="round"/><circle cx="49" cy="17" r="7" fill="#58bd79"/></svg>';const link=document.createElement("link");link.rel="icon";link.href=`data:image/svg+xml,${encodeURIComponent(svg)}`;document.head.append(link)}
+  function hookRender(){if(typeof renderController==="function"){const old=renderController;renderController=function(){old();renderAutomation();renderFilter()}}if(typeof render==="function"&&location.pathname==="/controller"){const old=render;render=function(){old();renderAutomation();renderFilter()}}}
 
-  installFavicon();installBranding();installTheme();installAutomation();installUpdatePanel();
-  if(typeof renderController==="function"){
-    const originalRenderController=renderController;
-    renderController=function(){originalRenderController();renderAutomation()};
-  }
-  renderAutomation();
+  installFavicon();installBranding();installSidebar();installTheme();installPageDesign();installAutomation();installFilterCard();installUpdatePanel();hookRender();renderAutomation();renderFilter();
 })();
