@@ -36,15 +36,21 @@ export async function requestJson<T>(endpoint: string, options: RequestOptions =
           ...init.headers,
         },
       });
+      const raw = await response.text();
+      let payload: unknown = null;
+      if (raw) {
+        try { payload = JSON.parse(raw); }
+        catch {
+          if (response.ok) throw new ApiError("Ugyldigt JSON-svar", response.status, endpoint);
+        }
+      }
       if (!response.ok) {
-        throw new ApiError(`HTTP ${response.status}`, response.status, endpoint);
+        const message = payload && typeof payload === "object" && "error" in payload
+          ? String((payload as { error?: unknown }).error || `HTTP ${response.status}`)
+          : `HTTP ${response.status}`;
+        throw new ApiError(message, response.status, endpoint);
       }
-      const text = await response.text();
-      try {
-        return JSON.parse(text) as T;
-      } catch {
-        throw new ApiError("Ugyldigt JSON-svar", response.status, endpoint);
-      }
+      return payload as T;
     } catch (error) {
       lastError = error;
       if (attempt < retries) await delay(180 * (attempt + 1));
