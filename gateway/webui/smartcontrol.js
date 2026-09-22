@@ -14,9 +14,22 @@
 
   function brandIcon(){return '<span class="modern-logo" aria-hidden="true"><svg viewBox="0 0 64 64"><path d="M12 31 32 13l20 18v20H39V38H25v13H12Z"/><path class="wave" d="M10 44c9-7 16-7 25 0 8 6 13 6 20 0"/></svg></span>'}
 
+  function cleanupLegacyLabels(){
+    const skip=new Set(["SCRIPT","STYLE","PRE","CODE","TEXTAREA"]);
+    const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
+    const nodes=[];while(walker.nextNode())nodes.push(walker.currentNode);
+    for(const node of nodes){
+      if(skip.has(node.parentElement?.tagName))continue;
+      let text=node.nodeValue||"";
+      text=text.replaceAll("Dantherm HCH PassiveLink","HCH5 Control").replaceAll("Dantherm PassiveLink","HCH5 Control").replaceAll("PassiveLink","HCH5 Control");
+      if(text!==node.nodeValue)node.nodeValue=text;
+    }
+  }
+
   function installBranding(){
-    document.title=document.location.pathname==="/controller"?"HCH5 Control · Teknik":"HCH5 Control";
-    const oldBrand=q(".topbar .brand");if(oldBrand)oldBrand.hidden=true;
+    document.title=document.location.pathname==="/controller"?"HCH5 Control · Teknik":document.location.pathname==="/sniffer"?"HCH5 Control · Modbus Sniffer":"HCH5 Control";
+    const oldBrand=q(".topbar .brand");
+    if(oldBrand){oldBrand.hidden=false;oldBrand.innerHTML='<span class="brand-mark" aria-hidden="true">H</span><div><b>HCH5 CONTROL</b><small>Smart ventilation</small></div>'}
     const tabs=q(".tabs");
     if(tabs&&!q(".modern-brand",tabs)){
       const brand=document.createElement("div");brand.className="modern-brand";
@@ -41,7 +54,15 @@
       const ps=qa("p",ha);if(ps[0])ps[0].innerHTML='Installér <strong>HCH5 Control</strong> som custom integration via HACS. Den eksisterende interne domain bevares, så opgraderinger ikke skaber nye entities.';
       if(ps[1])ps[1].innerHTML='Brug denne Raspberry Pi som vært og port <strong>4196</strong> til live data. Controller-API bruges separat til de funktioner, der må styres.';
     }
-    const diagTitle=q("#diagnostics .page-title h1");if(diagTitle)diagTitle.textContent="HCH5 Control og rå data";
+    const diagnostics=q("#diagnostics");
+    if(diagnostics){
+      const title=q(".page-title h1",diagnostics);if(title)title.textContent="HCH5 Control og rå data";
+      const support=q(".support-card",diagnostics);
+      if(support&&!q(".sniffer-link",support)){
+        const link=document.createElement("a");link.className="sniffer-link";link.href="/sniffer";link.textContent="Åbn Modbus Sniffer";support.append(link);
+      }
+    }
+    cleanupLegacyLabels();
   }
 
   function preferredTheme(){
@@ -113,6 +134,20 @@
     finally{if(button)button.disabled=false}
   }
 
+  function semanticBypassRequest(s,l){
+    const raw=s.actual_bypass_request??l.bypass_request??l.bypass_request_raw??s.effective_bypass??s.bypass;
+    const text=String(raw??"").trim().toLowerCase();
+    if(["on","255","open","åbn","manual_on"].includes(text))return"Åbn";
+    if(["off","0","auto"].includes(text))return"Auto";
+    return raw==null?"—":String(raw);
+  }
+  function physicalBypass(l){
+    if(l.bypass_active===true)return"Åben";
+    if(l.bypass_active===false)return"Lukket";
+    const raw=Number(l.bypass_raw);if(Number.isFinite(raw)&&raw>0&&raw<255)return`Bevæger sig · ${raw}`;
+    return"—";
+  }
+
   function renderAutomation(){
     if(!q("#modern-automation"))return;const s=ctrl(),l=live(),schedule=s.schedule||{};
     setChecked("#schedule-enabled",s.schedule_enabled);setChecked("#night-enabled",s.night_enabled);setChecked("#vacation-enabled",s.vacation_enabled);setChecked("#cooling-enabled",s.cooling_enabled);
@@ -123,7 +158,8 @@
     status.forEach(([selector,active,on,off])=>{const el=q(selector);if(el){el.textContent=active?on:off;el.classList.toggle("active",!!active)}});
     const master=s.active_master||"unknown";setText("#auto-active-label",master==="pi"?"Pi styrer sikkert":master==="hcp4"?"HCP4 har prioritet":"Afventer sikker master");
     setText("#sc-effective-source",String(s.effective_source||"—").replaceAll("_"," "));setText("#sc-effective-level",s.effective_level?`Trin ${s.effective_level}`:"—");
-    setText("#sc-effective-bypass",(s.effective_bypass||s.bypass||"—")==="on"?"Åbn":"Auto");setText("#sc-physical-bypass",l.bypass_active===true?"Åben":l.bypass_active===false?"Lukket":"—");
+    setText("#sc-effective-bypass",(s.effective_bypass||s.bypass||"—")==="on"?"Åbn":"Auto");setText("#sc-physical-bypass",physicalBypass(l));
+    setText("#overview-bypass-request",semanticBypassRequest(s,l));setText("#overview-bypass-actual",physicalBypass(l));
     const room=Number(s.measurements?.room),outdoor=Number(s.measurements?.outdoor??l.outdoor_temp);setText("#sc-room-temp",Number.isFinite(room)?`${number(room)} °C`:"—");setText("#sc-outdoor-temp",Number.isFinite(outdoor)?`${number(outdoor)} °C`:"—");setText("#sc-cooling-delta-live",Number.isFinite(room)&&Number.isFinite(outdoor)?`${number(room-outdoor)} K`:"—");
     const side=q(".sidebar-status");if(side){const online=l.available===true||master==="pi"||master==="hcp4";side.classList.toggle("offline",!online);const span=q("span",side);if(span)span.textContent=online?"Anlæg online":"Forbindelse mangler";const small=q("small",side);if(small)small.textContent=master==="pi"?"Pi master · writes tilladt efter arbitration":master==="hcp4"?"HCP4 master · Pi passiv":"Afventer master"}
   }
