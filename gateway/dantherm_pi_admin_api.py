@@ -22,16 +22,19 @@ TOKEN = os.environ["DANTHERM_REBOOT_TOKEN"]
 BIND = os.getenv("DANTHERM_ADMIN_BIND", "127.0.0.1")
 PORT = int(os.getenv("DANTHERM_ADMIN_PORT", "4198"))
 PROFILE_FILE = Path("/var/lib/dantherm-admin/power-profile")
-VERSION_FILE = Path("/opt/dantherm-passivelink-webui/VERSION")
+APP_DIR = Path("/opt/dantherm-passivelink-webui")
+VERSION_FILE = APP_DIR / "VERSION"
+BUILD_FILE = APP_DIR / "BUILD"
 REPOSITORY = "MRDonnii/dantherm-hch-passivelink-webui"
 BETA_REF = "beta/1.1-modern-controller"
-USER_AGENT = "HCH5-Control-Updater/1.0"
+USER_AGENT = "HCH5-Control-Updater/1.1"
 PROFILES = {"powersave": "powersave", "balanced": "ondemand", "performance": "performance"}
 SERVICES = {
     "gateway": os.getenv("DANTHERM_GATEWAY_SERVICE", "dantherm-webui-gateway.service"),
     "onewire": os.getenv("DANTHERM_ONEWIRE_SERVICE", "dantherm-webui-onewire.service"),
 }
-REPORT_SERVICES = {**SERVICES, "admin": os.getenv("DANTHERM_ADMIN_SERVICE", "dantherm-webui-admin.service")}
+ADMIN_SERVICE = os.getenv("DANTHERM_ADMIN_SERVICE", "dantherm-webui-admin.service")
+REPORT_SERVICES = {**SERVICES, "admin": ADMIN_SERVICE}
 DIAGNOSTICS_LOCK = threading.Lock()
 UPDATE_LOCK = threading.Lock()
 UPDATE_STATE = {"running": False, "channel": None, "started_at": None, "last_error": None}
@@ -57,35 +60,51 @@ def _request_text(url: str) -> str:
         return response.read(128 * 1024).decode("utf-8", "replace").strip()
 
 
-def current_version() -> str:
+def _read_text(path: Path, fallback: str = "unknown") -> str:
     try:
-        return VERSION_FILE.read_text(encoding="utf-8").strip() or "unknown"
+        return path.read_text(encoding="utf-8").strip() or fallback
     except OSError:
-        return "unknown"
+        return fallback
+
+
+def current_version() -> str:
+    return _read_text(VERSION_FILE)
+
+
+def current_build() -> str:
+    return _read_text(BUILD_FILE)
 
 
 def update_info(channel: str) -> dict[str, object]:
     if channel not in {"stable", "beta"}:
         raise ValueError("invalid_channel")
     current = current_version()
+    installed_build = current_build()
+    available_build = None
     if channel == "stable":
         release = _request_json(f"https://api.github.com/repos/{REPOSITORY}/releases/latest")
         ref = str(release["tag_name"])
         remote_version = ref.lstrip("v")
         published = release.get("published_at")
+        update_available = current != remote_version
     else:
         ref = BETA_REF
         remote_version = _request_text(f"https://raw.githubusercontent.com/{REPOSITORY}/{BETA_REF}/VERSION")
         branch = _request_json(f"https://api.github.com/repos/{REPOSITORY}/branches/{BETA_REF}")
+        available_build = str(branch.get("commit", {}).get("sha") or "unknown")
         published = branch.get("commit", {}).get("commit", {}).get("committer", {}).get("date")
+        # Beta follows the branch HEAD, so fixes are offered even when the semantic version stays unchanged.
+        update_available = current != remote_version or installed_build != available_build
     return {
         "ok": True,
         "channel": channel,
         "current_version": current,
+        "current_build": installed_build,
         "available_version": remote_version,
+        "available_build": available_build,
         "ref": ref,
         "published_at": published,
-        "update_available": current != remote_version,
+        "update_available": update_available,
         "update": dict(UPDATE_STATE),
     }
 
@@ -116,12 +135,26 @@ def _safe_extract(archive: Path, destination: Path) -> Path:
     return destination / root
 
 
+def _schedule_admin_restart() -> None:
+    unit = f"hch5-control-admin-restart-{int(time.time())}"
+    subprocess.run(
+        [
+            "systemd-run", "--quiet", f"--unit={unit}", "--on-active=2s",
+            "/usr/bin/systemctl", "restart", ADMIN_SERVICE,
+        ],
+        check=False,
+        timeout=10,
+    )
+
+
 def _install_update(channel: str) -> None:
     with UPDATE_LOCK:
         UPDATE_STATE.update(running=True, channel=channel, started_at=time.time(), last_error=None)
+    success = False
     try:
         info = update_info(channel)
         ref = str(info["ref"])
+        build = str(info.get("available_build") or ref)
         with tempfile.TemporaryDirectory(prefix="hch5-control-update-") as temporary:
             directory = Path(temporary)
             archive = directory / "source.tar.gz"
@@ -130,11 +163,16 @@ def _install_update(channel: str) -> None:
             updater = source / "update.sh"
             if not updater.is_file():
                 raise RuntimeError("updater_missing")
-            subprocess.run(["bash", str(updater)], cwd=source, check=True, timeout=300)
+            env = os.environ.copy()
+            env["HCH5_UPDATE_BUILD"] = build
+            subprocess.run(["bash", str(updater)], cwd=source, check=True, timeout=300, env=env)
+        success = True
     except Exception as error:
         UPDATE_STATE["last_error"] = f"{type(error).__name__}: {error}"
     finally:
         UPDATE_STATE["running"] = False
+    if success:
+        _schedule_admin_restart()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -177,6 +215,7 @@ class Handler(BaseHTTPRequestHandler):
                 "power_profile": next((p for p, g in PROFILES.items() if g == governor), governor),
                 "governor": governor,
                 "version": current_version(),
+                "build": current_build(),
                 "update": dict(UPDATE_STATE),
             })
         self.reply(404, {"error": "not_found"})
