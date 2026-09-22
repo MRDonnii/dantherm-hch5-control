@@ -1,5 +1,5 @@
 [Unit]
-Description=Dantherm WebUI allowlisted administration helper
+Description=HCH5 Control allowlisted administration helper
 After=network.target
 
 [Service]
@@ -15,6 +15,7 @@ PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
 StateDirectory=dantherm-admin
+ReadWritePaths=/opt/dantherm-passivelink-webui /opt/dantherm-webui /etc/systemd/system /var/backups /var/lib/dantherm-admin
 
 [Install]
 WantedBy=multi-user.target
