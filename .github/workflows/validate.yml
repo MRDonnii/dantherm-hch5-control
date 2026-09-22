@@ -1,7 +1,7 @@
 name: Validate
 on:
   push:
-    branches: [main, "beta/**"]
+    branches: [main, "beta/**", "work/**"]
   pull_request:
   workflow_dispatch:
 permissions: {}
@@ -22,4 +22,6 @@ jobs:
       - run: node --check gateway/webui/controller.js
       - run: node --check gateway/webui/master_status.js
       - run: node --check gateway/webui/smartcontrol.js
+      - run: node --check gateway/webui/modern-controls.js
+      - run: node --check gateway/webui/prepaint.js
       - run: node --check gateway/webui/sniffer.js
