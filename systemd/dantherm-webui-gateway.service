@@ -11,7 +11,14 @@ SupplementaryGroups=dialout video
 WorkingDirectory=/opt/dantherm-passivelink-webui
 EnvironmentFile=/etc/dantherm-passivelink-webui/gateway.env
 ExecStartPre=/bin/sh -c 'test -e "$RS485_DEVICE"'
-ExecStart=/opt/dantherm-passivelink-webui/venv/bin/python /opt/dantherm-passivelink-webui/dantherm_controller_gateway.py -c /etc/dantherm-passivelink-webui/controller.yaml
+# Repair the persistent state directory before the unprivileged gateway starts.
+# This prevents stale/root-owned SQLite/auth files from breaking history or login.
+ExecStartPre=+/usr/bin/install -d -o passivelink-webui -g passivelink-webui -m 0750 /var/lib/dantherm-hch5-ha
+ExecStartPre=+/bin/chown -R passivelink-webui:passivelink-webui /var/lib/dantherm-hch5-ha
+ExecStartPre=/bin/sh -c 'test -w /var/lib/dantherm-hch5-ha'
+ExecStartPre=/bin/sh -c 'test ! -e /var/lib/dantherm-hch5-ha/webui-auth.json || test -r /var/lib/dantherm-hch5-ha/webui-auth.json'
+ExecStartPre=/bin/sh -c 'test ! -e /var/lib/dantherm-hch5-ha/history.sqlite3 || test -w /var/lib/dantherm-hch5-ha/history.sqlite3'
+ExecStart=/usr/bin/env DANTHERM_WEBUI_AUTH_FILE=/var/lib/dantherm-hch5-ha/webui-auth.json /opt/dantherm-passivelink-webui/venv/bin/python /opt/dantherm-passivelink-webui/dantherm_controller_gateway.py -c /etc/dantherm-passivelink-webui/controller.yaml
 Restart=always
 RestartSec=3
 NoNewPrivileges=true
@@ -19,6 +26,7 @@ PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
 StateDirectory=dantherm-hch5-ha
+StateDirectoryMode=0750
 ReadWritePaths=/var/lib/dantherm-hch5-ha
 
 [Install]
