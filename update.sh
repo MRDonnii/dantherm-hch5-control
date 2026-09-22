@@ -20,6 +20,9 @@ install -d -o passivelink-webui -g passivelink-webui "${app}" "${app}/webui"
 install -o passivelink-webui -g passivelink-webui -m 0755 "${source_dir}"/gateway/*.py "${app}/"
 install -o passivelink-webui -g passivelink-webui -m 0644 "${source_dir}"/gateway/webui/* "${app}/webui/"
 install -o passivelink-webui -g passivelink-webui -m 0644 "${source_dir}/VERSION" "${app}/VERSION"
+printf '%s\n' "${HCH5_UPDATE_BUILD:-unknown}" > "${app}/BUILD"
+chown passivelink-webui:passivelink-webui "${app}/BUILD"
+chmod 0644 "${app}/BUILD"
 
 install -d -m 0755 "${admin}"
 install -o root -g root -m 0755 "${source_dir}/gateway/dantherm_pi_admin_api.py" "${admin}/dantherm_pi_admin_api.py"
@@ -32,8 +35,7 @@ fi
 
 systemctl daemon-reload
 systemctl restart dantherm-webui-gateway.service
-# Restart helper last; this updater may itself have been started by that service.
-systemctl restart dantherm-webui-admin.service || true
+# The admin helper schedules its own restart after this updater has exited.
 
 echo "HCH5 Control updated to $(cat "${source_dir}/VERSION")."
 echo "Backup: ${backup}"
