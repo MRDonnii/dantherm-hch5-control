@@ -41,6 +41,20 @@ controller_token=$(read_env DANTHERM_CONTROLLER_TOKEN)
 [[ ${device} == /dev/serial/by-id/* ]] || { echo "Saved RS485 device is not a stable /dev/serial/by-id/... path; refusing restart." >&2; exit 2; }
 [[ -e ${device} ]] || { echo "Saved RS485 device is currently unavailable: ${device}. Live service is left untouched." >&2; exit 2; }
 
+for legacy in dantherm-gateway.service dantherm-pi-reboot-api.service; do
+  if systemctl is-active --quiet "${legacy}" 2>/dev/null; then
+    echo "Legacy service ${legacy} is active; it must be stopped/masked before updating to avoid a port conflict." >&2
+    exit 2
+  fi
+done
+
+install -d -m 0755 -o passivelink-webui -g passivelink-webui "${state_dir}"
+state_probe="${state_dir}/.update-write-check"
+if ! sudo -u passivelink-webui sh -c "touch '${state_probe}' && rm -f '${state_probe}'" 2>/dev/null; then
+  echo "State directory ${state_dir} failed a live write probe as passivelink-webui; refusing update." >&2
+  exit 2
+fi
+
 stage=$(mktemp -d /tmp/hch5-control-stage.XXXXXX)
 cleanup(){ rm -rf -- "${stage}"; }
 trap cleanup EXIT
