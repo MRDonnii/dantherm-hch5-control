@@ -64,7 +64,6 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .hch-floor-shadow { fill: rgb(0 0 0 / 32%); filter: blur(9px); }
 .hch-cabinet,.hch-top-panel,.hch-side-panel { stroke: #77909f; stroke-width: 1.4; }
 .hch-inner { fill: #08151d; stroke: #334d5c; stroke-width: 1.5; }
-.hch-frame { fill: none; stroke: #405866; stroke-width: 3; opacity: .75; }
 .hch-filter rect { fill: url(#filterMesh); stroke: #95a9b5; stroke-width: 2; }
 .hch-filter path { stroke: #8499a5; stroke-width: 1.3; opacity: .7; }
 .hch-part-label { fill: #9bb0bd; font-size: 10px; font-weight: 700; letter-spacing: .02em; }
@@ -81,22 +80,29 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .hch-fan.running .hch-fan-rotor path { opacity: .88; }
 .hch-fan.stopped .hch-fan-rotor { opacity: .45; }
 @keyframes pro-fan-spin { to { transform: rotate(360deg); } }
-.hch-exchanger rect { stroke: #9aa9b1; stroke-width: 2; }
+.hch-exchanger polygon { stroke: #9aa9b1; stroke-width: 2; stroke-linejoin: round; }
 .hch-exchanger path { stroke: #c2ccd1; stroke-width: 1.3; opacity: .54; }
 .hch-exchanger.bypassed { opacity: .38; }
 .hch-exchanger-title { fill: #d3e0e6; font-size: 12px; font-weight: 750; }
 .hch-recovery { fill: #fff; font-size: 22px; font-weight: 850; text-shadow: 0 2px 8px #000; }
 .hch-bypass rect { fill: #0b1b25; stroke: #426074; }
 .hch-bypass text { fill: #a9beca; font-size: 10px; font-weight: 700; }
-.bypass-rail { stroke: #607f91; stroke-width: 2; }
 .bypass-blade { fill: #72c6f8; transform-box: fill-box; transform-origin: center; transition: transform .5s var(--ease); }
 .hch-bypass.open .bypass-blade { fill: #58dfa1; }
+/* Damper on the lower fan motor; the orange actuator matches the real unit. */
+.hch-bypass .damper-frame { fill: #0b1b25; stroke: #6f8591; stroke-width: 1.4; }
+.hch-bypass .bypass-blade { fill: #72c6f8; }
+.hch-bypass.open .bypass-blade { fill: #58dfa1; }
+.hch-bypass .bypass-actuator { fill: #e2711d; stroke: #ffae66; stroke-width: 1; }
+.hch-bypass-channel { fill: #0a1820; stroke: #2f4756; stroke-width: 1.4; stroke-dasharray: 5 5; }
+.hch-bypass-channel.open { stroke: #ff9f5a; stroke-dasharray: none; }
+.hch-channel-label { fill: #5f7886; font-size: 9px; font-weight: 700; letter-spacing: .03em; }
+.hch-core-port { fill: #c2ccd1; font-size: 10px; font-weight: 800; opacity: .8; }
 .hch-coil rect { fill: #112631; stroke: #506f80; stroke-width: 2; }
 .coil-pipe { fill: none; stroke: #956b47; stroke-width: 3.2; }
 .hch-coil.active .coil-pipe { stroke: #ff9b48; filter: url(#airGlow); }
 .water-port { fill: #72bde9; }
 .hch-service-box { fill: #0a1820; stroke: #3c5665; }
-.service-lines { fill: none; stroke: #5a7381; stroke-width: 2; }
 .hch-port rect { fill: url(#metalEdge); stroke: #8ba0ac; stroke-width: 2.5; filter: drop-shadow(0 5px 5px rgb(0 0 0 / 32%)); }
 .hch-port path { fill: none; stroke-width: 9; stroke-linecap: round; filter: url(#airGlow); }
 .hch-port-outdoor path,.hch-port-supply path { stroke: #5fe0a0; }

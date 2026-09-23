@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0-beta.30
+
+- Redraws the unit interior from photos and CAD of the real HCH5: the core is now the elongated hexagonal counter-flow exchanger with its P1-P4 ports (P1 outdoor in and P4 exhaust out on the right, P3 extract in and P2 supply out on the left), the filter cassettes stand slanted in the top corners, the supply fan sits between the outdoor filter and P1, and the extract fan sits after P4 at the bottom right. The old chamber grid is gone.
+- The bypass damper now sits on the lower (extract) fan motor with its orange actuator at the bottom. In bypass, the extract air leaves the core out and runs along the highlighted channel beneath it, through the open damper and the extract fan to exhaust; supply always crosses the core.
+- The bypass status callout sits by the damper, and the RS485 cable leaves the unit's control box at the bottom left.
+
 ## 1.2.0-beta.29
 
 - Restores the 1.2.0-beta.23 updater hotfixes that the afterheat beta line (beta.26-28) was branched without: the admin service may write its state directory again, `update.sh` no longer write-probes `/var/lib/dantherm-hch5-ha` inside the admin sandbox (the cause of "install: cannot change owner ... Read-only file system" when updating from beta.27 to beta.28), and a manual update check bypasses the 5-minute cache so new betas appear immediately.

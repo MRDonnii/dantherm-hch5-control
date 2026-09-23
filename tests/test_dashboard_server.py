@@ -61,7 +61,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Filter · udsugning", diagram)
         # Oriented like the real HCH5: outdoor air enters on the right.
         filter_x = {
-            label: int(x) for x, label in re.findall(r'<Filter x=\{(\d+)\} y=\{\d+\} label="(Filter · \w+)"', diagram)
+            label: int(x) for x, label in re.findall(r'<Filter x=\{(\d+)\}[^>]*? label="(Filter · \w+)"', diagram)
         }
         self.assertGreater(filter_x["Filter · udeluft"], filter_x["Filter · udsugning"])
         self.assertIn("Ekstern eftervarme · HAC1", diagram)
