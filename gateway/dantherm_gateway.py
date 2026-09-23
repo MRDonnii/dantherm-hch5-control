@@ -685,7 +685,7 @@ class Gateway:
                 write_fan_pair=lambda extract, supply: self.queue_controller_hardware("fan_pair", (extract, supply)),
                 set_bypass=lambda value: self.queue_controller_hardware("bypass", str(value)),
                 set_fireplace=lambda enabled: self.queue_controller_hardware("fireplace", bool(enabled)),
-                set_afterheat_setpoint=lambda value: self.queue_controller_hardware("afterheat_setpoint", int(value)),
+                set_afterheat_setpoint=lambda value: self.queue_controller_hardware("afterheat_setpoint", value),
             ),
             state_path=controller_cfg.get("state_file", "/var/lib/dantherm-hch5-ha/controller.json"),
             tick_seconds=float(controller_cfg.get("tick_seconds", 2.0)),
@@ -736,7 +736,9 @@ class Gateway:
                 elif action == "bypass":
                     result["value"] = self.write_bypass_request(ser, str(value))
                 elif action == "afterheat_setpoint":
-                    result["value"] = self.write_afterheat_setpoint(ser, int(value))
+                    result["value"] = self.write_afterheat_setpoint(
+                        ser, None if value is None else int(value)
+                    )
                 else:
                     raise RuntimeError(f"unknown controller hardware action: {action}")
             except Exception as error:
@@ -1211,6 +1213,54 @@ class Gateway:
         fn = frame[1]
         if fn in (3, 4) and len(frame) == 8:
             return  # request, no data payload
+        if slave == 0x40 and fn == 16 and len(frame) >= 19:
+            register = int.from_bytes(frame[2:4], "big")
+            count = int.from_bytes(frame[4:6], "big")
+            byte_count = frame[6]
+            if register == 180 and count == 5 and byte_count == 10:
+                values = [
+                    int.from_bytes(frame[index:index + 2], "big")
+                    for index in range(7, 17, 2)
+                ]
+                for key, raw in zip(
+                    (
+                        "outdoor_temp", "supply_temp", "extract_temp",
+                        "exhaust_temp", "hrc2_t5_temperature",
+                    ),
+                    values,
+                ):
+                    if 500 <= raw <= 4000:
+                        self.publish(
+                            key, raw / 100.0,
+                            source="passive_hcp4_hac1_register_180",
+                        )
+                self.publish(
+                    "supply_temperature", values[1] / 100.0,
+                    source="passive_hcp4_hac1_register_181",
+                )
+            elif register == 185 and count == 5 and byte_count == 10:
+                values = [
+                    int.from_bytes(frame[index:index + 2], "big")
+                    for index in range(7, 17, 2)
+                ]
+                if (
+                    values[0] & 1 == 1
+                    and values[2:] == [15, 0x17FE, 0xFF03]
+                    and values[1] % 256 == 0
+                    and 0 <= values[1] // 256 <= 35
+                ):
+                    selection = values[1] // 256
+                    self.publish(
+                        "afterheat_selection",
+                        "off" if selection == 0 else selection,
+                        source="passive_hcp4_hac1_register_186",
+                    )
+                    if selection:
+                        self.publish(
+                            "afterheat_setpoint", selection,
+                            source="passive_hcp4_hac1_register_186",
+                        )
+            return
         if slave == 0x40 and fn == 3 and len(frame) == 15 and frame[2] == 10:
             values = [int.from_bytes(frame[i : i + 2], "big") for i in range(3, 13, 2)]
             # Verificeret mod HRC2-displayet 2026-07-15:
@@ -1226,10 +1276,20 @@ class Gateway:
                 values[0] & 1 == 1
                 and values[2] == 15
                 and values[1] % 256 == 0
-                and 5 <= values[1] // 256 <= 40
+                and 0 <= values[1] // 256 <= 40
             ):
-                self.publish("afterheat_setpoint", values[1] // 256)
-            elif values[2] == 32768 and values[3] == 32768:
+                selection = values[1] // 256
+                self.publish(
+                    "afterheat_selection",
+                    "off" if selection == 0 else selection,
+                    source="passive_hcp4_hac1_register_186",
+                )
+                if selection:
+                    self.publish(
+                        "afterheat_setpoint", selection,
+                        source="passive_hcp4_hac1_register_186",
+                    )
+            elif values[2] == 32768 and values[3] == 32768 and values[4] in (0, 16):
                 # Registerblok 205-209. Register 209 skifter mellem 0 og 16 og
                 # matcher taendt/slukket eftervarme-kald 1:1 i observerede
                 # manuelle test (2026-08-31, aabn/luk/setpunkt-test). Det er
@@ -1487,69 +1547,62 @@ class Gateway:
         self.write_one(ser, 67, supply)
         self.write_one(ser, 66, extract)
 
-    def write_afterheat_setpoint(self, ser: serial.Serial, value: int) -> int:
-        """Reuse the observed HAC1 FC16 185..189 block, changing only word 186."""
-        if not 18 <= value <= 30:
-            raise ValueError("afterheat setpoint must be 18..30 C")
-        # A single active read can race a live HAC1 update on the bus and
-        # return a transient/partial block right after the gateway becomes
-        # master. Retry the read+identity check before giving up.
-        # Only bit 0 of word 185 was ever verified (captures showed both a
-        # bare 1 and, in live operation, 8193 = 0x2001 with unrelated HAC1
-        # status flags in the high bits) and word 187=15 is the other
-        # verified constant, so those are what identify the block. Every
-        # other live word, including the untouched high bits of word 185,
-        # is preserved exactly as read.
-        current = None
-        for _attempt in range(3):
-            candidate = self.read_register_block(ser, 0x40, 185, 5)
-            if candidate is not None and len(candidate) == 5 and candidate[0] & 1 == 1 and candidate[2] == 15:
-                current = candidate
-                break
-            time.sleep(0.05)
-        if current is None:
-            candidate = self.read_register_block(ser, 0x40, 185, 5)
-            if candidate is None or len(candidate) != 5:
-                raise RuntimeError("afterheat source block unavailable")
-            raise RuntimeError(f"unexpected afterheat source block: {candidate}")
-        if current[1] == value * 256:
-            self.publish("afterheat_setpoint", value)
-            return value
-        expected = bytes.fromhex("40 10 00 b9 00 05")
+    def _write_afterheat_block(
+        self, ser: serial.Serial, start: int, values: list[int], reason: str
+    ) -> None:
+        frame = self.write_multiple_frame(0x40, start, values)
+        expected = bytes([0x40, 0x10, start >> 8, start & 0xFF, 0, len(values)])
         expected += crc16(expected).to_bytes(2, "little")
-        last_error: Exception | None = None
-        for attempt in range(3):
-            if attempt > 0:
-                # A missed echo on a live RS485 bus is usually a transient
-                # collision with HAC1's own unsolicited traffic, not a sign
-                # the frame was wrong. Re-read the block fresh (its other
-                # live words may have moved on) and retry the identical
-                # verified write rather than giving up after one miss.
-                time.sleep(0.08)
-                candidate = self.read_register_block(ser, 0x40, 185, 5)
-                if candidate is None or len(candidate) != 5 or candidate[0] & 1 != 1 or candidate[2] != 15:
-                    continue
-                current = candidate
-                if current[1] == value * 256:
-                    self.publish("afterheat_setpoint", value)
-                    return value
-            values = list(current)
-            values[1] = value * 256
-            frame = self.write_multiple_frame(0x40, 185, values)
-            if not self.wait_quiet(ser):
-                last_error = RuntimeError("RS485 bus did not become quiet")
-                continue
-            self.serial_write(ser, frame, "CONTROL_AFTERHEAT_SETPOINT")
-            ser.flush()
-            deadline = time.monotonic() + 0.5
-            received = bytearray()
-            while time.monotonic() < deadline:
-                received.extend(self.serial_read(ser, 256))
-                if expected in received:
-                    self.publish("afterheat_setpoint", value)
-                    return value
-            last_error = RuntimeError("missing FC16 afterheat echo")
-        raise last_error or RuntimeError("missing FC16 afterheat echo")
+        if not self.wait_quiet(ser):
+            raise RuntimeError("RS485 bus did not become quiet")
+        self.serial_write(ser, frame, reason)
+        ser.flush()
+        deadline = time.monotonic() + 0.5
+        received = bytearray()
+        while time.monotonic() < deadline:
+            received.extend(self.serial_read(ser, 256))
+            if expected in received:
+                return
+        raise RuntimeError(f"missing FC16 acknowledgement for register {start}")
+
+    def _afterheat_temperature_words(self) -> list[int]:
+        keys = (
+            "outdoor_temp", "supply_temp", "extract_temp", "exhaust_temp",
+            "hrc2_t5_temperature",
+        )
+        words: list[int] = []
+        for key in keys:
+            value = self.state.get(key)
+            if not isinstance(value, (int, float)) or not -35 <= float(value) <= 100:
+                raise RuntimeError(f"afterheat temperature unavailable: {key}")
+            words.append(round(float(value) * 100))
+        return words
+
+    def write_afterheat_setpoint(self, ser: serial.Serial, value: int | None) -> int | None:
+        """Replay the observed HCP4 thermostat chain for HAC1.
+
+        HCP4 refreshes FC16 blocks 180..184 and 185..189 every four seconds.
+        The enabled 185 block is CRC-verified at 10 C. OFF uses the same
+        verified constants with register 186 set to zero; repeated OFF
+        captures reconstructed the complete frame including CRC E5 E1.
+        """
+        if value is not None and not 10 <= value <= 35:
+            raise ValueError("afterheat setpoint must be 10..35 C or OFF")
+        temperatures = self._afterheat_temperature_words()
+        self._write_afterheat_block(
+            ser, 180, temperatures, "CONTROL_AFTERHEAT_TEMPERATURES"
+        )
+        time.sleep(0.8)
+        command = [1, 0 if value is None else value * 256, 15, 0x17FE, 0xFF03]
+        self._write_afterheat_block(
+            ser, 185, command, "CONTROL_AFTERHEAT_THERMOSTAT"
+        )
+        if value is None:
+            self.publish("afterheat_selection", "off", source="pi_active_hac1_off_command")
+        else:
+            self.publish("afterheat_selection", value, source="pi_active_hac1_command")
+            self.publish("afterheat_setpoint", value, source="pi_active_hac1_command")
+        return value
 
     def write_hrc_auto_sequence(
         self, ser: serial.Serial, restore_pair: tuple[int, int]
@@ -1752,9 +1805,19 @@ class Gateway:
             values[0] & 1 == 1
             and values[2] == 15
             and values[1] % 256 == 0
-            and 5 * 256 <= values[1] <= 40 * 256
+            and 0 <= values[1] <= 40 * 256
         ):
-            self.publish("afterheat_setpoint", values[1] // 256)
+            selection = values[1] // 256
+            self.publish(
+                "afterheat_selection",
+                "off" if selection == 0 else selection,
+                source="pi_active_hac1_register_186",
+            )
+            if selection:
+                self.publish(
+                    "afterheat_setpoint", selection,
+                    source="pi_active_hac1_register_186",
+                )
 
     def poll_hrc2_t5(self, ser: serial.Serial):
         # Register 184 on slave 0x40 er HRC2-fjernbetjeningens egen

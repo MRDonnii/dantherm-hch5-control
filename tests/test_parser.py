@@ -178,3 +178,11 @@ def test_supply_air_setpoint_from_hac1_write_block():
     body = bytes.fromhex("401000b900050aff011600000f18fee201")
     decoder.decode(frame(body))
     assert decoder.data["afterheat_setpoint"] == 22
+
+
+def test_hac1_write_block_exposes_off_as_current_selection():
+    decoder = DanthermDecoder(lambda _data: None)
+    body = bytes.fromhex("40 10 00 b9 00 05 0a 00 01 00 00 00 0f 17 fe ff 03")
+    decoder.decode(body + crc16(body).to_bytes(2, "little"))
+    assert decoder.data["afterheat_selection"] == "off"
+    assert "afterheat_setpoint" not in decoder.data

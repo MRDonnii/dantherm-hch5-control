@@ -151,6 +151,13 @@ export function OverviewPage() {
   const mode = String(controller.mode ?? "local_auto");
   const level = number(controller.effective_level) ?? 3;
   const afterheatSetpoint = number(controller.afterheat_setpoint) ?? 20;
+  const afterheatEnabled = controller.afterheat_enabled !== false;
+  const actualAfterheatSelectionNumber = number(controller.actual_afterheat_selection);
+  const actualAfterheatSelection = controller.actual_afterheat_selection === "off"
+    ? "OFF"
+    : actualAfterheatSelectionNumber !== null
+      ? `${whole(actualAfterheatSelectionNumber)} °C`
+      : "Afventer";
   const busHealthy = controller.rs485_healthy === true || unit.bus_traffic === true || unit.available === true;
   const quickBoostActive = (number(controller.quick_boost_remaining_seconds) ?? 0) > 0;
   const updateProgress = Math.max(0, Math.min(100, number(updateInfo?.update?.progress) ?? (updateInfo?.update?.running ? 8 : 0)));
@@ -162,7 +169,11 @@ export function OverviewPage() {
   }, [bypassActual, outdoor, extract, exhaust]);
 
   const levelPatch = mode === "manual" ? "manual_level" : "local_normal_level";
-  const setAfterheat = (next: number) => void command("afterheat", { afterheat_setpoint: Math.max(18, Math.min(30, next)) }, "Eftervarmens ønskede indblæsningstemperatur er gemt.");
+  const setAfterheat = (next: number) => void command("afterheat", { afterheat_setpoint: Math.max(10, Math.min(35, next)) }, "Eftervarmens ønskede indblæsningstemperatur er gemt.");
+  const lowerAfterheat = () => afterheatEnabled && afterheatSetpoint <= 10
+    ? void command("afterheat-off", { afterheat_enabled: false }, "Eftervarmen er sat til OFF.")
+    : setAfterheat(afterheatSetpoint - 1);
+  const raiseAfterheat = () => setAfterheat(afterheatEnabled ? afterheatSetpoint + 1 : 10);
 
   return (
     <section className="dashboard-overview page-enter">
@@ -244,11 +255,11 @@ export function OverviewPage() {
           </div>
 
           <article className="surface afterheat-setpoint-card">
-            <div className="afterheat-copy"><span>Eftervarme setpunkt</span><strong>Ønsket indblæsningstemperatur</strong><small>Styrer kun temperatur-setpunkt. HAC1 regulerer selv varmefladen og frostsikringen.</small></div>
+            <div className="afterheat-copy"><span>Eftervarme setpunkt</span><strong>RS485: {actualAfterheatSelection}</strong><small>Ønsket: {afterheatEnabled ? `${whole(afterheatSetpoint)} °C` : "OFF"} · Varmekald: {afterheatStatus}. HAC1 regulerer selv varmefladen.</small></div>
             <div className="setpoint-stepper">
-              <button disabled={busy !== null || afterheatSetpoint <= 18} onClick={() => setAfterheat(afterheatSetpoint - 1)}>−</button>
-              <strong>{whole(afterheatSetpoint)} °C</strong>
-              <button disabled={busy !== null || afterheatSetpoint >= 30} onClick={() => setAfterheat(afterheatSetpoint + 1)}>+</button>
+              <button disabled={busy !== null || !afterheatEnabled} onClick={lowerAfterheat}>−</button>
+              <strong>{afterheatEnabled ? `${whole(afterheatSetpoint)} °C` : "OFF"}</strong>
+              <button disabled={busy !== null || (afterheatEnabled && afterheatSetpoint >= 35)} onClick={raiseAfterheat}>+</button>
             </div>
           </article>
           {notice && <div className={`control-notice${notice.startsWith("Kunne") ? " error" : ""}`}>{notice}</div>}
@@ -262,7 +273,7 @@ export function OverviewPage() {
             <div className="climate-metric green"><Leaf size={21}/><span>CO₂</span><strong>{whole(co2)} <small>ppm</small></strong><em>{co2 === null ? "Ukendt" : co2 < 800 ? "God" : co2 < 1200 ? "Moderat" : "Høj"}</em><i style={{ width: `${co2 === null ? 0 : Math.min(100, Math.max(5, co2 / 16))}%` }}/></div>
             <div className="climate-metric blue"><span className="metric-drop">●</span><span>Luftfugtighed</span><strong>{whole(humidity)} <small>%</small></strong><em>{humidity === null ? "Ukendt" : humidity < 60 ? "Normal" : "Høj"}</em><i style={{ width: `${humidity ?? 0}%` }}/></div>
             <div className="climate-metric cyan"><span className="metric-filter">▧</span><span>Filter</span><strong>{whole(filterLife)} <small>%</small></strong><em>{filterLife === null ? "Ukendt" : filterLife > 40 ? "OK" : filterLife > 15 ? "Snart skift" : "Skift filter"}</em><i style={{ width: `${Math.max(0, Math.min(100, filterLife ?? 0))}%` }}/></div>
-            <div className="climate-metric neutral"><span className="metric-heat">≋</span><span>Eftervarme setpunkt</span><strong>{temp(afterheatSetpoint)}</strong><em>{heating ? "Varmeflade aktiv" : "Automatik standby"}</em><i style={{ width: `${((afterheatSetpoint - 18) / 12) * 100}%` }}/></div>
+            <div className="climate-metric neutral"><span className="metric-heat">≋</span><span>Eftervarme setpunkt</span><strong>{afterheatEnabled ? temp(afterheatSetpoint) : "OFF"}</strong><em>{afterheatStatus}</em><i style={{ width: `${afterheatEnabled ? ((afterheatSetpoint - 10) / 25) * 100 : 0}%` }}/></div>
           </div>
         </article>
 

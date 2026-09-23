@@ -186,8 +186,12 @@ class DanthermDecoder:
                 ]
                 if values[0] & 0xFF == 1 and values[2] == 15 \
                         and values[1] % 256 == 0 \
-                        and 5 <= values[1] // 256 <= 40:
-                    self._set(afterheat_setpoint=values[1] // 256)
+                        and 0 <= values[1] // 256 <= 40:
+                    selection = values[1] // 256
+                    self._set(
+                        afterheat_selection="off" if selection == 0 else selection,
+                        **({} if selection == 0 else {"afterheat_setpoint": selection}),
+                    )
             elif register == 180 and count == 5 and byte_count == 10:
                 values = [
                     int.from_bytes(frame[i:i + 2], "big")
@@ -221,8 +225,12 @@ class DanthermDecoder:
             if values[:3] == [0x3000, 0x1100, 0] and 300 <= values[3] <= 10000:
                 self._set(co2=values[3], hac1_connected=True)
             elif values[0] & 0xFF == 1 and values[2] == 15 and values[1] % 256 == 0 \
-                    and 5 <= values[1] // 256 <= 40:
-                self._set(afterheat_setpoint=values[1] // 256)
+                    and 0 <= values[1] // 256 <= 40:
+                selection = values[1] // 256
+                self._set(
+                    afterheat_selection="off" if selection == 0 else selection,
+                    **({} if selection == 0 else {"afterheat_setpoint": selection}),
+                )
             elif values[4] == 0 and all(
                 value == 0x8000 or 5 <= value <= 40 for value in values[2:4]
             ):

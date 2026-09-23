@@ -107,11 +107,18 @@ class ControllerTests(unittest.TestCase):
 
     def test_afterheat_setpoint_persists(self):
         state, _ = self.make()
-        state.configure({"afterheat_setpoint": 22})
+        state.configure({"afterheat_setpoint": 35})
         reloaded = ControllerState(state.path)
-        self.assertEqual(reloaded.data["afterheat_setpoint"], 22)
+        self.assertEqual(reloaded.data["afterheat_setpoint"], 35)
         with self.assertRaises(ControllerError):
-            reloaded.configure({"afterheat_setpoint": 17})
+            reloaded.configure({"afterheat_setpoint": 9})
+
+    def test_afterheat_off_persists_and_new_setpoint_enables_it(self):
+        state, _ = self.make()
+        state.configure({"afterheat_enabled": False})
+        self.assertFalse(ControllerState(state.path).data["afterheat_enabled"])
+        state.configure({"afterheat_setpoint": 10})
+        self.assertTrue(state.data["afterheat_enabled"])
 
     def test_bypass_persists_and_old_auto_migrates_to_off(self):
         state, _ = self.make()
@@ -203,6 +210,24 @@ class ControllerTests(unittest.TestCase):
         engine.apply()
         engine.apply()
         self.assertEqual(calls, [21])
+
+    def test_afterheat_refreshes_every_four_seconds_and_off_is_explicit(self):
+        calls = []
+        state, _ = self.make()
+        engine = ControllerEngine(state, HardwareAdapter(
+            write_fan_pair=lambda extract, supply: None,
+            set_fireplace=lambda enabled: None,
+            set_afterheat_setpoint=calls.append,
+        ))
+        engine.apply()
+        engine.apply()
+        self.assertEqual(calls, [20])
+        engine.last_applied_at["afterheat_setpoint"] -= 4.1
+        engine.apply()
+        self.assertEqual(calls, [20, 20])
+        state.configure({"afterheat_enabled": False})
+        engine.apply()
+        self.assertEqual(calls, [20, 20, None])
 
     def test_failed_write_has_bounded_retries(self):
         calls = []

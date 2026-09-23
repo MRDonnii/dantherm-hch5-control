@@ -139,7 +139,8 @@ export function TechniquePage() {
             ]}/>
             <InfoList rows={[
               { label: "Eftervarme aktiv", value: bool(controller.actual_afterheat, "Ja", "Nej") },
-              { label: "Eftervarme setpunkt", value: controller.actual_afterheat_setpoint !== null && controller.actual_afterheat_setpoint !== undefined ? `${text(controller.actual_afterheat_setpoint)} °C` : "—" },
+              { label: "RS485 eftervarmevalg", value: controller.actual_afterheat_selection === "off" ? "OFF" : controller.actual_afterheat_selection !== null && controller.actual_afterheat_selection !== undefined ? `${text(controller.actual_afterheat_selection)} °C` : "—" },
+              { label: "Seneste temperatursetpunkt", value: controller.actual_afterheat_setpoint !== null && controller.actual_afterheat_setpoint !== undefined ? `${text(controller.actual_afterheat_setpoint)} °C` : "—" },
               { label: "Indblæsning kilde", value: text(controller.actual_supply_air_temperature_source) },
               { label: "Frostbeskyttelse", value: controller.actual_afterheat_frost_temperature !== null && controller.actual_afterheat_frost_temperature !== undefined ? `${text(controller.actual_afterheat_frost_temperature)} °C` : "—" },
             ]}/>

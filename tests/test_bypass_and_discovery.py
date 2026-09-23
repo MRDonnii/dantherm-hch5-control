@@ -59,6 +59,117 @@ def discovery_map(gateway):
 
 
 class BypassAndDiscoveryTests(unittest.TestCase):
+    def test_passive_afterheat_status_has_register_source_and_timestamp(self):
+        gateway = make_gateway()
+        gateway.last_bus_frame = 0.0
+        values = [2126, 1717, 0x8000, 0x8000, 16]
+        frame = bytes([0x40, 0x03, 10]) + b"".join(value.to_bytes(2, "big") for value in values) + b"\x00\x00"
+        gateway.decode(frame)
+        self.assertIs(gateway.state["afterheat_active"], True)
+        self.assertEqual(gateway.state["afterheat_active_source"], "passive_hcp4_hac1_register_209")
+        self.assertIsInstance(gateway.state["afterheat_active_updated_at"], float)
+
+        values[-1] = 0
+        frame = bytes([0x40, 0x03, 10]) + b"".join(value.to_bytes(2, "big") for value in values) + b"\x00\x00"
+        gateway.decode(frame)
+        self.assertIs(gateway.state["afterheat_active"], False)
+
+        previous_timestamp = gateway.state["afterheat_active_updated_at"]
+        values[-1] = 7
+        frame = bytes([0x40, 0x03, 10]) + b"".join(value.to_bytes(2, "big") for value in values) + b"\x00\x00"
+        gateway.decode(frame)
+        self.assertIs(gateway.state["afterheat_active"], False)
+        self.assertEqual(gateway.state["afterheat_active_updated_at"], previous_timestamp)
+
+    def test_passive_hcp4_thermostat_frames_seed_takeover_state(self):
+        gateway = make_gateway()
+        temperatures = gateway.write_multiple_frame(
+            0x40, 180, [1415, 2094, 2077, 1465, 2340]
+        )
+        gateway.decode(temperatures)
+        self.assertEqual(gateway.state["supply_temp"], 20.94)
+        self.assertEqual(gateway.state["hrc2_t5_temperature"], 23.40)
+
+        off = gateway.write_multiple_frame(
+            0x40, 185, [1, 0, 15, 0x17FE, 0xFF03]
+        )
+        gateway.decode(off)
+        self.assertEqual(gateway.state["afterheat_selection"], "off")
+
+        enabled = gateway.write_multiple_frame(
+            0x40, 185, [1, 23 * 256, 15, 0x17FE, 0xFF03]
+        )
+        gateway.decode(enabled)
+        self.assertEqual(gateway.state["afterheat_selection"], 23)
+        self.assertEqual(gateway.state["afterheat_setpoint"], 23)
+
+    def test_afterheat_chain_replays_hcp4_temperature_and_command_blocks(self):
+        gateway = make_gateway()
+        gateway.state.update({
+            "outdoor_temp": 14.15,
+            "supply_temp": 20.94,
+            "extract_temp": 20.77,
+            "exhaust_temp": 14.65,
+            "hrc2_t5_temperature": 23.40,
+        })
+        gateway.wait_quiet = lambda *_args: True
+        writes = []
+        gateway.serial_write = lambda _ser, data, reason: writes.append((data, reason)) or len(data)
+        replies = []
+        for start in (180, 185):
+            reply = bytes([0x40, 0x10, 0, start, 0, 5])
+            replies.append(reply + crc16(reply).to_bytes(2, "little"))
+        gateway.serial_read = lambda *_args: replies.pop(0) if replies else b""
+        serial = type("Serial", (), {"flush": lambda self: None})()
+        self.assertEqual(gateway.write_afterheat_setpoint(serial, 22), 22)
+        self.assertEqual([reason for _data, reason in writes], [
+            "CONTROL_AFTERHEAT_TEMPERATURES", "CONTROL_AFTERHEAT_THERMOSTAT"
+        ])
+        self.assertEqual(
+            [int.from_bytes(writes[0][0][i:i + 2], "big") for i in range(7, 17, 2)],
+            [1415, 2094, 2077, 1465, 2340],
+        )
+        self.assertEqual(
+            [int.from_bytes(writes[1][0][i:i + 2], "big") for i in range(7, 17, 2)],
+            [1, 22 * 256, 15, 0x17FE, 0xFF03],
+        )
+
+    def test_afterheat_off_uses_verified_hcp4_zero_setpoint_block(self):
+        gateway = make_gateway()
+        gateway.state.update({
+            "outdoor_temp": 14.15, "supply_temp": 20.94,
+            "extract_temp": 20.77, "exhaust_temp": 14.65,
+            "hrc2_t5_temperature": 23.40,
+        })
+        gateway.wait_quiet = lambda *_args: True
+        writes = []
+        gateway.serial_write = lambda _ser, data, reason: writes.append(data) or len(data)
+        replies = []
+        for start in (180, 185):
+            reply = bytes([0x40, 0x10, 0, start, 0, 5])
+            replies.append(reply + crc16(reply).to_bytes(2, "little"))
+        gateway.serial_read = lambda *_args: replies.pop(0) if replies else b""
+        serial = type("Serial", (), {"flush": lambda self: None})()
+        self.assertIsNone(gateway.write_afterheat_setpoint(serial, None))
+        self.assertEqual(
+            [int.from_bytes(writes[1][i:i + 2], "big") for i in range(7, 17, 2)],
+            [1, 0, 15, 0x17FE, 0xFF03],
+        )
+
+    def test_afterheat_chain_missing_acknowledgement_fails(self):
+        gateway = make_gateway()
+        gateway.state.update({
+            "outdoor_temp": 14.15, "supply_temp": 20.94,
+            "extract_temp": 20.77, "exhaust_temp": 14.65,
+            "hrc2_t5_temperature": 23.40,
+        })
+        gateway.wait_quiet = lambda *_args: True
+        gateway.serial_write = lambda _ser, data, reason: len(data)
+        gateway.serial_read = lambda *_args: b""
+        serial = type("Serial", (), {"flush": lambda self: None})()
+        with self.assertRaisesRegex(RuntimeError, "missing FC16 acknowledgement"):
+            gateway.write_afterheat_setpoint(serial, 22)
+
     def test_discovery_is_stable_during_fallback_and_never_deletes_entities(self):
         gateway = make_gateway()
         fallback = discovery_map(gateway)

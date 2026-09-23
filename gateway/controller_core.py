@@ -129,7 +129,7 @@ class HardwareAdapter:
         write_fan_pair: Callable[[int, int], object] | None = None,
         set_bypass: Callable[[str], object] | None = None,
         set_fireplace: Callable[[bool], object] | None = None,
-        set_afterheat_setpoint: Callable[[int], object] | None = None,
+        set_afterheat_setpoint: Callable[[int | None], object] | None = None,
     ) -> None:
         self.write_fan_pair = write_fan_pair
         self.set_bypass = set_bypass
@@ -166,6 +166,7 @@ class ControllerState:
         "fireplace_until": None,
         "fireplace_duration_minutes": 0,
         "afterheat_setpoint": 20,
+        "afterheat_enabled": True,
         "schedule_enabled": False,
         "night_enabled": False,
         "night_start": "22:00",
@@ -277,9 +278,10 @@ class ControllerState:
             self.data["ha_valid_for_seconds"] = 180
         self.data["ha_reason"] = str(self.data.get("ha_reason") or "No Home Assistant room data")[:160]
         try:
-            self.data["afterheat_setpoint"] = min(30, max(18, int(self.data.get("afterheat_setpoint", 20))))
+            self.data["afterheat_setpoint"] = min(35, max(10, int(self.data.get("afterheat_setpoint", 20))))
         except (TypeError, ValueError):
             self.data["afterheat_setpoint"] = 20
+        self.data["afterheat_enabled"] = bool(self.data.get("afterheat_enabled", True))
         for key in ("schedule_enabled", "night_enabled", "vacation_enabled", "cooling_enabled"):
             self.data[key] = bool(self.data.get(key, False))
         try:
@@ -361,7 +363,7 @@ class ControllerState:
                 "rh_setpoint", "rh_hysteresis", "co2_setpoint", "co2_hysteresis",
                 "auto_step_rh", "auto_step_co2", "downshift_delay_seconds",
                 "boost_hold_seconds", "ha_timeout_seconds", "bypass", "fireplace",
-                "fireplace_minutes", "afterheat_setpoint", "profiles", "schedule_enabled",
+                "fireplace_minutes", "afterheat_setpoint", "afterheat_enabled", "profiles", "schedule_enabled",
                 "schedule", "night_enabled", "night_start", "night_end", "night_level",
                 "night_air_quality_max_level", "bathroom_rh_setpoint",
                 "bathroom_rh_hysteresis", "bathroom_max_level",
@@ -481,9 +483,14 @@ class ControllerState:
                     self.data["quick_boost_minutes"] = 0
             if "afterheat_setpoint" in patch:
                 value = int(patch["afterheat_setpoint"])
-                if not 18 <= value <= 30:
-                    raise ControllerError("Eftervarme-setpunkt skal være 18..30 °C")
+                if not 10 <= value <= 35:
+                    raise ControllerError("Eftervarme-setpunkt skal være 10..35 °C")
                 self.data["afterheat_setpoint"] = value
+                self.data["afterheat_enabled"] = True
+            if "afterheat_enabled" in patch:
+                if not isinstance(patch["afterheat_enabled"], bool):
+                    raise ControllerError("afterheat_enabled skal være boolean")
+                self.data["afterheat_enabled"] = patch["afterheat_enabled"]
             if "profiles" in patch:
                 incoming = patch["profiles"]
                 if not isinstance(incoming, dict):
@@ -609,6 +616,7 @@ class ControllerEngine:
         self.cooling_last_off_at: float | None = None
         self.cooling_reason = "disabled"
         self.last_applied: dict[str, object] = {}
+        self.last_applied_at: dict[str, float] = {}
         self.last_write_at: float | None = None
         self.last_error: str | None = None
         self.write_failures = 0
@@ -869,14 +877,25 @@ class ControllerEngine:
             }
             return result
 
-    def _call(self, key: str, value: object, fn: Callable | None, *args) -> None:
-        if self.last_applied.get(key) == value:
+    def _call(
+        self,
+        key: str,
+        value: object,
+        fn: Callable | None,
+        *args,
+        refresh_seconds: float | None = None,
+    ) -> None:
+        now = time.time()
+        unchanged = self.last_applied.get(key) == value
+        refreshed_recently = (
+            now - self.last_applied_at.get(key, 0.0) < (refresh_seconds or 0.0)
+        )
+        if unchanged and (refresh_seconds is None or refreshed_recently):
             return
         if self._failure_values.get(key) != value:
             self._failure_values[key] = value
             self._failure_counts[key] = 0
             self._retry_at[key] = 0.0
-        now = time.time()
         if self._failure_counts.get(key, 0) >= self.retry_limit or now < self._retry_at.get(key, 0.0):
             return
         if fn is None:
@@ -896,7 +915,8 @@ class ControllerEngine:
             raise
         else:
             self.last_applied[key] = value
-            self.last_write_at = time.time()
+            self.last_applied_at[key] = time.time()
+            self.last_write_at = self.last_applied_at[key]
             self.last_error = None
             self._failure_counts[key] = 0
             self._retry_at.pop(key, None)
@@ -916,6 +936,14 @@ class ControllerEngine:
         if profile:
             pair = (int(profile["extract"]), int(profile["supply"]))
             self._call("fan_pair", pair, self.hardware.write_fan_pair, *pair)
+        enabled = bool(snapshot["afterheat_enabled"])
         setpoint = int(snapshot["afterheat_setpoint"])
-        self._call("afterheat_setpoint", setpoint, self.hardware.set_afterheat_setpoint, setpoint)
+        command = setpoint if enabled else None
+        self._call(
+            "afterheat_setpoint",
+            command,
+            self.hardware.set_afterheat_setpoint,
+            command,
+            refresh_seconds=4.0,
+        )
         return self.resolve()
