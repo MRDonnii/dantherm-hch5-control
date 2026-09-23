@@ -52,6 +52,7 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .status-led.warn { background: var(--orange); box-shadow: 0 0 0 4px rgb(255 173 85 / 9%),0 0 16px rgb(255 173 85 / 35%); }
 
 .dashboard-main-grid { display: grid; grid-template-columns: minmax(0,1.62fr) minmax(360px,.72fr); gap: 12px; align-items: start; }
+.overview-air-column { min-width: 0; display: grid; gap: 12px; align-content: start; }
 .surface { border-color: #1d3544; background: linear-gradient(145deg,#0d1d27,#0a1720); box-shadow: 0 13px 36px rgb(0 0 0 / 15%); }
 .pro-air-card { min-width: 0; padding: 15px 16px 13px; border-radius: 13px; overflow: hidden; }
 .pro-card-head { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
@@ -288,12 +289,8 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .setpoint-stepper { display: grid; grid-template-columns: 38px 68px 38px; align-items: center; border: 1px solid #274657; border-radius: 9px; overflow: hidden; }
 .setpoint-stepper button { border: 0; border-radius: 0; font-size: 19px; }
 .setpoint-stepper strong { height: 38px; display: grid; place-items: center; background: #0a1821; font-size: 12px; }
-.control-notice { padding: 9px 11px; border: 1px solid #23566c; border-radius: 9px; background: #0b2634; color: #b7e7fb; font-size: 8px; }
-.control-notice.error { border-color: #72404a; background: #2a171c; color: #ffc0c0; }
-
-.dashboard-bottom-grid { display: grid; grid-template-columns: minmax(0,1.25fr) minmax(420px,.75fr); gap: 12px; }
-.climate-panel,.update-overview-card { padding: 14px 15px; border-radius: 13px; }
-.climate-metrics { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; margin-top: 11px; }
+.climate-panel { min-width: 0; padding: 14px 15px; border-radius: 13px; }
+.climate-metrics { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; margin-top: 11px; }
 .climate-metric { min-height: 108px; position: relative; display: grid; grid-template-columns: 24px 1fr; grid-template-rows: auto auto auto 6px; gap: 2px 8px; align-content: center; padding: 10px 12px; border: 1px solid #1e3a4a; border-radius: 10px; background: #0a1922; overflow: hidden; }
 .climate-metric > svg,.climate-metric > .metric-drop,.climate-metric > .metric-filter,.climate-metric > .metric-heat { grid-row: 1/4; align-self: start; color: #65d99a; font-size: 20px; }
 .climate-metric.blue > .metric-drop { color: #68bfff; }
@@ -306,19 +303,12 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .climate-metric > i { grid-column: 1/-1; display: block; height: 4px; margin-top: 7px; border-radius: 99px; background: linear-gradient(90deg,#52dc91,#69c6ff); box-shadow: 0 0 12px rgb(82 220 145 / 18%); }
 .climate-metric::after { content: ""; position: absolute; bottom: 10px; left: 12px; right: 12px; height: 4px; border-radius: 99px; background: #172b36; z-index: -1; }
 
-.update-overview-card { display: grid; align-content: start; }
-.update-summary-line { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; margin-top: 12px; padding: 8px 10px; border: 1px solid #1f3c4d; border-radius: 9px; background: #0a1922; color: #7892a2; font-size: 8px; }
-.update-summary-line strong { color: #ddecf4; font-size: 9px; }
-.channel-badge { padding: 4px 7px; border-radius: 6px; background: #132c3c; color: #80cdfb; font-weight: 800; }
 .update-progress-copy { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
 .update-progress-copy strong { font-size: 10px; }
 .update-progress-copy span { color: #62c2ff; font-size: 12px; font-weight: 850; }
 .update-progress-track { height: 9px; margin-top: 7px; border: 1px solid #24475a; border-radius: 99px; background: #0b1b25; overflow: hidden; }
 .update-progress-track i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg,#2496ff,#58bfff,#61d7a4); box-shadow: 0 0 18px rgb(54 169 255 / 42%); transition: width .5s var(--ease); }
 .update-progress-track.idle i { opacity: .65; }
-.update-overview-card > small { margin-top: 7px; color: #6e8796; font-size: 8px; line-height: 1.4; }
-.update-link { margin-top: 10px; justify-self: end; display: inline-flex; align-items: center; gap: 5px; color: #70c7ff; text-decoration: none; font-size: 8px; font-weight: 750; }
-
 /* Full update page progress */
 .update-progress-panel { margin-top: 14px; padding: 14px; border: 1px solid #1f3e50; border-radius: 11px; background: #091922; }
 .update-progress-panel .update-progress-track { height: 12px; }
@@ -330,8 +320,7 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 @media (max-width: 1350px) {
   .dashboard-main-grid { grid-template-columns: 1fr; }
   .pro-control-column { grid-template-columns: repeat(2,1fr); }
-  .pro-control-card,.afterheat-setpoint-card,.control-notice { grid-column: 1/-1; }
-  .dashboard-bottom-grid { grid-template-columns: 1fr; }
+  .pro-control-card,.afterheat-setpoint-card { grid-column: 1/-1; }
 }
 @media (max-width: 980px) {
   .app-shell,body[data-sidebar="collapsed"] .app-shell { grid-template-columns: minmax(0,1fr); }
@@ -344,7 +333,7 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
   .overview-status-pills { display: grid; grid-template-columns: 1fr 1fr; }
   .overview-status-pills > div:last-child { grid-column: 1/-1; }
   .pro-control-column { grid-template-columns: 1fr; }
-  .pro-control-card,.afterheat-setpoint-card,.control-notice { grid-column: auto; }
+  .pro-control-card,.afterheat-setpoint-card { grid-column: auto; }
   .pro-control-pair { grid-template-columns: 1fr; }
   .unit-readback-row,.climate-metrics { grid-template-columns: 1fr 1fr; }
   .unit-readback { grid-template-columns: 30px minmax(0,1fr); gap: 7px; padding: 8px 9px; }

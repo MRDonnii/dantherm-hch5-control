@@ -15,7 +15,8 @@ import {
   Wrench,
   Zap,
 } from "lucide-react";
-import { requestJson } from "../lib/api";
+import { postJson, requestJson } from "../lib/api";
+import { TopbarNoticeContext } from "../lib/topbar-notice";
 
 const navigation = [
   ["/overview", "Overblik", Home],
@@ -24,7 +25,6 @@ const navigation = [
   ["/system", "System", Boxes],
   ["/home-assistant", "Home Assistant", Zap],
   ["/diagnostics", "Diagnostik", Wrench],
-  ["/updates", "Opdateringer", RefreshCw],
   ["/settings", "Indstillinger", Settings],
 ] as const;
 
@@ -41,6 +41,7 @@ const routeTitles: Record<string, [string, string]> = {
 
 type ThemeMode = "system" | "light" | "dark";
 type UnitState = Record<string, unknown>;
+type UpdateInfo = { update_available?: boolean; available_version?: string; update?: { running?: boolean } };
 
 function readStored(key: string, fallback: string): string {
   try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
@@ -58,11 +59,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [unit, setUnit] = useState<UnitState>({});
   const [online, setOnline] = useState(false);
   const [version, setVersion] = useState("—");
+  const [notice, setNotice] = useState("");
+  const [availableUpdate, setAvailableUpdate] = useState<string | null>(null);
 
   const effectiveTheme = useMemo(() => {
     if (theme !== "system") return theme;
     return matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   }, [theme]);
+  const noticeContext = useMemo(() => ({ notice, setNotice }), [notice]);
   const [title, subtitle] = routeTitles[location.pathname] ?? ["HCH5 Control", "Local ventilation controller"];
 
   useEffect(() => {
@@ -89,6 +93,25 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     const tick = window.setInterval(() => setNow(new Date()), 30000);
     return () => window.clearInterval(tick);
+  }, []);
+
+  useEffect(() => { setNotice(""); }, [location.pathname]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const auth = await requestJson<{ csrf?: string | null }>("/api/auth/status", { timeoutMs: 3500 });
+        if (!auth.csrf) return;
+        const result = await postJson<UpdateInfo>("/api/admin/action", { action: "check_update", target: "beta" }, auth.csrf);
+        if (!cancelled) setAvailableUpdate(result.update?.running ? "Installerer opdatering" : result.update_available ? result.available_version ?? "Opdatering klar" : null);
+      } catch {
+        // A temporarily unavailable update service must not affect control.
+      }
+    };
+    void check();
+    const timer = window.setInterval(() => void check(), 60000);
+    return () => { cancelled = true; window.clearInterval(timer); };
   }, []);
 
   useEffect(() => {
@@ -144,14 +167,18 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span>{subtitle}</span>
           </div>
           <div className="topbar-actions">
+            {availableUpdate && <NavLink className="topbar-update-tab" to="/updates" title={availableUpdate}><RefreshCw size={15}/><span>{availableUpdate === "Installerer opdatering" ? availableUpdate : "Opdatering klar"}</span>{availableUpdate !== "Installerer opdatering" && <small>{availableUpdate}</small>}</NavLink>}
             <div className="topbar-clock"><strong>{now.toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" })}</strong><span>{now.toLocaleDateString("da-DK", { day: "2-digit", month: "short", year: "numeric" })}</span></div>
             <span className={`status-chip${online ? "" : " muted"}`}><span className="live-dot" /> {online ? "Forbundet" : "Afventer"}</span>
             <button className="icon-button" type="button" onClick={() => setTheme(effectiveTheme === "dark" ? "light" : "dark")} aria-label="Skift tema">
               {effectiveTheme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
             </button>
           </div>
+          {notice && <div className={`topbar-control-notice${notice.startsWith("Kunne") ? " error" : ""}`} role="status"><strong>Seneste ændring</strong><span>{notice}</span></div>}
         </header>
-        <main className="content-stage">{children}</main>
+        <TopbarNoticeContext.Provider value={noticeContext}>
+          <main className="content-stage">{children}</main>
+        </TopbarNoticeContext.Provider>
       </div>
     </div>
   );

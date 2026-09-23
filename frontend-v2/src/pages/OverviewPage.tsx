@@ -1,22 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, Flame, Gauge, Leaf, RefreshCw, Snowflake, Wind } from "lucide-react";
-import { Link } from "react-router-dom";
+import { ArrowRight, Flame, Gauge, Leaf, Snowflake, Wind } from "lucide-react";
 import { Hch5UnitDiagram } from "../components/Hch5UnitDiagram";
 import { postJson, requestJson } from "../lib/api";
 import { bypassTravel, formatRemaining } from "../lib/bypass";
+import { useTopbarNotice } from "../lib/topbar-notice";
 import "../styles/overview.css";
 
 type Data = Record<string, unknown>;
 type AfterheatValue = number | "off";
 type AuthState = { csrf?: string | null };
-type UpdateInfo = {
-  channel?: "stable" | "beta";
-  current_version?: string;
-  available_version?: string;
-  update_available?: boolean;
-  update?: { running?: boolean; progress?: number; phase?: string; detail?: string; last_error?: string | null };
-};
-
 // +/- only move a local draft; one command is sent once the user has stopped
 // pressing, so each step does not wait for a save and RS485 round trip.
 const AFTERHEAT_SEND_DELAY_MS = 1200;
@@ -76,8 +68,7 @@ export function OverviewPage() {
   const [csrf, setCsrf] = useState("");
   const [online, setOnline] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  const [notice, setNotice] = useState("");
-  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const { setNotice } = useTopbarNotice();
   const [afterheatDraft, setAfterheatDraft] = useState<AfterheatValue | null>(null);
   const afterheatTimer = useRef<number | null>(null);
   const afterheatPending = useRef<{ target: AfterheatValue; seq: number } | null>(null);
@@ -100,22 +91,6 @@ export function OverviewPage() {
     const timer = window.setInterval(() => void refresh(), 2000);
     return () => window.clearInterval(timer);
   }, [refresh]);
-
-  useEffect(() => {
-    if (!csrf) return;
-    let stopped = false;
-    const check = async () => {
-      try {
-        const result = await postJson<UpdateInfo>("/api/admin/action", { action: "check_update", target: "beta" }, csrf);
-        if (!stopped) setUpdateInfo(result);
-      } catch {
-        // Update status is secondary to ventilation control.
-      }
-    };
-    void check();
-    const timer = window.setInterval(() => void check(), updateInfo?.update?.running ? 2500 : 60000);
-    return () => { stopped = true; window.clearInterval(timer); };
-  }, [csrf, updateInfo?.update?.running]);
 
   const command = useCallback(async (name: string, patch: Data, success: string) => {
     if (!csrf) {
@@ -211,7 +186,6 @@ export function OverviewPage() {
       : "Afventer";
   const busHealthy = controller.rs485_healthy === true || unit.bus_traffic === true || unit.available === true;
   const quickBoostActive = (number(controller.quick_boost_remaining_seconds) ?? 0) > 0;
-  const updateProgress = Math.max(0, Math.min(100, number(updateInfo?.update?.progress) ?? (updateInfo?.update?.running ? 8 : 0)));
 
   const recovery = useMemo(() => {
     if (bypassActual || outdoor === null || extract === null || exhaust === null || Math.abs(extract - outdoor) < .5) return null;
@@ -248,20 +222,32 @@ export function OverviewPage() {
       </header>
 
       <div className="dashboard-main-grid">
-        <article className="surface pro-air-card">
-          <div className="pro-card-head">
-            <div><h2>Luftstrømme og temperaturer</h2><p>Live luftveje gennem HCH5 med aktuelle temperaturer og fysisk status.</p></div>
-            <span className={`status-chip${online ? "" : " muted"}`}><span className="live-dot"/>{online ? "Live" : "Afventer"}</span>
-          </div>
-          <Hch5UnitDiagram
-            outdoor={outdoor} extract={extract} exhaust={exhaust} beforeHeater={beforeHeater} afterHeater={afterHeater}
-            room={room} frost={frost} flowWater={flowWater} returnWater={returnWater}
-            supplyRpm={supplyRpm} extractRpm={extractRpm} supplyPercent={supplyPercent} extractPercent={extractPercent}
-            bypassActual={bypassActual} bypassRequest={bypassRequest} heating={heating} recovery={recovery}
-            busActive={busHealthy} bypassRaw={bypassRaw} afterheatLockout={afterheatLockout}
-            bypassTravelDirection={bypassTravelDirection} bypassTravelSeconds={bypassTravelSeconds} bypassTravelTotal={bypassTravelTotal}
-          />
-        </article>
+        <div className="overview-air-column">
+          <article className="surface pro-air-card">
+            <div className="pro-card-head">
+              <div><h2>Luftstrømme og temperaturer</h2><p>Live luftveje gennem HCH5 med aktuelle temperaturer og fysisk status.</p></div>
+              <span className={`status-chip${online ? "" : " muted"}`}><span className="live-dot"/>{online ? "Live" : "Afventer"}</span>
+            </div>
+            <Hch5UnitDiagram
+              outdoor={outdoor} extract={extract} exhaust={exhaust} beforeHeater={beforeHeater} afterHeater={afterHeater}
+              room={room} frost={frost} flowWater={flowWater} returnWater={returnWater}
+              supplyRpm={supplyRpm} extractRpm={extractRpm} supplyPercent={supplyPercent} extractPercent={extractPercent}
+              bypassActual={bypassActual} bypassRequest={bypassRequest} heating={heating} recovery={recovery}
+              busActive={busHealthy} bypassRaw={bypassRaw} afterheatLockout={afterheatLockout}
+              bypassTravelDirection={bypassTravelDirection} bypassTravelSeconds={bypassTravelSeconds} bypassTravelTotal={bypassTravelTotal}
+            />
+          </article>
+
+          <article className="surface climate-panel">
+            <div className="pro-card-head compact"><div><h2>Indeklimadata</h2><p>Aktuelle værdier</p></div></div>
+            <div className="climate-metrics">
+              <div className="climate-metric green"><Leaf size={21}/><span>CO₂</span><strong>{whole(co2)} <small>ppm</small></strong><em>{co2 === null ? "Ukendt" : co2 < 800 ? "God" : co2 < 1200 ? "Moderat" : "Høj"}</em><i style={{ width: `${co2 === null ? 0 : Math.min(100, Math.max(5, co2 / 16))}%` }}/></div>
+              <div className="climate-metric blue"><span className="metric-drop">●</span><span>Luftfugtighed</span><strong>{whole(humidity)} <small>%</small></strong><em>{humidity === null ? "Ukendt" : humidity < 60 ? "Normal" : "Høj"}</em><i style={{ width: `${humidity ?? 0}%` }}/></div>
+              <div className="climate-metric cyan"><span className="metric-filter">▧</span><span>Filter</span><strong>{whole(filterLife)} <small>%</small></strong><em>{filterLife === null ? "Ukendt" : filterLife > 40 ? "OK" : filterLife > 15 ? "Snart skift" : "Skift filter"}</em><i style={{ width: `${Math.max(0, Math.min(100, filterLife ?? 0))}%` }}/></div>
+              <div className="climate-metric neutral"><span className="metric-heat">≋</span><span>Eftervarme setpunkt</span><strong>{shownAfterheat === "off" ? "OFF" : temp(shownAfterheat)}</strong><em>{afterheatStatus}</em><i style={{ width: `${shownAfterheat === "off" ? 0 : ((shownAfterheat - 10) / 25) * 100}%` }}/></div>
+            </div>
+          </article>
+        </div>
 
         <aside className="pro-control-column">
           <article className="surface pro-control-card">
@@ -324,39 +310,7 @@ export function OverviewPage() {
               <button disabled={shownAfterheat === 35} onClick={() => stepAfterheat(1)}>+</button>
             </div>
           </article>
-          {notice && <div className={`control-notice${notice.startsWith("Kunne") ? " error" : ""}`}>{notice}</div>}
         </aside>
-      </div>
-
-      <div className="dashboard-bottom-grid">
-        <article className="surface climate-panel">
-          <div className="pro-card-head compact"><div><h2>Indeklimadata</h2><p>Aktuelle værdier</p></div></div>
-          <div className="climate-metrics">
-            <div className="climate-metric green"><Leaf size={21}/><span>CO₂</span><strong>{whole(co2)} <small>ppm</small></strong><em>{co2 === null ? "Ukendt" : co2 < 800 ? "God" : co2 < 1200 ? "Moderat" : "Høj"}</em><i style={{ width: `${co2 === null ? 0 : Math.min(100, Math.max(5, co2 / 16))}%` }}/></div>
-            <div className="climate-metric blue"><span className="metric-drop">●</span><span>Luftfugtighed</span><strong>{whole(humidity)} <small>%</small></strong><em>{humidity === null ? "Ukendt" : humidity < 60 ? "Normal" : "Høj"}</em><i style={{ width: `${humidity ?? 0}%` }}/></div>
-            <div className="climate-metric cyan"><span className="metric-filter">▧</span><span>Filter</span><strong>{whole(filterLife)} <small>%</small></strong><em>{filterLife === null ? "Ukendt" : filterLife > 40 ? "OK" : filterLife > 15 ? "Snart skift" : "Skift filter"}</em><i style={{ width: `${Math.max(0, Math.min(100, filterLife ?? 0))}%` }}/></div>
-            <div className="climate-metric neutral"><span className="metric-heat">≋</span><span>Eftervarme setpunkt</span><strong>{shownAfterheat === "off" ? "OFF" : temp(shownAfterheat)}</strong><em>{afterheatStatus}</em><i style={{ width: `${shownAfterheat === "off" ? 0 : ((shownAfterheat - 10) / 25) * 100}%` }}/></div>
-          </div>
-        </article>
-
-        <article className="surface update-overview-card">
-          <div className="pro-card-head compact"><div><h2>Softwareopdatering</h2><p>Failsafe Beta-kanal</p></div><RefreshCw size={20}/></div>
-          <div className="update-summary-line"><span className="channel-badge">{updateInfo?.channel === "stable" ? "Stable" : "Beta"}</span><span>Version</span><strong>{updateInfo?.current_version ?? "—"}</strong></div>
-          {updateInfo?.update?.running ? (
-            <>
-              <div className="update-progress-copy"><strong>{updateInfo.update.detail ?? "Installerer opdatering…"}</strong><span>{Math.round(updateProgress)}%</span></div>
-              <div className="update-progress-track"><i style={{ width: `${updateProgress}%` }}/></div>
-              <small>{updateInfo.update.phase ?? "working"} · anlægget fortsætter driften under validering.</small>
-            </>
-          ) : (
-            <>
-              <div className="update-progress-copy"><strong>{updateInfo?.update_available ? `${updateInfo.available_version ?? "Ny build"} er klar` : "Systemet er opdateret"}</strong><span>{updateInfo?.update_available ? "Ny" : "OK"}</span></div>
-              <div className="update-progress-track idle"><i style={{ width: updateInfo?.update_available ? "18%" : "100%" }}/></div>
-              <small>{updateInfo?.update?.last_error ? `Seneste fejl: ${updateInfo.update.last_error}` : "Opdateringer valideres før genstart og rulles tilbage ved fejl."}</small>
-            </>
-          )}
-          <Link className="update-link" to="/updates">Åbn opdateringer <ArrowRight size={15}/></Link>
-        </article>
       </div>
     </section>
   );

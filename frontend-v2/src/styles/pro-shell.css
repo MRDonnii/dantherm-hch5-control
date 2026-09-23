@@ -9,5 +9,13 @@
 .topbar-clock { display:grid; gap:1px; text-align:right; min-width:88px; }
 .topbar-clock strong { color:#c9dce6; font-size:10px; }
 .topbar-clock span { color:#6f8795; font-size:8px; text-transform:capitalize; }
+.pro-topbar { flex-wrap: wrap; }
+.topbar-update-tab { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 7px 11px; border: 1px solid #a56433; border-radius: 9px; background: #302018; color: #ffd1a3; font-size: 10px; font-weight: 800; text-decoration: none; white-space: nowrap; }
+.topbar-update-tab small { color: #ffb979; font-size: 9px; font-weight: 700; }
+.topbar-update-tab:hover,.topbar-update-tab.active { background: #49301e; border-color: #e7a062; color: #fff0d9; }
+.topbar-control-notice { flex: 1 0 100%; display: flex; align-items: baseline; gap: 10px; min-width: 0; padding: 7px 10px; border: 1px solid #23566c; border-radius: 8px; background: #0b2634; color: #b7e7fb; font-size: 10px; }
+.topbar-control-notice strong { flex: 0 0 auto; color: #78c8e8; font-size: 9px; text-transform: uppercase; letter-spacing: .06em; }
+.topbar-control-notice.error { border-color: #72404a; background: #2a171c; color: #ffc0c0; }
+.topbar-control-notice.error strong { color: #ffc0c0; }
 @media (max-width:920px) { .sidebar-product-note { display:none; } .pro-topbar .topbar-page-copy > span { display:none; } }
-@media (max-width:680px) { .topbar-clock { display:none; } }
+@media (max-width:680px) { .topbar-clock { display:none; } .topbar-update-tab { padding-inline: 8px; font-size: 9px; } .topbar-update-tab small { display: none; } .topbar-control-notice { flex-wrap: wrap; gap: 2px 8px; } }
