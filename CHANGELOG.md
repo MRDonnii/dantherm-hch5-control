@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0-beta.32
+
+- Fixes the unit's left end panel looking like an open door: the top and the afterheat end are now drawn in one consistent oblique projection (depth going up-left) as closed metal faces, with the duct stubs leaving the end panel.
+- The diagram is seen from the afterheat end: a slight perspective turns the exhaust end away from the viewer while the afterheat side stays in front.
+
 ## 1.2.0-beta.31
 
 - The afterheat card on Overview now says plainly when HAC1 is locked by the 15 °C outdoor summer stop ("Spærret af HAC1: udetemperaturen er … Eftervarmen tænder først, når det er under 15 °C ude"), the status reads "Spærret af sommerstop" instead of "Inaktiv", and the diagram shows a "Sommerstop · ude ≥ 15 °C" badge on the HAC1 coil and "Spærret" in the readback row.

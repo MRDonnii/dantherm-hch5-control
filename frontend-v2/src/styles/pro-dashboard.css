@@ -59,8 +59,11 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .pro-card-head p { margin: 3px 0 0; color: #7f96a6; font-size: 9px; }
 .pro-card-head.compact h2 { font-size: 15px; }
 
-.hch5-visual { margin-top: 4px; }
-.hch5-visual > svg { width: 100%; height: auto; display: block; min-height: 480px; }
+.hch5-visual { margin-top: 4px; perspective: 1900px; }
+/* Seen from the afterheat end: the left side stays put while the exhaust
+   end turns slightly away from the viewer. */
+.hch5-visual > svg { width: 100%; height: auto; display: block; min-height: 480px; transform: rotateY(9deg); transform-origin: 0 50%; }
+.hch-side-inset { fill: none; stroke: #8199a7; stroke-width: 1; opacity: .45; }
 .hch-floor-shadow { fill: rgb(0 0 0 / 32%); filter: blur(9px); }
 .hch-cabinet,.hch-top-panel,.hch-side-panel { stroke: #77909f; stroke-width: 1.4; }
 .hch-inner { fill: #08151d; stroke: #334d5c; stroke-width: 1.5; }

@@ -172,7 +172,8 @@ export function Hch5UnitDiagram(props:Hch5UnitDiagramProps) {
     <svg viewBox="-278 -8 1550 590" role="img" aria-label="HCH5 luftstrøm med intern bypass og ekstern eftervarme">
       <defs>
         <linearGradient id="metalFace" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stopColor="#596b76"/><stop offset=".4" stopColor="#263843"/><stop offset="1" stopColor="#14242e"/></linearGradient>
-        <linearGradient id="metalTop" x1="1" x2="0"><stop offset="0" stopColor="#7b8991"/><stop offset=".48" stopColor="#40515b"/><stop offset="1" stopColor="#263640"/></linearGradient>
+        <linearGradient id="metalTop" x1="0" x2="1"><stop offset="0" stopColor="#7b8991"/><stop offset=".48" stopColor="#40515b"/><stop offset="1" stopColor="#263640"/></linearGradient>
+        <linearGradient id="metalSide" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#6b7d88"/><stop offset=".55" stopColor="#3a4c57"/><stop offset="1" stopColor="#223440"/></linearGradient>
         <linearGradient id="exchangerMetal" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stopColor="#8e9aa1"/><stop offset=".55" stopColor="#455760"/><stop offset="1" stopColor="#25353e"/></linearGradient>
         {/* Supply runs right to left (outdoor blue to supply green), extract left to right. */}
         <linearGradient id="supplyFlow" x1="1" x2="0"><stop offset="0" stopColor="#4abfff"/><stop offset=".55" stopColor="#6bd2bc"/><stop offset="1" stopColor="#59dfa1"/></linearGradient>
@@ -193,9 +194,13 @@ export function Hch5UnitDiagram(props:Hch5UnitDiagramProps) {
       </defs>
       <ellipse className="hch-floor-shadow" cx="560" cy="483" rx="380" ry="32"/>
       <g filter="url(#unitShadow)">
-        <polygon className="hch-top-panel" points="188,132 242,88 860,88 924,132" fill="url(#metalTop)"/>
+        {/* One consistent oblique projection, depth going up-left: the top and
+            the afterheat end (left) are seen as closed faces, the exhaust end
+            recedes out of view. */}
+        <polygon className="hch-top-panel" points="188,132 154,102 890,102 924,132" fill="url(#metalTop)"/>
         <rect className="hch-cabinet" x="188" y="132" width="736" height="302" rx="8" fill="url(#metalFace)"/>
-        <polygon className="hch-side-panel" points="188,132 157,150 157,407 188,434" fill="#253640"/>
+        <polygon className="hch-side-panel" points="188,132 154,102 154,404 188,434" fill="url(#metalSide)"/>
+        <polygon className="hch-side-inset" points="182,146 160,127 160,398 182,420"/>
         <rect className="hch-inner" x="211" y="151" width="692" height="263" rx="5"/>
         <Filter x={262} y={206} angle={24} label="Filter · udsugning"/><Filter x={866} y={204} angle={-24} label="Filter · udeluft"/>
         <rect className="hch-bypass-channel" x="300" y="371" width="482" height="34" rx="12"/><rect className="hch-bypass-channel-glow" x="300" y="371" width="482" height="34" rx="12" style={bypassRoute}/>
