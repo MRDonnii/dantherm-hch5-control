@@ -3,7 +3,7 @@ import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { Hch5UnitDiagram, type Hch5UnitDiagramProps } from "./Hch5UnitDiagram";
 
-const baseProps: Hch5UnitDiagramProps = { outdoor: 17, extract: 22.3, exhaust: 18.1, beforeHeater: 20.9, afterHeater: 21.3, room: 21.8, frost: 19.4, flowWater: 31.2, returnWater: 26.4, supplyRpm: 1945, extractRpm: 2230, supplyPercent: 73, extractPercent: 85, bypassActual: false, bypassRequest: "OFF", heating: false, recovery: 79 };
+const baseProps: Hch5UnitDiagramProps = { outdoor: 17, extract: 22.3, exhaust: 18.1, afterHeater: 21.3, frost: 19.4, flowWater: 31.2, returnWater: 26.4, supplyRpm: 1945, extractRpm: 2230, supplyPercent: 73, extractPercent: 85, bypassActual: false, bypassRequest: "OFF", heating: false, recovery: 79 };
 const core = (container: HTMLElement) => container.querySelector(".hch-bypass-progress");
 afterEach(cleanup);
 

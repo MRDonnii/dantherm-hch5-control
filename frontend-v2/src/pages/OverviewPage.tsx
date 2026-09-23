@@ -18,9 +18,7 @@ const SENSOR_HISTORY: Record<string, { title: string; key: string; color: Histor
   outdoor: { title: "Udeluft · T1", key: "outdoor_temp", color: "blue" },
   extract: { title: "Udsugning · T3", key: "extract_temp", color: "orange" },
   exhaust: { title: "Afkast · T4", key: "exhaust_temp", color: "red" },
-  beforeHeater: { title: "T2 før eftervarme", key: "supply_temp", color: "blue" },
   afterHeater: { title: "T2AH efter eftervarme", key: "heating_coil_after_temperature", color: "green" },
-  room: { title: "Rum · T5", key: "hrc2_t5_temperature", color: "green" },
   frost: { title: "Frostsensor", key: "heating_coil_frost_temperature", color: "blue" },
   flowWater: { title: "Eftervarmevand · Frem", key: "flow_temperature", color: "orange" },
   returnWater: { title: "Eftervarmevand · Retur", key: "return_temperature", color: "blue" },
@@ -39,10 +37,6 @@ function first(source: Data, ...keys: string[]) {
     if (value !== null) return value;
   }
   return null;
-}
-function measurement(source: Data, key: string) {
-  const values = source.measurements;
-  return values && typeof values === "object" ? number((values as Data)[key]) : null;
 }
 function text(value: unknown, fallback = "—") {
   return value === null || value === undefined || value === "" ? fallback : String(value);
@@ -207,9 +201,7 @@ export function OverviewPage() {
   const outdoor = first(unit, "outdoor_temp", "outdoor_temperature");
   const extract = first(unit, "extract_temp", "extract_temperature");
   const exhaust = first(unit, "exhaust_temp", "exhaust_temperature");
-  const beforeHeater = first(controller, "actual_supply_before_heater_temperature") ?? first(unit, "supply_temperature", "supply_temp");
   const afterHeater = first(controller, "actual_supply_air_temperature") ?? first(unit, "heating_coil_after_temperature");
-  const room = measurement(controller, "room") ?? first(unit, "hrc2_t5_temperature", "room_temp");
   const frost = first(controller, "actual_afterheat_frost_temperature") ?? first(unit, "heating_coil_frost_temperature");
   const flowWater = first(unit, "flow_temperature");
   const returnWater = first(unit, "return_temperature");
@@ -301,8 +293,8 @@ export function OverviewPage() {
           </div>
           <Hch5UnitDiagram
             onTemperatureClick={setActiveSensor}
-            outdoor={outdoor} extract={extract} exhaust={exhaust} beforeHeater={beforeHeater} afterHeater={afterHeater}
-            room={room} frost={frost} flowWater={flowWater} returnWater={returnWater}
+            outdoor={outdoor} extract={extract} exhaust={exhaust} afterHeater={afterHeater}
+            frost={frost} flowWater={flowWater} returnWater={returnWater}
             supplyRpm={supplyRpm} extractRpm={extractRpm} supplyPercent={supplyPercent} extractPercent={extractPercent}
             bypassActual={bypassActual} bypassRequest={bypassRequest} heating={heating} recovery={recovery}
             busActive={busHealthy} bypassRaw={bypassRaw} afterheatLockout={afterheatLockout}

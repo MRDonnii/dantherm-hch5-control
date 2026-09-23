@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0-beta.52
+
+- Remove the T2-before-afterheat and HRC2 room T5 readouts from the HCH5 overview card and mobile summary while their readings are unreliable. This is display-only; the gateway values and controller measurements are unchanged.
+- Keep T2AH, frost, T1, T3, T4, and afterheat-water readings on the card.
+
 ## 1.2.0-beta.51
 
 - Enable read-only active temperature polling by default in the controller-aware gateway, while preserving `serial.active_reads_enabled: false` as an opt-out. Pause Pi polls when HCP4 sends valid FC03/FC04 reads or FC06/FC16 writes, and resume only after the configured quiet timeout.

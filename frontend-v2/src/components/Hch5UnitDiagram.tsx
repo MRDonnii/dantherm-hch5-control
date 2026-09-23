@@ -8,9 +8,7 @@ export interface Hch5UnitDiagramProps {
   outdoor: Num;
   extract: Num;
   exhaust: Num;
-  beforeHeater: Num;
   afterHeater: Num;
-  room: Num;
   frost: Num;
   flowWater: Num;
   returnWater: Num;
@@ -266,7 +264,7 @@ function Rs485Wiring({ active }: { active: boolean }) {
 }
 
 export function Hch5UnitDiagram(props:Hch5UnitDiagramProps) {
-  const {outdoor,extract,exhaust,beforeHeater,afterHeater,room,frost,flowWater,returnWater,supplyRpm,extractRpm,supplyPercent,extractPercent,bypassActual,bypassRequest,heating,recovery,busActive=false,bypassRaw=null,bypassTravelDirection=null,bypassTravelSeconds=null,bypassTravelTotal=null,afterheatLockout=false,onTemperatureClick}=props;
+  const {outdoor,extract,exhaust,afterHeater,frost,flowWater,returnWater,supplyRpm,extractRpm,supplyPercent,extractPercent,bypassActual,bypassRequest,heating,recovery,busActive=false,bypassRaw=null,bypassTravelDirection=null,bypassTravelSeconds=null,bypassTravelTotal=null,afterheatLockout=false,onTemperatureClick}=props;
   const waterDelta = flowWater === null || returnWater === null ? null : flowWater - returnWater;
   // The unit reports only closed/opening/closing/open and needs about three
   // minutes, so progress is the time since the damper left its end position;
@@ -400,7 +398,7 @@ export function Hch5UnitDiagram(props:Hch5UnitDiagramProps) {
       <TempPort cx={1112} cy={rearFarY(365)} title="Afkast · T4" value={fmt(exhaust)} tone="warm" sensor="exhaust" onClick={onTemperatureClick}/>
       <TempPort cx={-150} cy={205} title="Udsugning · T3" value={fmt(extract)} tone="warm" sensor="extract" onClick={onTemperatureClick}/>
       <TempPort cx={-150} cy={365} title="Indblæsning · T2AH" value={fmt(afterHeater)} tone="green" sensor="afterHeater" onClick={onTemperatureClick}/>
-      <SensorPin x={144} y={365} label="T2 før flade" value={fmt(beforeHeater,"°")} width={112} lift={50} sensor="beforeHeater" onClick={onTemperatureClick}/><SensorPin x={-28} y={365} label="T2AH" value={fmt(afterHeater,"°")} width={74} lift={50} sensor="afterHeater" onClick={onTemperatureClick}/><SensorPin x={57} y={292} label="Frost" value={fmt(frost,"°")} sensor="frost" onClick={onTemperatureClick}/><SensorPin x={502} y={126} label="T5 rum" value={fmt(room,"°")} width={90} sensor="room" onClick={onTemperatureClick}/>
+      <SensorPin x={-28} y={365} label="T2AH" value={fmt(afterHeater,"°")} width={74} lift={50} sensor="afterHeater" onClick={onTemperatureClick}/><SensorPin x={57} y={292} label="Frost" value={fmt(frost,"°")} sensor="frost" onClick={onTemperatureClick}/>
       <g className="hch-water-callout" transform="translate(-236 414)"><rect width="196" height="110" rx="12"/><text className="water-title" x="14" y="24">Eftervarmevand</text>
         <g className="hch-water-reading" role="button" tabIndex={0} aria-label={`Frem: ${fmt(flowWater)}, vis 24 timers graf`} onClick={() => onTemperatureClick?.("flowWater")} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onTemperatureClick?.("flowWater"); } }}><rect x="8" y="31" width="180" height="23" rx="5"/><text className="water-value" x="14" y="48">Frem <tspan x="184" textAnchor="end">{fmt(flowWater)}</tspan></text></g>
         <g className="hch-water-reading" role="button" tabIndex={0} aria-label={`Retur: ${fmt(returnWater)}, vis 24 timers graf`} onClick={() => onTemperatureClick?.("returnWater")} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onTemperatureClick?.("returnWater"); } }}><rect x="8" y="57" width="180" height="23" rx="5"/><text className="water-value" x="14" y="74">Retur <tspan x="184" textAnchor="end">{fmt(returnWater)}</tspan></text></g>
@@ -420,7 +418,7 @@ export function Hch5UnitDiagram(props:Hch5UnitDiagramProps) {
         <div className="hch-mobile-route"><span>→</span><i/><span>→</span></div>
         <button className="hch-mobile-reading" onClick={() => onTemperatureClick?.("exhaust")}><small>Afkast · T4</small><strong>{fmt(exhaust)}</strong></button>
       </div>
-      <div className="hch-mobile-subreadings"><button onClick={() => onTemperatureClick?.("beforeHeater")}>T2 før flade <strong>{fmt(beforeHeater)}</strong></button><button onClick={() => onTemperatureClick?.("frost")}>Frost <strong>{fmt(frost)}</strong></button><button onClick={() => onTemperatureClick?.("room")}>T5 rum <strong>{fmt(room)}</strong></button><button onClick={() => onTemperatureClick?.("flowWater")}>Vand frem <strong>{fmt(flowWater)}</strong></button><button onClick={() => onTemperatureClick?.("returnWater")}>Vand retur <strong>{fmt(returnWater)}</strong></button><button onClick={() => onTemperatureClick?.("waterDelta")}>Afkøl <strong>{fmt(waterDelta)}</strong></button></div>
+      <div className="hch-mobile-subreadings"><button onClick={() => onTemperatureClick?.("frost")}>Frost <strong>{fmt(frost)}</strong></button><button onClick={() => onTemperatureClick?.("flowWater")}>Vand frem <strong>{fmt(flowWater)}</strong></button><button onClick={() => onTemperatureClick?.("returnWater")}>Vand retur <strong>{fmt(returnWater)}</strong></button><button onClick={() => onTemperatureClick?.("waterDelta")}>Afkøl <strong>{fmt(waterDelta)}</strong></button></div>
     </div>
     <div className="unit-readback-row"><div className="unit-readback"><span className="readback-icon fan"/><div><small>Tilluft ventilator</small><strong>{int(supplyRpm)} RPM</strong><em>{int(supplyPercent)}%</em></div></div><div className="unit-readback"><span className="readback-icon fan"/><div><small>Fraluft ventilator</small><strong>{int(extractRpm)} RPM</strong><em>{int(extractPercent)}%</em></div></div><div className="unit-readback"><span className={`readback-icon damper ${bypassOpen?"active":""}`}/><div><small>Bypass-spjæld</small><strong>{bypassPhase?bypassLabel:bypassOpen?"Åbent":"Lukket"}</strong><em>{bypassAwaitingEnd?"Afventer endestilling":bypassRemaining===null?`Ønske: ${bypassWanted?"On":"Auto"}`:`ca. ${formatRemaining(bypassRemaining)} tilbage`}</em></div></div><div className="unit-readback"><span className={`readback-icon heater ${heating?"active":""}`}/><div><small>Ekstern eftervarme</small><strong>{heating?"Aktiv":afterheatLockout?"Spærret":"Ikke aktiv"}</strong><em>{afterheatLockout?"Sommerstop: ude ≥ 15 °C":"Kun setpunkt styres"}</em></div></div></div>
   </div>;
