@@ -179,7 +179,10 @@ export function OverviewPage() {
   const bypassActualLabel = bypassMoving ? "bevæger sig" : bypassActual ? "åben" : "lukket";
   const bypassRequest = String(controller.actual_bypass_request ?? unit.bypass_request ?? controller.bypass ?? "off");
   const heating = controller.actual_afterheat === true || unit.afterheat_active === true;
-  const afterheatStatus = heating ? "Aktiv" : "Inaktiv";
+  // HAC1 never heats at 15 C outdoor or above; say so instead of just "Inaktiv".
+  const afterheatLockout = controller.actual_afterheat_outdoor_lockout === true;
+  const afterheatCutoff = number(controller.afterheat_outdoor_cutoff) ?? 15;
+  const afterheatStatus = heating ? "Aktiv" : afterheatLockout ? "Spærret af sommerstop" : "Inaktiv";
   const fireplace = controller.actual_fireplace === true || unit.fireplace === true;
   const mode = String(controller.mode ?? "local_auto");
   const level = number(controller.effective_level) ?? 3;
@@ -241,7 +244,7 @@ export function OverviewPage() {
             room={room} frost={frost} flowWater={flowWater} returnWater={returnWater}
             supplyRpm={supplyRpm} extractRpm={extractRpm} supplyPercent={supplyPercent} extractPercent={extractPercent}
             bypassActual={bypassActual} bypassRequest={bypassRequest} heating={heating} recovery={recovery}
-            busActive={busHealthy}
+            busActive={busHealthy} bypassRaw={bypassRaw} afterheatLockout={afterheatLockout}
           />
         </article>
 
@@ -296,7 +299,7 @@ export function OverviewPage() {
           </div>
 
           <article className="surface afterheat-setpoint-card">
-            <div className="afterheat-copy"><span>Eftervarme setpunkt</span><strong>RS485: {actualAfterheatSelection}</strong><small>Ønsket: {shownAfterheat === "off" ? "OFF" : `${whole(shownAfterheat)} °C`} · Varmekald: {afterheatStatus}. HAC1 regulerer selv varmefladen.</small></div>
+            <div className="afterheat-copy"><span>Eftervarme setpunkt</span><strong>RS485: {actualAfterheatSelection}</strong><small>Ønsket: {shownAfterheat === "off" ? "OFF" : `${whole(shownAfterheat)} °C`} · Varmekald: {afterheatStatus}. HAC1 regulerer selv varmefladen.</small>{afterheatLockout && <div className="afterheat-lockout">Spærret af HAC1: udetemperaturen er {temp(outdoor)}. Eftervarmen tænder først, når det er under {whole(afterheatCutoff)} °C ude.</div>}</div>
             <div className="setpoint-stepper">
               <button disabled={shownAfterheat === "off"} onClick={() => stepAfterheat(-1)}>−</button>
               <strong>{shownAfterheat === "off" ? "OFF" : `${whole(shownAfterheat)} °C`}</strong>

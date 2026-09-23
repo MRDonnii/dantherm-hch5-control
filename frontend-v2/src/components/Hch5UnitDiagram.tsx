@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 type Num = number | null;
 
@@ -22,6 +22,36 @@ export interface Hch5UnitDiagramProps {
   recovery: number | null;
   /** RS485 traffic is flowing; animates data pulses along the Modbus cable. */
   busActive?: boolean;
+  /** Raw damper position from the unit: 0 closed, 255 open, between = travelling. */
+  bypassRaw?: number | null;
+  /** HAC1 outdoor lockout: afterheat never runs at 15 C outdoor or above. */
+  afterheatLockout?: boolean;
+}
+
+// Matches the CSS transitions of the damper blade and the fog cross-fade, so a
+// damper that jumps straight from closed to open is still shown travelling.
+const BYPASS_TRAVEL_MS = 2600;
+
+type BypassMotion = "opening" | "closing" | null;
+
+// Direction comes from how the position changes, not from the request:
+// in Auto the unit opens and closes the damper by itself.
+function useBypassMotion(position: number, travelling: boolean): BypassMotion {
+  const previous = useRef<number | null>(null);
+  const [motion, setMotion] = useState<BypassMotion>(null);
+  useEffect(() => {
+    const last = previous.current;
+    previous.current = position;
+    if (last === null || last === position) {
+      if (!travelling) setMotion(null);
+      return;
+    }
+    setMotion(position > last ? "opening" : "closing");
+    if (travelling) return;
+    const timer = window.setTimeout(() => setMotion(null), BYPASS_TRAVEL_MS);
+    return () => window.clearTimeout(timer);
+  }, [position, travelling]);
+  return motion;
 }
 
 function fmt(value: Num, suffix = "°C") {
@@ -126,10 +156,19 @@ function Rs485Wiring({ active }: { active: boolean }) {
 }
 
 export function Hch5UnitDiagram(props:Hch5UnitDiagramProps) {
-  const {outdoor,extract,exhaust,beforeHeater,afterHeater,room,frost,flowWater,returnWater,supplyRpm,extractRpm,supplyPercent,extractPercent,bypassActual,bypassRequest,heating,recovery,busActive=false}=props;
-  const supplyPath=NORMAL_SUPPLY; const extractPath=bypassActual?BYPASS_EXTRACT:NORMAL_EXTRACT;
+  const {outdoor,extract,exhaust,beforeHeater,afterHeater,room,frost,flowWater,returnWater,supplyRpm,extractRpm,supplyPercent,extractPercent,bypassActual,bypassRequest,heating,recovery,busActive=false,bypassRaw=null,afterheatLockout=false}=props;
+  const rawPosition=typeof bypassRaw==="number"&&Number.isFinite(bypassRaw)?Math.min(1,Math.max(0,bypassRaw/255)):null;
+  const bypassPosition=rawPosition??(bypassActual?1:0);
+  const bypassTravelling=rawPosition!==null&&rawPosition>0&&rawPosition<1;
+  const bypassMotion=useBypassMotion(bypassPosition,bypassTravelling);
+  const bypassOpen=bypassPosition>=.5;
+  const bypassLabel=bypassMotion==="opening"?"Åbner…":bypassMotion==="closing"?"Lukker…":bypassTravelling?"Bevæger sig…":bypassOpen?"Åben":"Lukket";
+  // Extract is drawn on both routes; the damper position cross-fades the fog
+  // from the core to the bottom channel as it opens, and back as it closes.
+  const coreRoute={opacity:1-bypassPosition} as CSSProperties; const bypassRoute={opacity:bypassPosition} as CSSProperties;
+  const bladeAngle=Math.round(90*(1-bypassPosition)*10)/10;
   const supplySpeed=supplyRpm&&supplyRpm>0?Math.max(8,11-supplyRpm/1400):0; const extractSpeed=extractRpm&&extractRpm>0?Math.max(8,11-extractRpm/1400):0;
-  return <div className={`hch5-visual${bypassActual?" is-bypass":" is-recovery"}`}>
+  return <div className={`hch5-visual${bypassOpen?" is-bypass":" is-recovery"}`}>
     <svg viewBox="-278 -8 1550 590" role="img" aria-label="HCH5 luftstrøm med intern bypass og ekstern eftervarme">
       <defs>
         <linearGradient id="metalFace" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stopColor="#596b76"/><stop offset=".4" stopColor="#263843"/><stop offset="1" stopColor="#14242e"/></linearGradient>
@@ -159,37 +198,44 @@ export function Hch5UnitDiagram(props:Hch5UnitDiagramProps) {
         <polygon className="hch-side-panel" points="188,132 157,150 157,407 188,434" fill="#253640"/>
         <rect className="hch-inner" x="211" y="151" width="692" height="263" rx="5"/>
         <Filter x={262} y={206} angle={24} label="Filter · udsugning"/><Filter x={866} y={204} angle={-24} label="Filter · udeluft"/>
-        <rect className={`hch-bypass-channel${bypassActual?" open":""}`} x="300" y="371" width="482" height="34" rx="12"/>
+        <rect className="hch-bypass-channel" x="300" y="371" width="482" height="34" rx="12"/><rect className="hch-bypass-channel-glow" x="300" y="371" width="482" height="34" rx="12" style={bypassRoute}/>
         <text className="hch-channel-label" x="541" y="393" textAnchor="middle">Bypass-kanal</text>
-        <g className={`hch-exchanger${bypassActual?" bypassed":""}`}>
+        <g className={`hch-exchanger${bypassOpen?" bypassed":""}`}>
           <polygon points={CORE_POINTS} fill="url(#exchangerMetal)"/>
           <g clipPath="url(#coreClip)">{[196,214,232,250,268,286,304,322].map(o=><path key={o} d={`M340 ${o}H700`}/>)}</g>
         </g>
-        <text className="hch-exchanger-title" x="520" y="258" textAnchor="middle">Varmeveksler</text><text className="hch-recovery" x="520" y="284" textAnchor="middle">{bypassActual?"BYPASS":recovery===null?"—":`${recovery}%`}</text>
+        <text className="hch-exchanger-title" x="520" y="258" textAnchor="middle">Varmeveksler</text><text className="hch-recovery" x="520" y="284" textAnchor="middle">{bypassOpen?"BYPASS":recovery===null?"—":`${recovery}%`}</text>
         {[["P3",378,196],["P1",662,196],["P2",378,336],["P4",662,336]].map(([port,x,y])=><text key={port} className="hch-core-port" x={x} y={y} textAnchor="middle">{port}</text>)}
         <Fan x={770} y={212} rpm={supplyRpm} label="Tilluft"/><Fan x={800} y={330} rpm={extractRpm} label="Fraluft" labelRight/>
         {/* Bypass damper sits on the lower (extract) fan motor, orange actuator at the bottom. */}
-        <g className={`hch-bypass ${bypassActual?"open":"closed"}`} transform="translate(800 386)">
+        <g className={`hch-bypass ${bypassOpen?"open":"closed"}${bypassMotion||bypassTravelling?" moving":""}`} transform="translate(800 386)">
           <rect className="damper-frame" x="-17" y="-12" width="34" height="24" rx="5"/>
-          <rect className="bypass-blade" x="-12" y="-3" width="24" height="6" rx="3" transform={bypassActual?"rotate(0)":"rotate(90)"}/>
+          <rect className="bypass-blade" x="-12" y="-3" width="24" height="6" rx="3" style={{transform:`rotate(${bladeAngle}deg)`}}/>
           <rect className="bypass-actuator" x="-15" y="13" width="30" height="11" rx="4"/>
         </g>
         <rect className="hch-service-box" x="216" y="378" width="70" height="28" rx="7"/><text className="hch-part-label" x="251" y="396" textAnchor="middle">Styring</text>
       </g>
       <DuctCollar x={924} y={205} side="right"/><DuctCollar x={924} y={365} side="right"/><DuctCollar x={164} y={205} side="left"/><DuctCollar x={164} y={365} side="left"/>
-      <g className={`hch-external-coil${heating?" active":""}`} transform="translate(57 365)"><rect className="coil-case" x="-48" y="-68" width="96" height="136" rx="12"/><rect className="coil-duct" x="-61" y="-48" width="122" height="96" rx="20"/>{[-27,-14,-1,12,25].map(o=><path key={o} className="coil-pipe" d={`M${o} -42C${o-12}-24 ${o+12}-8 ${o}10C${o-12}27 ${o+12}36 ${o}43`}/>) }<circle className="water-port" cx="34" cy="-75" r="5"/><circle className="water-port" cx="-34" cy="75" r="5"/><text className="hch-part-label" x="0" y="91" textAnchor="middle">Ekstern eftervarme · HAC1</text></g>
+      <g className={`hch-external-coil${heating?" active":""}`} transform="translate(57 365)"><rect className="coil-case" x="-48" y="-68" width="96" height="136" rx="12"/><rect className="coil-duct" x="-61" y="-48" width="122" height="96" rx="20"/>{[-27,-14,-1,12,25].map(o=><path key={o} className="coil-pipe" d={`M${o} -42C${o-12}-24 ${o+12}-8 ${o}10C${o-12}27 ${o+12}36 ${o}43`}/>) }<circle className="water-port" cx="34" cy="-75" r="5"/><circle className="water-port" cx="-34" cy="75" r="5"/><text className="hch-part-label" x="0" y="91" textAnchor="middle">Ekstern eftervarme · HAC1</text>{afterheatLockout&&<g className="hch-lockout-badge"><rect x="-62" y="-13" width="124" height="26" rx="8"/><text x="0" y="4" textAnchor="middle">Sommerstop · ude ≥ 15 °C</text></g>}</g>
       <Rs485Wiring active={busActive}/>
-      <g className="hch-fog-group" filter="url(#fogBlur)" mask="url(#fogFadeMask)"><path className="hch-fog hch-fog-supply hch-fog-a" d={supplyPath} style={{"--flow-speed":supplySpeed?`${supplySpeed}s`:"0s"} as CSSProperties}/><path className="hch-fog hch-fog-supply hch-fog-b" d={supplyPath} style={{"--flow-speed":supplySpeed?`${supplySpeed*1.35}s`:"0s"} as CSSProperties}/><path className="hch-fog hch-fog-extract hch-fog-a" d={extractPath} style={{"--flow-speed":extractSpeed?`${extractSpeed}s`:"0s"} as CSSProperties}/><path className="hch-fog hch-fog-extract hch-fog-b" d={extractPath} style={{"--flow-speed":extractSpeed?`${extractSpeed*1.35}s`:"0s"} as CSSProperties}/></g>
-      <g className="hch-fog-group soft" filter="url(#fogBlurSoft)" mask="url(#fogFadeMask)"><path className="hch-fog-wash hch-fog-supply" d={supplyPath} style={{"--flow-speed":supplySpeed?`${supplySpeed*1.7}s`:"0s"} as CSSProperties}/><path className="hch-fog-wash hch-fog-extract" d={extractPath} style={{"--flow-speed":extractSpeed?`${extractSpeed*1.7}s`:"0s"} as CSSProperties}/></g>
-      <path className="hch-airflow-guide hch-supply-flow" d={supplyPath} style={{"--flow-speed":supplySpeed?`${supplySpeed}s`:"0s"} as CSSProperties}/><path className="hch-airflow-guide hch-extract-flow" d={extractPath} style={{"--flow-speed":extractSpeed?`${extractSpeed}s`:"0s"} as CSSProperties}/>
+      <g className="hch-fog-group" filter="url(#fogBlur)" mask="url(#fogFadeMask)">
+        <path className="hch-fog hch-fog-supply hch-fog-a" d={NORMAL_SUPPLY} style={{"--flow-speed":supplySpeed?`${supplySpeed}s`:"0s"} as CSSProperties}/><path className="hch-fog hch-fog-supply hch-fog-b" d={NORMAL_SUPPLY} style={{"--flow-speed":supplySpeed?`${supplySpeed*1.35}s`:"0s"} as CSSProperties}/>
+        {([["route-core",NORMAL_EXTRACT,coreRoute],["route-bypass",BYPASS_EXTRACT,bypassRoute]] as const).map(([route,path,style])=><g key={route} className={`hch-fog-route ${route}`} style={style}><path className="hch-fog hch-fog-extract hch-fog-a" d={path} style={{"--flow-speed":extractSpeed?`${extractSpeed}s`:"0s"} as CSSProperties}/><path className="hch-fog hch-fog-extract hch-fog-b" d={path} style={{"--flow-speed":extractSpeed?`${extractSpeed*1.35}s`:"0s"} as CSSProperties}/></g>)}
+      </g>
+      <g className="hch-fog-group soft" filter="url(#fogBlurSoft)" mask="url(#fogFadeMask)">
+        <path className="hch-fog-wash hch-fog-supply" d={NORMAL_SUPPLY} style={{"--flow-speed":supplySpeed?`${supplySpeed*1.7}s`:"0s"} as CSSProperties}/>
+        {([["route-core",NORMAL_EXTRACT,coreRoute],["route-bypass",BYPASS_EXTRACT,bypassRoute]] as const).map(([route,path,style])=><g key={route} className={`hch-fog-route ${route}`} style={style}><path className="hch-fog-wash hch-fog-extract" d={path} style={{"--flow-speed":extractSpeed?`${extractSpeed*1.7}s`:"0s"} as CSSProperties}/></g>)}
+      </g>
+      <path className="hch-airflow-guide hch-supply-flow" d={NORMAL_SUPPLY} style={{"--flow-speed":supplySpeed?`${supplySpeed}s`:"0s"} as CSSProperties}/>
+      {([["route-core",NORMAL_EXTRACT,coreRoute],["route-bypass",BYPASS_EXTRACT,bypassRoute]] as const).map(([route,path,style])=><g key={route} className={`hch-fog-route ${route}`} style={style}><path className="hch-airflow-guide hch-extract-flow" d={path} style={{"--flow-speed":extractSpeed?`${extractSpeed}s`:"0s"} as CSSProperties}/></g>)}
       <TempPort cx={1202} cy={205} title="Udeluft · T1" value={fmt(outdoor)} tone="cold"/>
       <TempPort cx={1202} cy={365} title="Afkast · T4" value={fmt(exhaust)} tone="warm"/>
       <TempPort cx={-193} cy={205} title="Udsugning · T3" value={fmt(extract)} tone="warm"/>
       <TempPort cx={-193} cy={365} title="Indblæsning · T2AH" value={fmt(afterHeater)} tone="green"/>
       <SensorPin x={144} y={365} label="T2 før flade" value={fmt(beforeHeater,"°")}/><SensorPin x={-30} y={365} label="T2AH" value={fmt(afterHeater,"°")}/><SensorPin x={57} y={292} label="Frost" value={fmt(frost,"°")}/><SensorPin x={502} y={126} label="T5 rum" value={fmt(room,"°")}/>
       <g className="hch-water-callout" transform="translate(-258 476)"><rect width="245" height="55" rx="12"/><text x="14" y="21">Eftervarmevand · ekstern flade</text><text className="water-value" x="14" y="41">Fremløb {fmt(flowWater)} · Retur {fmt(returnWater)}</text></g>
-      <g className="hch-bypass-callout" transform="translate(772 446)"><rect width="166" height="53" rx="12"/><text x="83" y="20" textAnchor="middle">Bypass-spjæld</text><text className="bypass-state" x="83" y="40" textAnchor="middle">{bypassActual?"Åben":"Lukket"} · ønske {bypassRequest.toLowerCase()==="on"?"On":"Auto"}</text></g>
+      <g className="hch-bypass-callout" transform="translate(772 446)"><rect width="166" height="53" rx="12"/><text x="83" y="20" textAnchor="middle">Bypass-spjæld</text><text className="bypass-state" x="83" y="40" textAnchor="middle">{bypassLabel} · ønske {bypassRequest.toLowerCase()==="on"?"On":"Auto"}</text></g>
     </svg>
-    <div className="unit-readback-row"><div className="unit-readback"><span className="readback-icon fan"/><div><small>Tilluft ventilator</small><strong>{int(supplyRpm)} RPM</strong><em>{int(supplyPercent)}%</em></div></div><div className="unit-readback"><span className="readback-icon fan"/><div><small>Fraluft ventilator</small><strong>{int(extractRpm)} RPM</strong><em>{int(extractPercent)}%</em></div></div><div className="unit-readback"><span className={`readback-icon damper ${bypassActual?"active":""}`}/><div><small>Bypass-spjæld</small><strong>{bypassActual?"Åbent":"Lukket"}</strong><em>Ønske: {bypassRequest.toLowerCase()==="on"?"On":"Auto"}</em></div></div><div className="unit-readback"><span className={`readback-icon heater ${heating?"active":""}`}/><div><small>Ekstern eftervarme</small><strong>{heating?"Aktiv":"Ikke aktiv"}</strong><em>Kun setpunkt styres</em></div></div></div>
+    <div className="unit-readback-row"><div className="unit-readback"><span className="readback-icon fan"/><div><small>Tilluft ventilator</small><strong>{int(supplyRpm)} RPM</strong><em>{int(supplyPercent)}%</em></div></div><div className="unit-readback"><span className="readback-icon fan"/><div><small>Fraluft ventilator</small><strong>{int(extractRpm)} RPM</strong><em>{int(extractPercent)}%</em></div></div><div className="unit-readback"><span className={`readback-icon damper ${bypassOpen?"active":""}`}/><div><small>Bypass-spjæld</small><strong>{bypassMotion||bypassTravelling?bypassLabel:bypassOpen?"Åbent":"Lukket"}</strong><em>Ønske: {bypassRequest.toLowerCase()==="on"?"On":"Auto"}</em></div></div><div className="unit-readback"><span className={`readback-icon heater ${heating?"active":""}`}/><div><small>Ekstern eftervarme</small><strong>{heating?"Aktiv":afterheatLockout?"Spærret":"Ikke aktiv"}</strong><em>{afterheatLockout?"Sommerstop: ude ≥ 15 °C":"Kun setpunkt styres"}</em></div></div></div>
   </div>;
 }

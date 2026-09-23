@@ -58,3 +58,5 @@ button:disabled{opacity:.42!important;cursor:not-allowed!important;transform:non
    truth avoids the dashed pattern here silently overriding the solid fog
    there (higher specificity from ".hch5-visual .hch-fog" used to win). */
 .hch-duct-collar .hch-duct-pipe{fill:url(#ductPipe);stroke:#6f8591;stroke-width:1.4}.hch-duct-collar .hch-duct-rim{fill:url(#metalFace);stroke:#8ba0ad;stroke-width:2.4}.hch-duct-collar .hch-duct-inner{fill:#07131a;stroke:#3b5260;stroke-width:1.6}.hch-external-coil .coil-case{fill:#172a35;stroke:#607987;stroke-width:2}.hch-external-coil .coil-duct{fill:#0a1821;stroke:#3f5a69;stroke-width:2}.hch-external-coil .coil-pipe{fill:none;stroke:#80614a;stroke-width:3}.hch-external-coil.active .coil-pipe{stroke:#f1a15c;filter:drop-shadow(0 0 5px rgb(241 161 92 / 35%))}
+
+.afterheat-lockout{margin-top:8px;padding:7px 10px;border:1px solid #e9a54a;border-radius:9px;background:rgb(40 26 8 / 70%);color:#ffd08a;font-size:12px;font-weight:700;line-height:1.35}

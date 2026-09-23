@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0-beta.31
+
+- The afterheat card on Overview now says plainly when HAC1 is locked by the 15 °C outdoor summer stop ("Spærret af HAC1: udetemperaturen er … Eftervarmen tænder først, når det er under 15 °C ude"), the status reads "Spærret af sommerstop" instead of "Inaktiv", and the diagram shows a "Sommerstop · ude ≥ 15 °C" badge on the HAC1 coil and "Spærret" in the readback row.
+- Animated bypass damper: the blade on the lower fan motor turns with the damper position (`bypass_raw`/255), the extract fog cross-fades from the core route to the bottom channel as it opens and back as it closes, the channel lights up with the position, and the orange actuator pulses while it moves. The callout and readback show "Åbner…"/"Lukker…" during travel. Direction follows the position change (the unit opens the damper by itself in Auto), and a damper that jumps straight from closed to open is still shown travelling over 2.6 s.
+
 ## 1.2.0-beta.30
 
 - Redraws the unit interior from photos and CAD of the real HCH5: the core is now the elongated hexagonal counter-flow exchanger with its P1-P4 ports (P1 outdoor in and P4 exhaust out on the right, P3 extract in and P2 supply out on the left), the filter cassettes stand slanted in the top corners, the supply fan sits between the outdoor filter and P1, and the extract fan sits after P4 at the bottom right. The old chamber grid is gone.
