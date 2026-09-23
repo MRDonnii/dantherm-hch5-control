@@ -401,6 +401,21 @@ export function Hch5UnitDiagram(props:Hch5UnitDiagramProps) {
       <g className="hch-water-callout" transform="translate(-236 424)"><rect width="166" height="80" rx="12"/><text x="14" y="22">Eftervarmevand</text><text className="water-value" x="14" y="46">Fremløb {fmt(flowWater)}</text><text className="water-value" x="14" y="68">Retur {fmt(returnWater)}</text></g>
       <g className="hch-bypass-callout" transform="translate(806 448)"><rect width="240" height="62" rx="12"/><text x="120" y="23" textAnchor="middle">Bypass-spjæld · ønske {bypassWanted?"On":"Auto"}</text><text className="bypass-state" x="120" y="48" textAnchor="middle">{bypassLabel}{bypassRemaining===null?"":` · ${formatRemaining(bypassRemaining)}`}</text></g>
     </svg>
+    <div className="hch-mobile-flow" role="img" aria-label="HCH5 luftstrømme og temperaturer">
+      <div className="hch-mobile-flow-head"><span>LUFTVEJE</span><strong>HCH5</strong><span className={busActive ? "connected" : ""}>{busActive ? "Bus aktiv" : "Afventer bus"}</span></div>
+      <div className="hch-mobile-lane supply">
+        <div className="hch-mobile-reading"><small>Udeluft · T1</small><strong>{fmt(outdoor)}</strong></div>
+        <div className="hch-mobile-route"><span>→</span><i/><span>→</span></div>
+        <div className="hch-mobile-reading"><small>Tilluft · T2</small><strong>{fmt(afterHeater)}</strong></div>
+      </div>
+      <div className="hch-mobile-core"><span>VARMEGENVINDING</span><strong>{recovery === null ? "—" : `${recovery}%`}</strong><span className={bypassOpen ? "bypass-open" : ""}>{bypassPhase ? bypassLabel : bypassOpen ? "Bypass åben" : "Bypass lukket"}</span></div>
+      <div className="hch-mobile-lane extract">
+        <div className="hch-mobile-reading"><small>Fraluft · T3</small><strong>{fmt(extract)}</strong></div>
+        <div className="hch-mobile-route"><span>→</span><i/><span>→</span></div>
+        <div className="hch-mobile-reading"><small>Afkast · T4</small><strong>{fmt(exhaust)}</strong></div>
+      </div>
+      <div className="hch-mobile-subreadings"><span>Før eftervarme <strong>{fmt(beforeHeater)}</strong></span><span>Vand frem/retur <strong>{fmt(flowWater)} / {fmt(returnWater)}</strong></span></div>
+    </div>
     <div className="unit-readback-row"><div className="unit-readback"><span className="readback-icon fan"/><div><small>Tilluft ventilator</small><strong>{int(supplyRpm)} RPM</strong><em>{int(supplyPercent)}%</em></div></div><div className="unit-readback"><span className="readback-icon fan"/><div><small>Fraluft ventilator</small><strong>{int(extractRpm)} RPM</strong><em>{int(extractPercent)}%</em></div></div><div className="unit-readback"><span className={`readback-icon damper ${bypassOpen?"active":""}`}/><div><small>Bypass-spjæld</small><strong>{bypassPhase?bypassLabel:bypassOpen?"Åbent":"Lukket"}</strong><em>{bypassRemaining===null?`Ønske: ${bypassWanted?"On":"Auto"}`:`ca. ${formatRemaining(bypassRemaining)} tilbage`}</em></div></div><div className="unit-readback"><span className={`readback-icon heater ${heating?"active":""}`}/><div><small>Ekstern eftervarme</small><strong>{heating?"Aktiv":afterheatLockout?"Spærret":"Ikke aktiv"}</strong><em>{afterheatLockout?"Sommerstop: ude ≥ 15 °C":"Kun setpunkt styres"}</em></div></div></div>
   </div>;
 }

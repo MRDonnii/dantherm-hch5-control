@@ -344,8 +344,8 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
   .unit-readback em { white-space: normal; }
   .afterheat-setpoint-card { grid-template-columns: 1fr; }
   .setpoint-stepper { justify-self: stretch; grid-template-columns: 42px 1fr 42px; }
-  .hch5-visual { overflow-x: auto; }
-  .hch5-visual > svg { width: 760px; }
+  .hch5-visual { overflow: visible; padding-top: 0; }
+  .hch5-visual > svg { display: none; }
 }
 
 /* RS485/Modbus wiring between the unit, HAC1 and the Raspberry Pi. */
@@ -363,3 +363,60 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .hch-pi .pi-board { fill: #123524; stroke: #3fae74; stroke-width: 1.4; }
 .hch-pi .pi-chip { fill: #1d2a30; stroke: #5d7885; }
 .hch-pi .pi-gpio { fill: #d9b574; }
+
+/* Mobile keeps the four air temperatures legible without a wide SVG canvas. */
+.hch-mobile-flow { display: none; }
+@media (max-width:680px) {
+  .pro-air-card { padding: 13px; }
+  .pro-air-card .pro-card-head p { display: none; }
+  .hch-mobile-flow { display: grid; gap: 9px; margin: 10px 0 12px; padding: 12px; border: 1px solid #28495a; border-radius: 12px; background: radial-gradient(circle at 50% 30%,#153448,#0a1922 72%); }
+  .hch-mobile-flow-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #83a0b1; font-size: 8px; font-weight: 800; letter-spacing: .09em; }
+  .hch-mobile-flow-head strong { color: #dff4ff; font-size: 13px; letter-spacing: .03em; }
+  .hch-mobile-flow-head .connected { color: var(--green); }
+  .hch-mobile-lane { display: grid; grid-template-columns: minmax(0,1fr) 38px minmax(0,1fr); align-items: center; gap: 6px; }
+  .hch-mobile-reading { min-width: 0; display: grid; gap: 3px; padding: 10px; border: 1px solid #315269; border-radius: 9px; background: #0d2636; }
+  .hch-mobile-lane.extract .hch-mobile-reading { border-color: #66503d; background: #2a211e; }
+  .hch-mobile-reading small { color: #a6c1d0; font-size: 9px; white-space: nowrap; }
+  .hch-mobile-reading strong { color: #eefaff; font-size: 18px; line-height: 1; }
+  .hch-mobile-route { display: flex; align-items: center; color: var(--blue); font-size: 10px; }
+  .hch-mobile-lane.extract .hch-mobile-route { color: var(--orange); }
+  .hch-mobile-route i { height: 2px; flex: 1; background: currentColor; opacity: .6; }
+  .hch-mobile-core { display: flex; align-items: baseline; justify-content: center; gap: 8px; padding: 8px 5px; border: 1px solid #315365; border-radius: 9px; background: #102a38; }
+  .hch-mobile-core span { color: #9ab3c0; font-size: 8px; font-weight: 800; }
+  .hch-mobile-core strong { color: var(--green); font-size: 16px; }
+  .hch-mobile-core .bypass-open { color: var(--blue); }
+  .hch-mobile-subreadings { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+  .hch-mobile-subreadings span { display: grid; gap: 3px; color: #91aab8; font-size: 8px; }
+  .hch-mobile-subreadings strong { color: #e1f0f6; font-size: 10px; }
+  .unit-readback-row { gap: 6px; }
+  .unit-readback { min-height: 56px; }
+  .unit-readback small { font-size: 9px; }
+  .unit-readback strong { font-size: 11px; }
+  .unit-readback em { font-size: 8px; }
+}
+@media (max-width:360px) {
+  .hch-mobile-flow { padding: 9px; }
+  .hch-mobile-reading { padding: 8px 6px; }
+  .hch-mobile-reading small { font-size: 8px; }
+  .hch-mobile-reading strong { font-size: 16px; }
+  .hch-mobile-core { gap: 5px; }
+  .hch-mobile-core span { font-size: 7px; }
+}
+@media (max-width:680px) {
+  .sidebar { padding: 7px 9px; overflow: hidden; }
+  .sidebar .brand-block { display: none; }
+  .sidebar-nav { width: 100%; display: grid; grid-template-columns: repeat(8,minmax(0,1fr)); gap: 2px; }
+  .sidebar-nav .nav-item { width: 100%; min-width: 0; min-height: 35px; padding: 0; }
+  .sidebar-nav .nav-item svg { width: 17px; height: 17px; }
+  .topbar-v2 { top: 49px; min-height: 54px; }
+}
+@media (max-width:680px) {
+  .overview-heading-row { gap: 9px; padding-bottom: 0; }
+  .overview-heading-row h1 { font-size: clamp(23px,7vw,28px); margin: 3px 0; }
+  .overview-heading-row p { display: none; }
+  .overview-status-pills { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; }
+  .overview-status-pills > div { min-width: 0; min-height: 48px; padding: 6px 7px; grid-template-columns: 11px 1fr; column-gap: 5px; }
+  .overview-status-pills > div:last-child { grid-column: auto; }
+  .overview-status-pills svg,.overview-status-pills .status-led { width: 8px; height: 8px; }
+  .overview-status-pills strong { font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
