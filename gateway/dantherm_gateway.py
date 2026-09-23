@@ -1174,10 +1174,13 @@ class Gateway:
             return f"{value:.2f}"
         return str(value)
 
-    def publish(self, key: str, value: object):
+    def publish(self, key: str, value: object, *, source: str | None = None):
         if self.state.get(key) == value:
             return
         self.state[key] = value
+        if source:
+            self.state[f"{key}_source"] = source
+            self.state[f"{key}_updated_at"] = time.time()
         payload = self.format_payload(value)
         if self.mqtt_enabled:
             self.client.publish(f"{self.prefix}/{key}", payload, retain=self.retain)
@@ -1295,7 +1298,10 @@ class Gateway:
                 # manuelle test (2026-08-31, aabn/luk/setpunkt-test). Det er
                 # IKKE en glidende positionsvaerdi -- kun to stabile tilstande
                 # er nogensinde set trods gentagne delvise fysiske aabninger.
-                self.publish("afterheat_active", values[4] == 16)
+                self.publish(
+                    "afterheat_active", values[4] == 16,
+                    source="passive_hcp4_hac1_register_209",
+                )
             return
         if slave != 1:
             return

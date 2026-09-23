@@ -147,6 +147,7 @@ export function OverviewPage() {
   const bypassActualLabel = bypassMoving ? "bevæger sig" : bypassActual ? "åben" : "lukket";
   const bypassRequest = String(controller.actual_bypass_request ?? unit.bypass_request ?? controller.bypass ?? "off");
   const heating = controller.actual_afterheat === true || unit.afterheat_active === true;
+  const afterheatStatus = heating ? "Aktiv" : "Inaktiv";
   const fireplace = controller.actual_fireplace === true || unit.fireplace === true;
   const mode = String(controller.mode ?? "local_auto");
   const level = number(controller.effective_level) ?? 3;
