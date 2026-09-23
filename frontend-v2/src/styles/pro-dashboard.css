@@ -429,3 +429,7 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
   .hch-mobile-reading strong { font-size: 15px; }
   .hch-mobile-core { padding: 5px; }
 }
+@media (max-width:680px) {
+  .pro-air-card { margin-inline: -12px; padding: 12px 10px; border-radius: 0; }
+  .hch5-visual > svg { max-width: 100%; }
+}
