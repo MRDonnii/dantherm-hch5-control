@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.0-beta.28
+
+- Mirrors the Overview unit diagram to match the real HCH5: outdoor air (T1) and exhaust (T4) connect on the right, where both fan motors sit (supply fan in the outdoor stream before the exchanger, extract fan in the exhaust stream after it); extract (T3) and supply connect on the left, where the supply duct feeds the external HAC1 afterheat coil.
+- Duct stubs now leave the cabinet sideways as short horizontal pipes instead of round openings pointing at the viewer.
+- Fixes the fog bands being cut off flat at the top and bottom: the fade mask used the default region of 120% of the fog group's geometric height, far smaller than the wide blurred bands.
+- New fan impellers: seven backward-curved blades, metallic hub and a motion-blur disc while running, spinning around the hub without wobble.
+- Adds the wiring: the RS485/Modbus RTU cable from the unit's control box to the HAC1 controller and the Raspberry Pi (data pulses while the bus is healthy), plus HAC1's signal wires to T2AH, the frost sensor and the valve.
+
 ## 1.2.0-beta.27
 
 - Fixes Pi losing RS485 mastership every ~12 s while writing afterheat: HAC1 does acknowledge each FC16 block (~50 ms), but the ack was read 0.8 s late, fell outside the own-echo window and was mistaken for an HCP4 write, so the setpoint block was blocked. The ack is read immediately again and identified by its six header bytes, because HAC1 often garbles or drops its last CRC byte; a missing ack retries the block once.

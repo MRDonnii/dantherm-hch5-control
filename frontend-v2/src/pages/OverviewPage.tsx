@@ -241,6 +241,7 @@ export function OverviewPage() {
             room={room} frost={frost} flowWater={flowWater} returnWater={returnWater}
             supplyRpm={supplyRpm} extractRpm={extractRpm} supplyPercent={supplyPercent} extractPercent={extractPercent}
             bypassActual={bypassActual} bypassRequest={bypassRequest} heating={heating} recovery={recovery}
+            busActive={busHealthy}
           />
         </article>
 

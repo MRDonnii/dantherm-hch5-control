@@ -1,4 +1,4 @@
-import http.cookiejar, importlib.util, json, tempfile, time, unittest, urllib.error, urllib.request
+import http.cookiejar, importlib.util, json, re, tempfile, time, unittest, urllib.error, urllib.request
 from pathlib import Path
 ROOT = Path(__file__).parents[1]
 SPEC = importlib.util.spec_from_file_location("dashboard_server", ROOT / "gateway/dashboard_server.py")
@@ -59,7 +59,11 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Luftstrømme og temperaturer", overview)
         self.assertIn("Filter · udeluft", diagram)
         self.assertIn("Filter · udsugning", diagram)
-        self.assertLess(diagram.index("Filter · udeluft"), diagram.index("Filter · udsugning"))
+        # Oriented like the real HCH5: outdoor air enters on the right.
+        filter_x = {
+            label: int(x) for x, label in re.findall(r'<Filter x=\{(\d+)\} y=\{\d+\} label="(Filter · \w+)"', diagram)
+        }
+        self.assertGreater(filter_x["Filter · udeluft"], filter_x["Filter · udsugning"])
         self.assertIn("Ekstern eftervarme · HAC1", diagram)
         self.assertIn("Bypass-spjæld", diagram)
         self.assertIn("afterheat_setpoint", overview)
