@@ -25,4 +25,18 @@ describe("Hch5UnitDiagram damper travel", () => {
     expect(core(container)).toBeNull();
     expect(container.querySelector(".hch-exchanger-title")?.textContent).toBe("Varmeveksler");
   });
+  it("keeps both directions in motion at 92 percent and waits for the real end code", () => {
+    const { container, rerender } = render(<Hch5UnitDiagram {...baseProps} bypassRaw={64} bypassTravelDirection="opening" bypassTravelSeconds={166}/>);
+    expect(core(container)?.textContent).toContain("92 %");
+    rerender(<Hch5UnitDiagram {...baseProps} bypassRaw={64} bypassTravelDirection="opening" bypassTravelSeconds={181}/>);
+    expect(core(container)?.textContent).toContain("Afventer endestilling");
+    rerender(<Hch5UnitDiagram {...baseProps} bypassActual bypassRaw={255}/>);
+    expect(core(container)).toBeNull();
+    rerender(<Hch5UnitDiagram {...baseProps} bypassRaw={32} bypassTravelDirection="closing" bypassTravelSeconds={166}/>);
+    expect(core(container)?.textContent).toContain("92 %");
+    rerender(<Hch5UnitDiagram {...baseProps} bypassRaw={32} bypassTravelDirection="closing" bypassTravelSeconds={183}/>);
+    expect(core(container)?.textContent).toContain("Afventer endestilling");
+    rerender(<Hch5UnitDiagram {...baseProps} bypassRaw={0}/>);
+    expect(core(container)).toBeNull();
+  });
 });
