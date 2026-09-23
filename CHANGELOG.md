@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0-beta.27
+
+- Fixes Pi losing RS485 mastership every ~12 s while writing afterheat: HAC1 does acknowledge each FC16 block (~50 ms), but the ack was read 0.8 s late, fell outside the own-echo window and was mistaken for an HCP4 write, so the setpoint block was blocked. The ack is read immediately again and identified by its six header bytes, because HAC1 often garbles or drops its last CRC byte; a missing ack retries the block once.
+- T5 (the HRC2 remote room sensor) never blocks afterheat any more: the value HAC1 holds is kept, falling back to T3 extract air.
+- Documents and exposes HAC1's outdoor lockout: afterheat never switches on at 15 °C outdoor or above, whatever the setpoint. The controller state reports `actual_afterheat_outdoor_lockout`, and the Teknik page shows it as "Sommerstop", so a missing heat demand above 15 °C is not debugged as a fault.
+- The afterheat +/- stepper now updates immediately and sends one command about 1.2 s after the last press, instead of saving and waiting for every single step.
+
 ## 1.2.0-beta.23
 
 - Fixes the afterheat setpoint write failing with "missing FC16 afterheat echo": a missed echo on a live RS485 bus is now retried (fresh re-read + rewrite, up to 3 attempts) instead of failing on the first transient miss. The verified write frame and identity checks are unchanged.

@@ -20,6 +20,12 @@ from master_arbitration import MasterArbitrator, RtuFrameStream
 
 LOG = logging.getLogger("passivelink-controller")
 VALID_PRIORITIES = {"auto", "low", "normal", "high", "critical"}
+# HAC1 firmware lockout, confirmed by the owner 2026-09-23: the water
+# afterheat never switches on while outdoor temperature (T1, register 180)
+# is 15 C or higher, whatever the setpoint (even 35 C) and whoever is master.
+# Register 209 staying 0 above this limit is correct HAC1 behaviour, not a
+# Pi/RS485 fault - do not debug it. It is not configurable over RS485.
+AFTERHEAT_OUTDOOR_CUTOFF_C = 15.0
 
 
 class ControllerRuntime:
@@ -448,6 +454,9 @@ class ControllerRuntime:
             if self.gateway_state.get("supply_temperature") is not None
             else "unit_t2_legacy"
         )
+        outdoor = self._safe_number(
+            self._first(self.gateway_state, "outdoor_temp", "outdoor_temperature"), -50, 60
+        )
         if self.master.master == MasterArbitrator.HCP4:
             control_state = "paused_hcp4_master"
         elif self.master.master == MasterArbitrator.PI:
@@ -475,6 +484,10 @@ class ControllerRuntime:
             "actual_supply_air_temperature": self._first(self.gateway_state, "heating_coil_after_temperature", "supply_temp"),
             "actual_supply_air_temperature_source": "hac1_t2ah" if self.gateway_state.get("heating_coil_after_temperature") is not None else "unit_t2",
             "actual_afterheat_frost_temperature": self._first(self.gateway_state, "heating_coil_frost_temperature"),
+            "actual_afterheat_outdoor_lockout": (
+                None if outdoor is None else outdoor >= AFTERHEAT_OUTDOOR_CUTOFF_C
+            ),
+            "afterheat_outdoor_cutoff": AFTERHEAT_OUTDOOR_CUTOFF_C,
             "rs485_healthy": self._bus_healthy(),
             "last_tick_at": self.last_tick_at,
         })

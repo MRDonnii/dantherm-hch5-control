@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Flame, Gauge, Leaf, RefreshCw, Snowflake, Wind } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Hch5UnitDiagram } from "../components/Hch5UnitDiagram";
@@ -6,6 +6,7 @@ import { postJson, requestJson } from "../lib/api";
 import "../styles/overview.css";
 
 type Data = Record<string, unknown>;
+type AfterheatValue = number | "off";
 type AuthState = { csrf?: string | null };
 type UpdateInfo = {
   channel?: "stable" | "beta";
@@ -14,6 +15,10 @@ type UpdateInfo = {
   update_available?: boolean;
   update?: { running?: boolean; progress?: number; phase?: string; detail?: string; last_error?: string | null };
 };
+
+// +/- only move a local draft; one command is sent once the user has stopped
+// pressing, so each step does not wait for a save and RS485 round trip.
+const AFTERHEAT_SEND_DELAY_MS = 1200;
 
 function number(value: unknown): number | null {
   const parsed = Number(value);
@@ -71,6 +76,10 @@ export function OverviewPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [afterheatDraft, setAfterheatDraft] = useState<AfterheatValue | null>(null);
+  const afterheatTimer = useRef<number | null>(null);
+  const afterheatPending = useRef<{ target: AfterheatValue; seq: number } | null>(null);
+  const afterheatSeq = useRef(0);
 
   const refresh = useCallback(async () => {
     const [unitResult, controllerResult, authResult] = await Promise.allSettled([
@@ -125,6 +134,29 @@ export function OverviewPage() {
     }
   }, [csrf, refresh]);
 
+  const sendAfterheat = useCallback(async (target: AfterheatValue, seq: number) => {
+    await command(
+      "afterheat",
+      target === "off" ? { afterheat_enabled: false } : { afterheat_setpoint: target },
+      target === "off" ? "Eftervarmen er sat til OFF." : `Eftervarmen er sat til ${target} °C.`,
+    );
+    // A newer press may have started another draft while this one was saving.
+    if (afterheatSeq.current === seq) setAfterheatDraft(null);
+  }, [command]);
+
+  const flushAfterheat = useCallback(() => {
+    if (afterheatTimer.current !== null) window.clearTimeout(afterheatTimer.current);
+    afterheatTimer.current = null;
+    const pending = afterheatPending.current;
+    afterheatPending.current = null;
+    if (pending) void sendAfterheat(pending.target, pending.seq);
+  }, [sendAfterheat]);
+
+  // Leaving the page must not drop a change that is still waiting to be sent.
+  const flushAfterheatRef = useRef(flushAfterheat);
+  flushAfterheatRef.current = flushAfterheat;
+  useEffect(() => () => flushAfterheatRef.current(), []);
+
   const outdoor = first(unit, "outdoor_temp", "outdoor_temperature");
   const extract = first(unit, "extract_temp", "extract_temperature");
   const exhaust = first(unit, "exhaust_temp", "exhaust_temperature");
@@ -153,6 +185,7 @@ export function OverviewPage() {
   const level = number(controller.effective_level) ?? 3;
   const afterheatSetpoint = number(controller.afterheat_setpoint) ?? 20;
   const afterheatEnabled = controller.afterheat_enabled !== false;
+  const shownAfterheat: AfterheatValue = afterheatDraft ?? (afterheatEnabled ? afterheatSetpoint : "off");
   const actualAfterheatSelectionNumber = number(controller.actual_afterheat_selection);
   const actualAfterheatSelection = controller.actual_afterheat_selection === "off"
     ? "OFF"
@@ -170,11 +203,17 @@ export function OverviewPage() {
   }, [bypassActual, outdoor, extract, exhaust]);
 
   const levelPatch = mode === "manual" ? "manual_level" : "local_normal_level";
-  const setAfterheat = (next: number) => void command("afterheat", { afterheat_setpoint: Math.max(10, Math.min(35, next)) }, "Eftervarmens ønskede indblæsningstemperatur er gemt.");
-  const lowerAfterheat = () => afterheatEnabled && afterheatSetpoint <= 10
-    ? void command("afterheat-off", { afterheat_enabled: false }, "Eftervarmen er sat til OFF.")
-    : setAfterheat(afterheatSetpoint - 1);
-  const raiseAfterheat = () => setAfterheat(afterheatEnabled ? afterheatSetpoint + 1 : 10);
+  // Remote-style range: OFF - 10 - 11 ... 35. Minus below 10 selects OFF.
+  const stepAfterheat = (direction: 1 | -1) => {
+    const next: AfterheatValue = direction > 0
+      ? shownAfterheat === "off" ? 10 : Math.min(35, shownAfterheat + 1)
+      : shownAfterheat === "off" || shownAfterheat <= 10 ? "off" : shownAfterheat - 1;
+    const seq = ++afterheatSeq.current;
+    setAfterheatDraft(next);
+    afterheatPending.current = { target: next, seq };
+    if (afterheatTimer.current !== null) window.clearTimeout(afterheatTimer.current);
+    afterheatTimer.current = window.setTimeout(flushAfterheat, AFTERHEAT_SEND_DELAY_MS);
+  };
 
   return (
     <section className="dashboard-overview page-enter">
@@ -256,11 +295,11 @@ export function OverviewPage() {
           </div>
 
           <article className="surface afterheat-setpoint-card">
-            <div className="afterheat-copy"><span>Eftervarme setpunkt</span><strong>RS485: {actualAfterheatSelection}</strong><small>Ønsket: {afterheatEnabled ? `${whole(afterheatSetpoint)} °C` : "OFF"} · Varmekald: {afterheatStatus}. HAC1 regulerer selv varmefladen.</small></div>
+            <div className="afterheat-copy"><span>Eftervarme setpunkt</span><strong>RS485: {actualAfterheatSelection}</strong><small>Ønsket: {shownAfterheat === "off" ? "OFF" : `${whole(shownAfterheat)} °C`} · Varmekald: {afterheatStatus}. HAC1 regulerer selv varmefladen.</small></div>
             <div className="setpoint-stepper">
-              <button disabled={busy !== null || !afterheatEnabled} onClick={lowerAfterheat}>−</button>
-              <strong>{afterheatEnabled ? `${whole(afterheatSetpoint)} °C` : "OFF"}</strong>
-              <button disabled={busy !== null || (afterheatEnabled && afterheatSetpoint >= 35)} onClick={raiseAfterheat}>+</button>
+              <button disabled={shownAfterheat === "off"} onClick={() => stepAfterheat(-1)}>−</button>
+              <strong>{shownAfterheat === "off" ? "OFF" : `${whole(shownAfterheat)} °C`}</strong>
+              <button disabled={shownAfterheat === 35} onClick={() => stepAfterheat(1)}>+</button>
             </div>
           </article>
           {notice && <div className={`control-notice${notice.startsWith("Kunne") ? " error" : ""}`}>{notice}</div>}
@@ -274,7 +313,7 @@ export function OverviewPage() {
             <div className="climate-metric green"><Leaf size={21}/><span>CO₂</span><strong>{whole(co2)} <small>ppm</small></strong><em>{co2 === null ? "Ukendt" : co2 < 800 ? "God" : co2 < 1200 ? "Moderat" : "Høj"}</em><i style={{ width: `${co2 === null ? 0 : Math.min(100, Math.max(5, co2 / 16))}%` }}/></div>
             <div className="climate-metric blue"><span className="metric-drop">●</span><span>Luftfugtighed</span><strong>{whole(humidity)} <small>%</small></strong><em>{humidity === null ? "Ukendt" : humidity < 60 ? "Normal" : "Høj"}</em><i style={{ width: `${humidity ?? 0}%` }}/></div>
             <div className="climate-metric cyan"><span className="metric-filter">▧</span><span>Filter</span><strong>{whole(filterLife)} <small>%</small></strong><em>{filterLife === null ? "Ukendt" : filterLife > 40 ? "OK" : filterLife > 15 ? "Snart skift" : "Skift filter"}</em><i style={{ width: `${Math.max(0, Math.min(100, filterLife ?? 0))}%` }}/></div>
-            <div className="climate-metric neutral"><span className="metric-heat">≋</span><span>Eftervarme setpunkt</span><strong>{afterheatEnabled ? temp(afterheatSetpoint) : "OFF"}</strong><em>{afterheatStatus}</em><i style={{ width: `${afterheatEnabled ? ((afterheatSetpoint - 10) / 25) * 100 : 0}%` }}/></div>
+            <div className="climate-metric neutral"><span className="metric-heat">≋</span><span>Eftervarme setpunkt</span><strong>{shownAfterheat === "off" ? "OFF" : temp(shownAfterheat)}</strong><em>{afterheatStatus}</em><i style={{ width: `${shownAfterheat === "off" ? 0 : ((shownAfterheat - 10) / 25) * 100}%` }}/></div>
           </div>
         </article>
 

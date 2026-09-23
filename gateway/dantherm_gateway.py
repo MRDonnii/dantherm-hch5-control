@@ -1557,37 +1557,61 @@ class Gateway:
         self, ser: serial.Serial, start: int, values: list[int], reason: str
     ) -> None:
         frame = self.write_multiple_frame(0x40, start, values)
-        expected = bytes([0x40, 0x10, start >> 8, start & 0xFF, 0, len(values)])
-        expected += crc16(expected).to_bytes(2, "little")
-        if not self.wait_quiet(ser):
-            raise RuntimeError("RS485 bus did not become quiet")
-        self.serial_write(ser, frame, reason)
-        ser.flush()
-        deadline = time.monotonic() + 0.5
-        received = bytearray()
-        while time.monotonic() < deadline:
-            received.extend(self.serial_read(ser, 256))
-            if expected in received:
-                return
+        # HAC1 answers ~50 ms later with the standard 8-byte FC16 ack
+        # (40 10 00 B4 00 05 4F 3D). Captures 2026-09-23 showed its last CRC
+        # byte intermittently garbled (4F FF / 4F CF) or missing entirely,
+        # so the six header bytes identify the ack. The ack must be read
+        # immediately: read later, a valid ack falls outside the own-echo
+        # window and master arbitration mistakes it for an HCP4 write and
+        # releases the bus. After the header, one more read collects the
+        # CRC bytes so they are never left in the buffer.
+        header = frame[:6]
+        for _attempt in range(2):
+            if not self.wait_quiet(ser):
+                raise RuntimeError("RS485 bus did not become quiet")
+            self.serial_write(ser, frame, reason)
+            ser.flush()
+            deadline = time.monotonic() + 0.5
+            received = bytearray()
+            header_seen = False
+            while time.monotonic() < deadline:
+                received.extend(self.serial_read(ser, 256))
+                index = received.find(header)
+                if index >= 0 and (header_seen or len(received) >= index + 8):
+                    return
+                header_seen = index >= 0
         raise RuntimeError(f"missing FC16 acknowledgement for register {start}")
 
     def _afterheat_temperature_words(self) -> list[int]:
+        def valid(key: str) -> bool:
+            value = self.state.get(key)
+            return isinstance(value, (int, float)) and -35 <= float(value) <= 100
+
+        # Register 184 is T5, the room sensor in the HRC2 remote. It is not
+        # live once Pi replaces HCP4, and HAC1 regulates afterheat on its own
+        # T2AH (register 205), so T5 must never block the chain: keep the
+        # value HAC1 already holds and fall back to T3 extract air, the other
+        # room reference selectable on the HRC2 remote.
+        t5_key = "hrc2_t5_temperature" if valid("hrc2_t5_temperature") else "extract_temp"
         keys = (
             "outdoor_temp", "supply_temp", "extract_temp", "exhaust_temp",
-            "hrc2_t5_temperature",
+            t5_key,
         )
         words: list[int] = []
         for key in keys:
-            value = self.state.get(key)
-            if not isinstance(value, (int, float)) or not -35 <= float(value) <= 100:
+            if not valid(key):
                 raise RuntimeError(f"afterheat temperature unavailable: {key}")
-            words.append(round(float(value) * 100))
+            words.append(round(float(self.state[key]) * 100))
         return words
 
     def write_afterheat_setpoint(self, ser: serial.Serial, value: int | None) -> int | None:
         """Replay the observed HCP4 thermostat chain for HAC1.
 
         HCP4 refreshes FC16 blocks 180..184 and 185..189 every four seconds.
+        HAC1 acknowledges each block with an 8-byte FC16 response.
+        Register 180 must carry the live outdoor temperature: HAC1 only
+        allows afterheat below 15 C outdoor, and a stale value would block
+        or allow heating regardless of the actual weather.
         The enabled 185 block is CRC-verified at 10 C. OFF uses the same
         verified constants with register 186 set to zero; repeated OFF
         captures reconstructed the complete frame including CRC E5 E1.

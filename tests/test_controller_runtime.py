@@ -28,6 +28,15 @@ class ControllerRuntimeTests(unittest.TestCase):
         })
         return runtime.smart_requested_level
 
+    def test_afterheat_outdoor_lockout_is_reported_at_15_c_and_above(self):
+        # HAC1 never heats at 15 C outdoor or above; report it as a lockout.
+        for outdoor, expected in ((14.15, False), (15.0, True), (15.63, True), (None, None)):
+            with self.subTest(outdoor=outdoor):
+                state = {} if outdoor is None else {"outdoor_temp": outdoor}
+                snapshot = self.make_runtime(state).snapshot()
+                self.assertIs(snapshot["actual_afterheat_outdoor_lockout"], expected)
+                self.assertEqual(snapshot["afterheat_outdoor_cutoff"], 15.0)
+
     def test_smart_auto_can_request_every_level_1_to_6_from_co2(self):
         expected = {250: 1, 700: 2, 800: 3, 900: 4, 1100: 5, 1300: 6}
         for co2, level in expected.items():

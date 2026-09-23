@@ -139,6 +139,8 @@ export function TechniquePage() {
             ]}/>
             <InfoList rows={[
               { label: "Eftervarme aktiv", value: bool(controller.actual_afterheat, "Ja", "Nej") },
+              // HAC1 locks the afterheat at 15 C outdoor or above; not a fault.
+              { label: `Sommerstop (ude ≥ ${text(controller.afterheat_outdoor_cutoff ?? 15)} °C)`, value: bool(controller.actual_afterheat_outdoor_lockout, "Spærret af HAC1", "Nej") },
               { label: "RS485 eftervarmevalg", value: controller.actual_afterheat_selection === "off" ? "OFF" : controller.actual_afterheat_selection !== null && controller.actual_afterheat_selection !== undefined ? `${text(controller.actual_afterheat_selection)} °C` : "—" },
               { label: "Seneste temperatursetpunkt", value: controller.actual_afterheat_setpoint !== null && controller.actual_afterheat_setpoint !== undefined ? `${text(controller.actual_afterheat_setpoint)} °C` : "—" },
               { label: "Indblæsning kilde", value: text(controller.actual_supply_air_temperature_source) },

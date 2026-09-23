@@ -21,6 +21,7 @@ if "paho.mqtt.client" not in sys.modules:
     })
 
 from dantherm_gateway import Gateway, crc16
+from master_arbitration import MasterArbitrator, RtuFrameStream
 
 
 class FakeMqtt:
@@ -46,6 +47,28 @@ def make_gateway():
     gateway.retain = True
     gateway.mqtt_enabled = False
     return gateway
+
+
+def hac1_ack(frame, corrupt_crc=False):
+    """HAC1's 8-byte FC16 response; its last CRC byte is sometimes garbled."""
+    ack = frame[:6] + crc16(frame[:6]).to_bytes(2, "little")
+    return ack[:7] + b"\xff" if corrupt_crc else ack
+
+
+def wire_hac1_acks(gateway, corrupt_crc=False, truncate=False):
+    writes = []
+    replies = []
+
+    def serial_write(_ser, data, reason):
+        writes.append((data, reason))
+        ack = hac1_ack(data, corrupt_crc)
+        replies.append(ack[:7] if truncate else ack)
+        return len(data)
+
+    gateway.wait_quiet = lambda *_args: True
+    gateway.serial_write = serial_write
+    gateway.serial_read = lambda *_args: replies.pop(0) if replies else b""
+    return writes
 
 
 def discovery_map(gateway):
@@ -112,14 +135,7 @@ class BypassAndDiscoveryTests(unittest.TestCase):
             "exhaust_temp": 14.65,
             "hrc2_t5_temperature": 23.40,
         })
-        gateway.wait_quiet = lambda *_args: True
-        writes = []
-        gateway.serial_write = lambda _ser, data, reason: writes.append((data, reason)) or len(data)
-        replies = []
-        for start in (180, 185):
-            reply = bytes([0x40, 0x10, 0, start, 0, 5])
-            replies.append(reply + crc16(reply).to_bytes(2, "little"))
-        gateway.serial_read = lambda *_args: replies.pop(0) if replies else b""
+        writes = wire_hac1_acks(gateway)
         serial = type("Serial", (), {"flush": lambda self: None})()
         self.assertEqual(gateway.write_afterheat_setpoint(serial, 22), 22)
         self.assertEqual([reason for _data, reason in writes], [
@@ -134,6 +150,17 @@ class BypassAndDiscoveryTests(unittest.TestCase):
             [1, 22 * 256, 15, 0x17FE, 0xFF03],
         )
 
+    def test_missing_t5_falls_back_to_t3_and_never_blocks(self):
+        gateway = make_gateway()
+        gateway.state.update({
+            "outdoor_temp": 14.15, "supply_temp": 20.94,
+            "extract_temp": 20.77, "exhaust_temp": 14.65,
+        })
+        writes = wire_hac1_acks(gateway)
+        serial = type("Serial", (), {"flush": lambda self: None})()
+        self.assertEqual(gateway.write_afterheat_setpoint(serial, 22), 22)
+        self.assertEqual(int.from_bytes(writes[0][0][15:17], "big"), 2077)
+
     def test_afterheat_off_uses_verified_hcp4_zero_setpoint_block(self):
         gateway = make_gateway()
         gateway.state.update({
@@ -141,34 +168,84 @@ class BypassAndDiscoveryTests(unittest.TestCase):
             "extract_temp": 20.77, "exhaust_temp": 14.65,
             "hrc2_t5_temperature": 23.40,
         })
-        gateway.wait_quiet = lambda *_args: True
-        writes = []
-        gateway.serial_write = lambda _ser, data, reason: writes.append(data) or len(data)
-        replies = []
-        for start in (180, 185):
-            reply = bytes([0x40, 0x10, 0, start, 0, 5])
-            replies.append(reply + crc16(reply).to_bytes(2, "little"))
-        gateway.serial_read = lambda *_args: replies.pop(0) if replies else b""
+        writes = wire_hac1_acks(gateway)
         serial = type("Serial", (), {"flush": lambda self: None})()
         self.assertIsNone(gateway.write_afterheat_setpoint(serial, None))
         self.assertEqual(
-            [int.from_bytes(writes[1][i:i + 2], "big") for i in range(7, 17, 2)],
+            [int.from_bytes(writes[1][0][i:i + 2], "big") for i in range(7, 17, 2)],
             [1, 0, 15, 0x17FE, 0xFF03],
         )
 
-    def test_afterheat_chain_missing_acknowledgement_fails(self):
+    def test_afterheat_accepts_ack_with_garbled_crc_byte(self):
         gateway = make_gateway()
         gateway.state.update({
             "outdoor_temp": 14.15, "supply_temp": 20.94,
             "extract_temp": 20.77, "exhaust_temp": 14.65,
-            "hrc2_t5_temperature": 23.40,
+        })
+        writes = wire_hac1_acks(gateway, corrupt_crc=True)
+        serial = type("Serial", (), {"flush": lambda self: None})()
+        self.assertEqual(gateway.write_afterheat_setpoint(serial, 22), 22)
+        self.assertEqual(len(writes), 2)
+
+    def test_afterheat_accepts_ack_missing_last_crc_byte(self):
+        gateway = make_gateway()
+        gateway.state.update({
+            "outdoor_temp": 14.15, "supply_temp": 20.94,
+            "extract_temp": 20.77, "exhaust_temp": 14.65,
+        })
+        writes = wire_hac1_acks(gateway, truncate=True)
+        serial = type("Serial", (), {"flush": lambda self: None})()
+        self.assertEqual(gateway.write_afterheat_setpoint(serial, 23), 23)
+        self.assertEqual(len(writes), 2)
+
+    def test_afterheat_chain_missing_acknowledgement_fails_after_retry(self):
+        gateway = make_gateway()
+        gateway.state.update({
+            "outdoor_temp": 14.15, "supply_temp": 20.94,
+            "extract_temp": 20.77, "exhaust_temp": 14.65,
         })
         gateway.wait_quiet = lambda *_args: True
-        gateway.serial_write = lambda _ser, data, reason: len(data)
+        writes = []
+        gateway.serial_write = lambda _ser, data, reason: writes.append(reason) or len(data)
         gateway.serial_read = lambda *_args: b""
         serial = type("Serial", (), {"flush": lambda self: None})()
-        with self.assertRaisesRegex(RuntimeError, "missing FC16 acknowledgement"):
+        with self.assertRaisesRegex(RuntimeError, "missing FC16 acknowledgement for register 180"):
             gateway.write_afterheat_setpoint(serial, 22)
+        self.assertEqual(writes, ["CONTROL_AFTERHEAT_TEMPERATURES"] * 2)
+
+    def test_hac1_ack_is_own_transaction_and_keeps_pi_master(self):
+        """Regression 2026-09-23: a late-read ack released Pi every cycle."""
+        gateway = make_gateway()
+        gateway.state.update({
+            "outdoor_temp": 14.15, "supply_temp": 20.94,
+            "extract_temp": 20.77, "exhaust_temp": 14.65,
+        })
+        arbitrator = MasterArbitrator()
+        arbitrator.master = arbitrator.PI
+        stream = RtuFrameStream()
+        writes = wire_hac1_acks(gateway)
+        plain_write = gateway.serial_write
+        plain_read = gateway.serial_read
+
+        def serial_write(ser, data, reason):
+            written = plain_write(ser, data, reason)
+            arbitrator.note_own_frame(data)
+            return written
+
+        def serial_read(*args):
+            data = plain_read(*args)
+            for frame in stream.feed(data):
+                arbitrator.observe_frame(frame)
+            return data
+
+        gateway.serial_write = serial_write
+        gateway.serial_read = serial_read
+        serial = type("Serial", (), {"flush": lambda self: None})()
+        self.assertEqual(gateway.write_afterheat_setpoint(serial, 22), 22)
+        self.assertEqual(len(writes), 2)
+        self.assertEqual(arbitrator.master, arbitrator.PI)
+        self.assertEqual(arbitrator.own_echo_count, 2)
+        self.assertEqual(arbitrator.foreign_write_count, 0)
 
     def test_discovery_is_stable_during_fallback_and_never_deletes_entities(self):
         gateway = make_gateway()
