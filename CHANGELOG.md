@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.0-beta.54
+
+- Remove the leftover dashed T2AH sensor lead to the removed marker beside the afterheat coil.
+
 ## 1.2.0-beta.53
 
 - Remove the small duplicate T2AH temperature pin beside the afterheat coil; keep the large T2AH reading on the supply-air pipe.
