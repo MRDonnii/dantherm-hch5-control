@@ -7,6 +7,13 @@ Type=simple
 User=root
 Group=root
 EnvironmentFile=/etc/dantherm-webui/admin.env
+# PrivateTmp's per-service private bind mount can go stale (ESTALE /
+# "No usable temporary directory found") on NFS-backed root filesystems
+# such as diskless netboot Pi images. Route tempfile.* usage (e.g. the
+# update staging directory) to the already-writable, non-ephemeral state
+# directory instead of relying on the private /tmp bind mount.
+Environment=TMPDIR=/var/lib/dantherm-admin/tmp
+ExecStartPre=/usr/bin/install -d -m 0700 -o root -g root /var/lib/dantherm-admin/tmp
 ExecStart=/usr/bin/python3 /opt/dantherm-webui/dantherm_pi_admin_api.py
 Restart=on-failure
 RestartSec=3
