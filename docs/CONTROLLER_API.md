@@ -42,10 +42,13 @@ stored as gaps, not as repeated copies of the last value. Historical rows
 without freshness markers from before this change are treated as unverifiable
 and their affected temperature values are hidden.
 
-The gateway refreshes these values from passive bus frames and, only when
-`serial.active_reads_enabled` is true, from a read-only FC03 snapshot of HAC1
-registers 180–209 every 10 seconds. This freshness change does not enable
-active polling.
+The controller-aware gateway enables read-only active polling by default;
+`serial.active_reads_enabled: false` remains an opt-out. Active polls run only
+when Pi owns the bus or after the configured quiet-time takeover probe. Valid
+HCP4 FC03/FC04 read requests and FC06/FC16 writes mark HCP4 active, pausing
+Pi polls until the bus has been quiet for the master release timeout (10
+seconds by default). The passive gateway entry point keeps active polling
+disabled unless explicitly enabled.
 
 ```json
 {"fireplace":true}

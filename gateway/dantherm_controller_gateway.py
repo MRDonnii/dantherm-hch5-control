@@ -23,6 +23,13 @@ from master_arbitration import MasterArbitrator
 LOG = logging.getLogger("dantherm_controller_gateway")
 
 
+def enable_adaptive_active_reads(config: dict) -> None:
+    serial_config = config.setdefault("serial", {})
+    if not isinstance(serial_config, dict):
+        raise TypeError("serial configuration must be a mapping")
+    serial_config.setdefault("active_reads_enabled", True)
+
+
 class Gateway(BaseGateway):
     """Base gateway plus immediate HCP4 detection and hard bus-master gate."""
 
@@ -30,6 +37,7 @@ class Gateway(BaseGateway):
         # HCH5 Control owns the local maintenance timer when it runs as the
         # replacement controller. Passive installations keep the legacy
         # opt-in behaviour because they use the base gateway entry point.
+        enable_adaptive_active_reads(config)
         filter_cfg = config.get("filter")
         if not isinstance(filter_cfg, dict):
             filter_cfg = {}
@@ -52,6 +60,8 @@ class Gateway(BaseGateway):
         LOG.info("Legacy gateway control loop disabled; ControllerRuntime owns Pi control")
         LOG.info("HCH5 Control local filter tracking enabled")
         LOG.info("HCH5 Control decision log and data-health diagnostics enabled")
+        if self.active_reads_enabled:
+            LOG.info("Adaptive RS485 active reads enabled; HCP4 bus activity suppresses polling")
 
     def serial_read(self, ser: serial.Serial, size: int) -> bytes:
         data = super().serial_read(ser, size)
@@ -68,7 +78,8 @@ class Gateway(BaseGateway):
         window. While HCP4 is active Pi remains passive. Once HCP4 has been
         quiet for the configured release timeout, one normal read transaction
         may probe that the unit still answers; the response makes bus health
-        true and allows arbitration to promote Pi to master.
+        true and allows arbitration to promote Pi to master. Valid HCP4 FC03/
+        FC04 requests are tracked as bus activity, not just writes.
         """
         master = self.controller.master
         now = time.monotonic()
@@ -77,10 +88,16 @@ class Gateway(BaseGateway):
         if master.master == MasterArbitrator.UNKNOWN:
             if now - master.started_monotonic < master.startup_observation:
                 return False
-            age = None if master.last_foreign_write is None else now - master.last_foreign_write
+            age = (
+                None if master.last_foreign_activity is None
+                else now - master.last_foreign_activity
+            )
             return age is None or age > master.release_timeout
         if master.master == MasterArbitrator.HCP4:
-            age = None if master.last_foreign_write is None else now - master.last_foreign_write
+            age = (
+                None if master.last_foreign_activity is None
+                else now - master.last_foreign_activity
+            )
             return age is not None and age > master.release_timeout
         return False
 
@@ -102,9 +119,8 @@ class Gateway(BaseGateway):
             return 0
 
         written = super().serial_write(ser, data, reason)
-        if is_control and written:
-            # FC06 echoes and FC16 acknowledgements are consumed as our own
-            # transaction and therefore never count as HCP4 activity.
+        if (is_control or is_active_read) and written:
+            # Ignore local RS485 echoes of both control writes and active reads.
             self.controller.note_own_frame(data[:written])
         return written
 

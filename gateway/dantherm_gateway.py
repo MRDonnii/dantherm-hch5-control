@@ -1773,8 +1773,12 @@ class Gateway:
         request = self.read_frame(start, count, slave=slave, function=function)
         expected_length = 5 + count * 2
         for _attempt in range(4):
+            if not self._active_read_allowed():
+                return None
             if not self.wait_quiet(ser):
                 continue
+            if not self._active_read_allowed():
+                return None
             self.serial_write(ser, request, "ACTIVE_READ")
             ser.flush()
             deadline = time.monotonic() + 0.18
@@ -1799,6 +1803,9 @@ class Gateway:
                         for index in range(3, len(frame) - 2, 2)
                     ]
         return None
+
+    def _active_read_allowed(self) -> bool:
+        return True
 
     def _mirror_active_block(self, slave: int, function: int, start: int, values: list[int]) -> None:
         """Re-broadcast a successful active read so HA's passive parser still
@@ -2346,7 +2353,11 @@ class Gateway:
                             tcp_mirror.broadcast(data)
                         for frame in sniffer.feed(data):
                             self.decode(frame)
-                    if (self.master_mode or bool(self.cfg.get("controller"))) and time.monotonic() - self.last_master_poll >= 3.0:
+                    if (
+                        (self.master_mode or bool(self.cfg.get("controller")))
+                        and time.monotonic() - self.last_master_poll >= 3.0
+                        and self._active_read_allowed()
+                    ):
                         self.poll_master_blocks(ser)
                     if (
                         self.override_mode is not None

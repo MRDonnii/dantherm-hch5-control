@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0-beta.51
+
+- Enable read-only active temperature polling by default in the controller-aware gateway, while preserving `serial.active_reads_enabled: false` as an opt-out. Pause Pi polls when HCP4 sends valid FC03/FC04 reads or FC06/FC16 writes, and resume only after the configured quiet timeout.
+- Track HCP4 read requests separately from response frames and ignore echoes of the Pi's own active reads, so automatic bus arbitration does not mistake the Pi's polling for HCP4 activity.
+- Keep T3/T5 setpoints local-only until verified hardware write mappings are available.
+
 ## 1.2.0-beta.50
 
 - Hide T2, T2AH, HAC1 frost, and HRC2 T5 readings when no valid sample arrives for 45 seconds; stale and unverifiable historical readings appear as gaps.

@@ -2,9 +2,9 @@
 """Fail-safe RS485 master arbitration between HCP4 and Raspberry Pi.
 
 Raspberry Pi is the automatic controller whenever the bus is healthy and HCP4
-is not active. Any valid foreign FC06/FC16 write immediately yields the bus
-when Pi is master. HCP4 is released only after a quiet timeout while the bus
-remains healthy. There is intentionally no user-facing controller disable.
+is not active. Foreign read requests and FC06/FC16 writes identify HCP4 bus
+activity. HCP4 is released only after a quiet timeout while the bus remains
+healthy. There is intentionally no user-facing controller disable.
 """
 from __future__ import annotations
 
@@ -39,6 +39,19 @@ def write_signature(frame: bytes):
     if fn == 16:
         return (16, frame[0], int.from_bytes(frame[2:4], "big"), int.from_bytes(frame[4:6], "big"))
     return None
+
+
+def read_request_signature(frame: bytes):
+    if len(frame) != 8 or frame[0] not in KNOWN_SLAVES or not valid_crc(frame):
+        return None
+    fn = frame[1]
+    if fn not in (3, 4):
+        return None
+    start = int.from_bytes(frame[2:4], "big")
+    count = int.from_bytes(frame[4:6], "big")
+    if not 1 <= count <= 125:
+        return None
+    return (fn, frame[0], start, count)
 
 
 class RtuFrameStream:
@@ -130,11 +143,16 @@ class MasterArbitrator:
         self.reason = "startup_observation"
         self.last_bus_frame: float | None = None
         self.last_foreign_write: float | None = None
+        self.last_foreign_read: float | None = None
+        self.last_foreign_activity: float | None = None
         self.foreign_events: deque[tuple[float, tuple]] = deque()
+        self.foreign_read_events: deque[tuple[float, tuple]] = deque()
         self.pending_own: deque[tuple[float, tuple]] = deque()
         self.own_write_count = 0
+        self.own_read_count = 0
         self.own_echo_count = 0
         self.foreign_write_count = 0
+        self.foreign_read_count = 0
         self._last_foreign_signature: tuple | None = None
         self._last_foreign_signature_at = 0.0
 
@@ -167,12 +185,17 @@ class MasterArbitrator:
         return True
 
     def note_own_frame(self, frame: bytes, now: float | None = None) -> None:
-        signature = write_signature(frame)
+        write = write_signature(frame)
+        read = read_request_signature(frame)
+        signature = write or read
         if signature is None:
             return
         now = time.monotonic() if now is None else float(now)
         self.pending_own.append((now + self.own_echo_ttl, signature))
-        self.own_write_count += 1
+        if write is not None:
+            self.own_write_count += 1
+        else:
+            self.own_read_count += 1
         self._purge(now)
 
     def _purge(self, now: float) -> None:
@@ -180,6 +203,8 @@ class MasterArbitrator:
             self.pending_own.popleft()
         while self.foreign_events and now - self.foreign_events[0][0] > 60.0:
             self.foreign_events.popleft()
+        while self.foreign_read_events and now - self.foreign_read_events[0][0] > 60.0:
+            self.foreign_read_events.popleft()
 
     def _consume_own(self, signature: tuple, now: float) -> bool:
         self._purge(now)
@@ -195,17 +220,29 @@ class MasterArbitrator:
         if not valid_crc(frame):
             return "invalid"
         self.last_bus_frame = now
-        signature = write_signature(frame)
+        write = write_signature(frame)
+        read = read_request_signature(frame)
+        signature = write or read
         if signature is None:
             return "read_or_response"
         if self._consume_own(signature, now):
             return "own"
+        if read is not None:
+            self.last_foreign_read = now
+            self.last_foreign_activity = now
+            self.foreign_read_count += 1
+            self.foreign_read_events.append((now, read))
+            if self.master != self.HCP4:
+                self._transition(self.HCP4, "foreign_read_request", now)
+            return "foreign_read"
         if signature == self._last_foreign_signature and now - self._last_foreign_signature_at <= self.foreign_echo_dedupe:
             self.last_foreign_write = now
+            self.last_foreign_activity = now
             return "foreign_echo"
         self._last_foreign_signature = signature
         self._last_foreign_signature_at = now
         self.last_foreign_write = now
+        self.last_foreign_activity = now
         self.foreign_write_count += 1
         self.foreign_events.append((now, signature))
         self._purge(now)
@@ -223,10 +260,13 @@ class MasterArbitrator:
         self._purge(now)
         if not bus_healthy:
             return self._transition(self.UNKNOWN, "bus_unhealthy", now)
-        foreign_age = None if self.last_foreign_write is None else now - self.last_foreign_write
+        foreign_age = (
+            None if self.last_foreign_activity is None
+            else now - self.last_foreign_activity
+        )
         if foreign_age is not None and foreign_age <= self.release_timeout:
             if self.master == self.HCP4:
-                self.reason = "hcp4_recent_foreign_writes"
+                self.reason = "hcp4_recent_bus_activity"
             return False
         if now - self.started_monotonic < self.startup_observation:
             return self._transition(self.UNKNOWN, "startup_observation", now)
@@ -248,22 +288,39 @@ class MasterArbitrator:
         now = time.monotonic() if now is None else float(now)
         self._purge(now)
         age = None if self.last_foreign_write is None else max(0.0, now - self.last_foreign_write)
+        read_age = None if self.last_foreign_read is None else max(0.0, now - self.last_foreign_read)
+        activity_age = (
+            None if self.last_foreign_activity is None
+            else max(0.0, now - self.last_foreign_activity)
+        )
         foreign_10 = sum(1 for when, _ in self.foreign_events if now - when <= 10.0)
         foreign_60 = sum(1 for when, _ in self.foreign_events if now - when <= 60.0)
+        foreign_reads_10 = sum(
+            1 for when, _ in self.foreign_read_events if now - when <= 10.0
+        )
+        foreign_reads_60 = sum(
+            1 for when, _ in self.foreign_read_events if now - when <= 60.0
+        )
         return {
             "active_master": self.master,
             "hcp4_detected": self.master == self.HCP4,
             "hcp4_active": self.master == self.HCP4,
             "hcp4_last_foreign_write_age": round(age, 2) if age is not None else None,
+            "hcp4_last_foreign_read_age": round(read_age, 2) if read_age is not None else None,
+            "hcp4_last_bus_activity_age": round(activity_age, 2) if activity_age is not None else None,
             "hcp4_foreign_writes_10s": foreign_10,
             "hcp4_foreign_writes_60s": foreign_60,
+            "hcp4_foreign_reads_10s": foreign_reads_10,
+            "hcp4_foreign_reads_60s": foreign_reads_60,
             "hcp4_detection_reason": self.reason,
             "hcp4_release_timeout_seconds": self.release_timeout,
             "hcp4_detection_window_seconds": self.detection_window,
             "hcp4_detection_min_foreign_writes": self.detection_min_foreign_writes,
             "own_write_count": self.own_write_count,
+            "own_read_count": self.own_read_count,
             "own_echo_count": self.own_echo_count,
             "foreign_write_count": self.foreign_write_count,
+            "foreign_read_count": self.foreign_read_count,
             "master_since_epoch": self.master_since_epoch,
             "master_age_seconds": round(max(0.0, now - self.master_since_monotonic), 1),
             "master_bus_frame_age": round(self.bus_age(now), 2) if self.bus_age(now) is not None else None,
