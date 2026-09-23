@@ -94,6 +94,7 @@ const CORE_POINTS = "420,178 620,178 700,262 620,346 420,346 340,262";
 const CORE_CORNERS: Point[] = [[420, 178], [620, 178], [700, 262], [620, 346], [420, 346], [340, 262]];
 const CORE_PLATES = [196, 214, 232, 250, 268, 286, 304, 322];
 const BYPASS_PROGRESS = "M462 290 H578";
+const EXTRACT_ROUTES = [["route-core", NORMAL_EXTRACT], ["route-bypass", BYPASS_EXTRACT]] as const;
 
 // One oblique projection for the whole unit, depth going up-left like the
 // top and the afterheat end of the cabinet: the parts inside are extruded
@@ -228,6 +229,17 @@ function RearDuct({ y }: { y: number }) {
   </g>;
 }
 
+// Soft moving highlights run from the first point of each air path to its
+// last. Both path definitions begin at their real upstream end, so one CSS
+// dash direction works for intake and extract, including the bypass branch.
+function AirWisps({ path, kind, speed }: { path: string; kind: "supply" | "extract"; speed: number }) {
+  const style = { "--flow-speed": speed ? `${speed}s` : "0s" } as CSSProperties;
+  return <g className={`hch-air-wisps hch-fog-${kind}`}>
+    <path className="hch-air-wisp hch-air-wisp-wide" d={path} style={style}/>
+    <path className="hch-air-wisp hch-air-wisp-fine" d={path} style={style}/>
+  </g>;
+}
+
 // Wiring view: the unit's control board, the HAC1 afterheat controller and
 // the Raspberry Pi share one RS485/Modbus RTU cable (unit = slave 1, HAC1 =
 // slave 0x40, Pi = gateway). HAC1 wires its own T2AH and frost sensors and
@@ -319,16 +331,21 @@ export function Hch5UnitDiagram(props:Hch5UnitDiagramProps) {
             the afterheat end (left) are seen as closed faces, the exhaust end
             recedes out of view. */}
         <polygon className="hch-top-panel" points="188,132 154,102 890,102 924,132" fill="url(#metalTop)"/>
+        <path className="hch-top-fold" d="M172 113 H884 L907 132 H188"/>
         <rect className="hch-cabinet" x="188" y="132" width="736" height="302" rx="8" fill="url(#metalFace)"/>
         <polygon className="hch-side-panel" points="188,132 154,102 154,404 188,434" fill="url(#metalSide)"/>
         <polygon className="hch-side-inset" points="182,146 160,127 160,398 182,420"/>
+        <path className="hch-side-seam" d="M166 140 V388 M175 149 V406"/>
         <rect className="hch-inner" x={ox} y={oy} width={ow} height={oh} rx="5"/>
+        <rect className="hch-opening-gasket" x={ox-8} y={oy-8} width={ow+16} height={oh+16} rx="9"/>
+        {[[199,144],[916,144],[199,423],[916,423]].map(([x,y])=><g key={`${x}-${y}`} className="hch-cabinet-fastener" transform={`translate(${x} ${y})`}><circle r="4"/><path d="M-2 0 H2"/></g>)}
         <g clipPath="url(#cabinetOpening)">
           {/* Looking in through the open front, the floor and the right-hand
               wall of the cabinet recede along the same depth as its top. */}
           <polygon className="hch-cavity-floor" points={pointList([[ox,backY],[backX,backY],[ox+ow,oy+oh],[ox,oy+oh]])}/>
           <polygon className="hch-cavity-wall" points={pointList([[backX,oy],[ox+ow,oy],[ox+ow,oy+oh],[backX,backY]])}/>
           <path className="hch-cavity-edge" d={`M${ox} ${backY} H${backX} V${oy}`}/>
+          <path className="hch-cavity-rail" d="M225 407 H858 M225 157 H855"/>
           <Filter x={262} y={206} angle={24} label="Filter · udsugning"/><Filter x={866} y={204} angle={-24} label="Filter · udeluft"/>
           <rect className="hch-bypass-channel" x="300" y="371" width="482" height="34" rx="12"/><rect className="hch-bypass-channel-glow" x="300" y="371" width="482" height="34" rx="12" style={bypassRoute}/>
           <text className="hch-channel-label" x="541" y="393" textAnchor="middle">Bypass-kanal</text>
@@ -367,6 +384,10 @@ export function Hch5UnitDiagram(props:Hch5UnitDiagramProps) {
       <g className="hch-fog-group soft" filter="url(#fogBlurSoft)" mask="url(#fogFadeMask)">
         <path className="hch-fog-wash hch-fog-supply" d={NORMAL_SUPPLY} style={{"--flow-speed":supplySpeed?`${supplySpeed*1.7}s`:"0s"} as CSSProperties}/>
         {([["route-core",NORMAL_EXTRACT,coreRoute],["route-bypass",BYPASS_EXTRACT,bypassRoute]] as const).map(([route,path,style])=><g key={route} className={`hch-fog-route ${route}`} style={style}><path className="hch-fog-wash hch-fog-extract" d={path} style={{"--flow-speed":extractSpeed?`${extractSpeed*1.7}s`:"0s"} as CSSProperties}/></g>)}
+      </g>
+      <g className="hch-wisp-group" mask="url(#fogFadeMask)">
+        <AirWisps path={NORMAL_SUPPLY} kind="supply" speed={supplySpeed}/>
+        {EXTRACT_ROUTES.map(([route,path])=><g key={route} className={`hch-fog-route ${route}`} style={route==="route-core"?coreRoute:bypassRoute}><AirWisps path={path} kind="extract" speed={extractSpeed}/></g>)}
       </g>
       <g className="hch-airflow-guides" mask="url(#fogFadeMask)">
         <path className="hch-airflow-guide hch-supply-flow" d={NORMAL_SUPPLY} style={{"--flow-speed":supplySpeed?`${supplySpeed}s`:"0s"} as CSSProperties}/>
