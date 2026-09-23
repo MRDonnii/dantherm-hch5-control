@@ -170,12 +170,12 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="topbar-actions">
             {availableUpdate && <NavLink className="topbar-update-tab" to="/updates" title={availableUpdate}><RefreshCw size={15}/><span>{availableUpdate === "Installerer opdatering" ? availableUpdate : "Opdatering klar"}</span>{availableUpdate !== "Installerer opdatering" && <small>{availableUpdate}</small>}</NavLink>}
             <div className="topbar-clock"><strong>{now.toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" })}</strong><span>{now.toLocaleDateString("da-DK", { day: "2-digit", month: "short", year: "numeric" })}</span></div>
+            {notice && <div className={`topbar-control-notice${notice.startsWith("Kunne") ? " error" : ""}`} role="status" title={notice}><strong>Seneste ændring</strong><span>{notice}</span></div>}
             <span className={`status-chip${online ? "" : " muted"}`}><span className="live-dot" /> {online ? "Forbundet" : "Afventer"}</span>
             <button className="icon-button" type="button" onClick={() => setTheme(effectiveTheme === "dark" ? "light" : "dark")} aria-label="Skift tema">
               {effectiveTheme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
             </button>
           </div>
-          {notice && <div className={`topbar-control-notice${notice.startsWith("Kunne") ? " error" : ""}`} role="status"><strong>Seneste ændring</strong><span>{notice}</span></div>}
         </header>
         <TopbarNoticeContext.Provider value={noticeContext}>
           <main className="content-stage">{children}</main>

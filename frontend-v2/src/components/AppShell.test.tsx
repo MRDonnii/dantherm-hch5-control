@@ -31,7 +31,9 @@ describe("AppShell update tab and control feedback", () => {
     expect(screen.queryByRole("link", { name: /Opdatering klar/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Gem ændring" }));
     expect(screen.getByRole("status").textContent).toContain("Manuel valgt.");
-    expect(document.querySelector(".topbar-control-notice")).not.toBeNull();
+    const notice = document.querySelector(".topbar-control-notice");
+    expect(notice?.parentElement?.classList.contains("topbar-actions")).toBe(true);
+    expect(notice?.nextElementSibling?.classList.contains("status-chip")).toBe(true);
   });
 
   it("shows an update tab in the top banner only when a new beta exists", async () => {
