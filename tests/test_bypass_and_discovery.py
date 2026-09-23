@@ -313,7 +313,7 @@ class BypassAndDiscoveryTests(unittest.TestCase):
         # identity, regardless of whether HCP4 or the Pi currently masters
         # the bus. Both paths in dantherm_gateway.py must publish it.
         self.assertEqual(gateway.state["supply_temperature"], 23.80)
-        self.assertEqual(gateway.state["temperature_source"], "canonical_t2")
+        self.assertEqual(gateway.state["temperature_source"], "hch5_fc04")
         self.assertIsInstance(gateway.state["temperature_sample_monotonic"], float)
 
     def test_fireplace_pattern_keeps_verified_register_sequence(self):

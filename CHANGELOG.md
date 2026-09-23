@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0-beta.29
+
+- Restores the 1.2.0-beta.23 updater hotfixes that the afterheat beta line (beta.26-28) was branched without: the admin service may write its state directory again, `update.sh` no longer write-probes `/var/lib/dantherm-hch5-ha` inside the admin sandbox (the cause of "install: cannot change owner ... Read-only file system" when updating from beta.27 to beta.28), and a manual update check bypasses the 5-minute cache so new betas appear immediately.
+- Brings in beta.23's canonical T1-T4 publishing and HAC1 180-209 snapshot mapping (T2 before the coil, T2AH after it, frost sensor).
+
 ## 1.2.0-beta.28
 
 - Mirrors the Overview unit diagram to match the real HCH5: outdoor air (T1) and exhaust (T4) connect on the right, where both fan motors sit (supply fan in the outdoor stream before the exchanger, extract fan in the exhaust stream after it); extract (T3) and supply connect on the left, where the supply duct feeds the external HAC1 afterheat coil.
