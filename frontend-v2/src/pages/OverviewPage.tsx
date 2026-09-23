@@ -39,7 +39,8 @@ function text(value: unknown, fallback = "—") {
   return value === null || value === undefined || value === "" ? fallback : String(value);
 }
 function temp(value: number | null) {
-  return value === null ? "—" : `${value.toLocaleString("da-DK", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} °C`;
+  // Non-breaking space keeps the value and its unit on one line.
+  return value === null ? "—" : `${value.toLocaleString("da-DK", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}\u00a0°C`;
 }
 function whole(value: number | null) {
   return value === null ? "—" : Math.round(value).toLocaleString("da-DK");
@@ -299,7 +300,10 @@ export function OverviewPage() {
           </div>
 
           <article className="surface afterheat-setpoint-card">
-            <div className="afterheat-copy"><span>Eftervarme setpunkt</span><strong>RS485: {actualAfterheatSelection}</strong><small>Ønsket: {shownAfterheat === "off" ? "OFF" : `${whole(shownAfterheat)} °C`} · Varmekald: {afterheatStatus}. HAC1 regulerer selv varmefladen.</small>{afterheatLockout && <div className="afterheat-lockout">Spærret af HAC1: udetemperaturen er {temp(outdoor)}. Eftervarmen tænder først, når det er under {whole(afterheatCutoff)} °C ude.</div>}</div>
+            <div className="afterheat-copy"><span>Eftervarme setpunkt</span>{afterheatLockout
+              // The summer stop replaces the RS485 details so the card stays compact.
+              ? <div className="afterheat-lockout">Spærret af HAC1: udetemperaturen er {temp(outdoor)}. Eftervarmen tænder først, når det er under {whole(afterheatCutoff)}{"\u00a0"}°C ude.</div>
+              : <><strong>RS485: {actualAfterheatSelection}</strong><small>Ønsket: {shownAfterheat === "off" ? "OFF" : `${whole(shownAfterheat)} °C`} · Varmekald: {afterheatStatus}. HAC1 regulerer selv varmefladen.</small></>}</div>
             <div className="setpoint-stepper">
               <button disabled={shownAfterheat === "off"} onClick={() => stepAfterheat(-1)}>−</button>
               <strong>{shownAfterheat === "off" ? "OFF" : `${whole(shownAfterheat)} °C`}</strong>

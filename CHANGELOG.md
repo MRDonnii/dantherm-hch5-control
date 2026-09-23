@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.0-beta.33
+
+- Keeps the afterheat card compact during the summer stop: the lockout notice replaces the RS485 selection and the detail line instead of being added below them, and it is sized to the card. Temperatures keep their value and "°C" on one line.
+
 ## 1.2.0-beta.32
 
 - Fixes the unit's left end panel looking like an open door: the top and the afterheat end are now drawn in one consistent oblique projection (depth going up-left) as closed metal faces, with the duct stubs leaving the end panel.
