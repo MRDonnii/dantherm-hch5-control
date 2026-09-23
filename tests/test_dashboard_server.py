@@ -26,6 +26,27 @@ class DashboardTests(unittest.TestCase):
             store.record({"co2": 800, "heat_recovery_efficiency": 151}, now=now - 90000); store.last_sample = 0
             store.record({"co2": 850, "heat_recovery_efficiency": 82}, now=now); rows = store.query("24h")
             self.assertEqual(len(rows), 1); self.assertEqual(rows[0]["co2"], 850); self.assertEqual(rows[0]["heat_recovery_efficiency"], 82)
+    def test_history_migrates_existing_database_for_system_metrics(self):
+        import sqlite3
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "history.sqlite3"
+            with sqlite3.connect(path) as db:
+                db.execute("CREATE TABLE samples (ts INTEGER PRIMARY KEY, co2 REAL)")
+                db.execute("INSERT INTO samples (ts, co2) VALUES (?, ?)", (int(time.time()) - 20, 700))
+            store = MODULE.HistoryStore(path, sample_seconds=10)
+            self.assertTrue(store.available)
+            store.record({"system_cpu_usage_percent": 25, "pi_cpu_temperature": 43, "system_memory_used_percent": 40}, now=time.time())
+            rows = store.query("1h")
+            self.assertEqual(rows[0]["co2"], 700)
+            self.assertEqual(rows[-1]["system_cpu_usage_percent"], 25)
+            self.assertEqual(rows[-1]["pi_cpu_temperature"], 43)
+    def test_system_snapshot_has_resource_fields_and_onewire_service(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            server = MODULE.DashboardHttpServer("127.0.0.1", 0, {}, "Test", None, history_path=Path(tmp) / "history.sqlite3")
+            snapshot = server._system_snapshot()
+            for key in ("system_memory_used_percent", "system_uptime_seconds", "system_load_1m", "system_cpu_temperature", "system_root_free_gb"):
+                self.assertIn(key, snapshot)
+            self.assertIn("service_onewire_activestate", snapshot)
     def test_server_serves_assets_and_has_no_write_api(self):
         with tempfile.TemporaryDirectory() as tmp:
             server = MODULE.DashboardHttpServer("127.0.0.1", 0, {"bus_traffic": True, "bus_last_frame_age": 0.2}, "Test", None, web_root=ROOT / "gateway/webui", history_path=Path(tmp) / "history.sqlite3"); server.start(); port = server.server.server_address[1]

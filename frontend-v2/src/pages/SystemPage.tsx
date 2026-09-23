@@ -1,151 +1,29 @@
 import { useCallback, useEffect, useState } from "react";
-import { Cable, HardDrive, Network, Server } from "lucide-react";
-import { InfoList } from "../components/InfoList";
-import { postJson, requestJson } from "../lib/api";
+import { Activity, Cpu, HardDrive, MemoryStick, Network, Server, Thermometer, Timer } from "lucide-react";
+import { HistoryChart } from "../components/HistoryChart";
+import { requestJson } from "../lib/api";
 import "../styles/panels.css";
-
+import "../styles/history.css";
+import "../styles/system.css";
 type Data = Record<string, unknown>;
-type AuthState = { csrf?: string | null };
-type UpdateInfo = { channel?: string; current_version?: string; available_version?: string; update_available?: boolean };
-
-function text(value: unknown, fallback = "—") {
-  return value === null || value === undefined || value === "" ? fallback : String(value);
-}
-function number(value: unknown): number | null {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-function percent(value: unknown) {
-  const parsed = number(value);
-  return parsed === null ? "—" : `${parsed.toLocaleString("da-DK", { maximumFractionDigits: 1 })}%`;
-}
-function bytesToMb(value: unknown) {
-  const parsed = number(value);
-  return parsed === null ? "—" : `${Math.round(parsed / 1024 / 1024)} MB`;
-}
-function serviceTone(state: unknown) {
-  return state === "active" ? "ok" : state === undefined || state === null ? "neutral" : "bad";
-}
-
-export function SystemPage() {
-  const [state, setState] = useState<Data>({});
-  const [online, setOnline] = useState(false);
-  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
-  const [csrf, setCsrf] = useState("");
-
-  const refresh = useCallback(async () => {
-    try {
-      const result = await requestJson<Data>("/state.json", { timeoutMs: 4000 });
-      setState(result);
-      setOnline(true);
-    } catch {
-      setOnline(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 5000);
-    return () => window.clearInterval(timer);
-  }, [refresh]);
-
-  useEffect(() => {
-    void requestJson<AuthState>("/api/auth/status", { timeoutMs: 3500 }).then(result => setCsrf(result.csrf ?? "")).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (!csrf) return;
-    let stopped = false;
-    const check = async () => {
-      try {
-        const result = await postJson<UpdateInfo>("/api/admin/action", { action: "check_update" }, csrf);
-        if (!stopped) setUpdateInfo(result);
-      } catch {
-        // Versionsstatus er sekundær information her.
-      }
-    };
-    void check();
-    const timer = window.setInterval(() => void check(), 300000);
-    return () => { stopped = true; window.clearInterval(timer); };
-  }, [csrf]);
-
-  return (
-    <section className="dashboard-overview page-enter">
-      <header className="overview-heading-row">
-        <div>
-          <span className="eyebrow">SYSTEM</span>
-          <h1>Raspberry Pi og gateway</h1>
-          <p>Drift, services, netværk, ressourcer og versionsstatus.</p>
-        </div>
-        <div className="overview-status-pills">
-          <div><span className={`status-led ${online ? "" : "warn"}`}/><small>System</small><strong>{online ? "Live" : "Afventer"}</strong></div>
-          <div><span className="status-led"/><small>Version</small><strong>{text(updateInfo?.current_version)}</strong></div>
-        </div>
-      </header>
-
-      <div className="panel-grid">
-        <article className="surface panel-card">
-          <div className="pro-card-head compact"><div><h2>Raspberry Pi</h2><p>Vært, CPU og hukommelse</p></div><Server size={20}/></div>
-          <InfoList rows={[
-            { label: "Hostname", value: text(state.system_hostname) },
-            { label: "OS", value: text(state.system_os) },
-            { label: "Arkitektur", value: text(state.system_architecture) },
-            { label: "Systemtid", value: text(state.system_time) },
-            { label: "CPU-frekvens", value: state.system_cpu_frequency_mhz ? `${text(state.system_cpu_frequency_mhz)} MHz` : "—" },
-            { label: "CPU-forbrug", value: percent(state.system_cpu_usage_percent), tone: (number(state.system_cpu_usage_percent) ?? 0) > 85 ? "warn" : "ok" },
-            { label: "Swap i brug", value: percent(state.system_swap_used_percent) },
-          ]}/>
-        </article>
-
-        <article className="surface panel-card">
-          <div className="pro-card-head compact"><div><h2>Disk</h2><p>Rodpartition</p></div><HardDrive size={20}/></div>
-          <InfoList rows={[
-            { label: "Størrelse", value: state.system_root_total_gb ? `${text(state.system_root_total_gb)} GB` : "—" },
-            { label: "Brugt", value: percent(state.system_root_used_percent), tone: (number(state.system_root_used_percent) ?? 0) > 85 ? "warn" : "ok" },
-            { label: "Kilde", value: text(state.system_root_source) },
-            { label: "Filsystem", value: text(state.system_rootfs_type) },
-            { label: "Skrivebeskyttet", value: state.system_root_read_only === true ? "Ja" : state.system_root_read_only === false ? "Nej" : "—" },
-          ]}/>
-        </article>
-
-        <article className="surface panel-card">
-          <div className="pro-card-head compact"><div><h2>Netværk</h2><p>Aktiv rute og interface</p></div><Network size={20}/></div>
-          <InfoList rows={[
-            { label: "Interface", value: text(state.network_interface) },
-            { label: "Status", value: text(state.network_link_status), tone: state.network_link_status === "up" ? "ok" : "warn" },
-            { label: "IPv4", value: state.network_ipv4 ? `${text(state.network_ipv4)}/${text(state.network_prefix)}` : "—" },
-            { label: "Gateway", value: text(state.network_gateway) },
-            { label: "DNS", value: text(state.network_dns) },
-            { label: "MAC", value: text(state.network_mac) },
-            { label: "Linkhastighed", value: state.network_link_speed_mbps ? `${text(state.network_link_speed_mbps)} Mbps` : "—" },
-            { label: "Netværksstack", value: text(state.network_stack) },
-            { label: "RX/TX fejl", value: `${text(state.network_rx_errors, "0")} / ${text(state.network_tx_errors, "0")}` },
-          ]}/>
-        </article>
-
-        <article className="surface panel-card">
-          <div className="pro-card-head compact"><div><h2>Services</h2><p>Gateway, 1-Wire og SSH</p></div><Cable size={20}/></div>
-          <InfoList rows={[
-            { label: "Gateway", value: text(state.service_gateway_activestate), tone: serviceTone(state.service_gateway_activestate) },
-            { label: "Gateway genstarter", value: text(state.service_gateway_nrestarts, "0") },
-            { label: "Gateway hukommelse", value: bytesToMb(state.service_gateway_memorycurrent) },
-            { label: "1-Wire", value: text(state.service_onewire_activestate), tone: serviceTone(state.service_onewire_activestate) },
-            { label: "SSH", value: text(state.service_ssh_activestate), tone: serviceTone(state.service_ssh_activestate) },
-            { label: "SSH-port lytter", value: state.diagnostic_ssh_port_listening === true ? "Ja" : "Nej" },
-            { label: "Fejlede enheder", value: text(state.diagnostic_failed_units, "Ingen"), tone: state.diagnostic_failed_units && state.diagnostic_failed_units !== "Ingen" ? "bad" : "ok" },
-          ]}/>
-        </article>
-
-        <article className="surface panel-card">
-          <div className="pro-card-head compact"><div><h2>Versionsstatus</h2><p>Installeret build og opdateringskanal</p></div><Server size={20}/></div>
-          <InfoList rows={[
-            { label: "Kanal", value: updateInfo?.channel === "stable" ? "Stable" : "Beta" },
-            { label: "Nuværende version", value: text(updateInfo?.current_version) },
-            { label: "Tilgængelig version", value: text(updateInfo?.available_version) },
-            { label: "Opdatering klar", value: updateInfo?.update_available ? "Ja" : "Nej", tone: updateInfo?.update_available ? "warn" : "ok" },
-          ]}/>
-        </article>
-      </div>
-    </section>
-  );
+type Sample = Record<string, number | null>;
+const n = (v: unknown) => v == null || v === "" || !Number.isFinite(Number(v)) ? null : Number(v);
+const t = (v: unknown) => v == null || v === "" ? "—" : String(v);
+const p = (v: unknown) => n(v) == null ? "—" : `${n(v)!.toLocaleString("da-DK", {maximumFractionDigits:1})}%`;
+const gb = (v: unknown) => n(v) == null ? "—" : `${(n(v)! / 1073741824).toLocaleString("da-DK", {maximumFractionDigits:1})} GB`;
+const traffic = (v: unknown) => n(v) == null ? "—" : n(v)! >= 1073741824 ? gb(v) : `${(n(v)! / 1048576).toLocaleString("da-DK", {maximumFractionDigits:1})} MB`;
+function Metric({title,value,detail,amount,tone="blue",Icon}:{title:string;value:string;detail:string;amount?:number|null;tone?:string;Icon:typeof Cpu}) {return <article className={`surface system-metric ${tone}`}><div><span>{title}</span><Icon size={18}/></div><strong>{value}</strong><small>{detail}</small>{amount != null && <i className="system-track"><b style={{width:`${Math.max(0,Math.min(100,amount))}%`}}/></i>}</article>}
+function Chart({title,detail,samples,field,color,unit}:{title:string;detail:string;samples:Sample[];field:string;color:"blue"|"orange"|"green";unit:string}){return <article className="surface system-chart"><div className="pro-card-head compact"><div><h2>{title}</h2><p>{detail}</p></div><Activity size={18}/></div><HistoryChart samples={samples} series={[{key:field,label:title,color}]} unit={unit} height={160}/></article>}
+export function SystemPage(){
+ const [state,setState]=useState<Data>({}); const [samples,setSamples]=useState<Sample[]>([]); const [online,setOnline]=useState(false); const [range,setRange]=useState("24h");
+ const refresh=useCallback(async(r:string)=>{const [a,b]=await Promise.allSettled([requestJson<Data>("/state.json",{timeoutMs:4000}),requestJson<{samples:Sample[]}>(`/history.json?range=${r}`,{timeoutMs:6000})]);if(a.status==="fulfilled"){setState(a.value);setOnline(true)}else setOnline(false);if(b.status==="fulfilled")setSamples(Array.isArray(b.value.samples)?b.value.samples:[])},[]);
+ useEffect(()=>{void refresh(range);const id=window.setInterval(()=>void refresh(range),30000);return()=>window.clearInterval(id)},[range,refresh]);
+ const temp=n(state.pi_cpu_temperature??state.system_cpu_temperature),up=n(state.system_uptime_seconds??state.pi_uptime_seconds);const service=(value:unknown)=>value==="active"?"ok":value==="failed"?"bad":value==="inactive"?"stopped":"unknown";const services=[["Controller / gateway",state.service_gateway_activestate],["WebUI",online?"active":"unknown"],["Admin / update",state.service_admin_activestate],["1-Wire",state.service_onewire_activestate],["SSH",state.service_ssh_activestate]];
+ return <section className="dashboard-overview page-enter system-page"><header className="overview-heading-row"><div><span className="eyebrow">SYSTEM · RASPBERRY PI</span><h1>Driftsoverblik</h1><p>Ressourcer, historik og services for HCH5 Control.</p></div><span className={`system-online ${online?"ok":"unknown"}`}>● {online?"System online":"Afventer forbindelse"}</span></header>
+ <div className="system-metrics"><Metric title="CPU" value={p(state.system_cpu_usage_percent)} detail={`${t(state.system_cpu_frequency_mhz)} MHz · ${t(state.system_cpu_count)} kerner`} amount={n(state.system_cpu_usage_percent)} Icon={Cpu}/><Metric title="CPU-temperatur" value={temp==null?"—":`${temp.toLocaleString("da-DK")}°C`} detail={temp==null?"Ingen måling":temp>=80?"Kritisk temperatur":temp>=70?"Høj temperatur":"Normal temperatur"} amount={temp} tone={temp!=null&&temp>=80?"red":temp!=null&&temp>=70?"orange":"green"} Icon={Thermometer}/><Metric title="RAM" value={p(state.system_memory_used_percent)} detail={`${gb(state.system_memory_used_bytes)} / ${gb(state.system_memory_total_bytes)}`} amount={n(state.system_memory_used_percent)} Icon={MemoryStick}/><Metric title="Disk · /" value={p(state.system_root_used_percent)} detail={`${t(state.system_root_used_gb)} GB brugt · ${t(state.system_root_free_gb)} GB ledig`} amount={n(state.system_root_used_percent)} tone={(n(state.system_root_used_percent)??0)>=85?"orange":"blue"} Icon={HardDrive}/><Metric title="Uptime" value={up==null?"—":`${Math.floor(up/86400)}d ${Math.floor(up%86400/3600)}t ${Math.floor(up%3600/60)}m`} detail={`Boot ${t(state.system_boot_time)}`} Icon={Timer}/></div>
+ <div className="system-heading"><div><span className="eyebrow">RESSOURCER</span><h2>Udvikling over tid</h2></div><div className="pro-segment system-range">{[["1h","1 time"],["6h","6 timer"],["24h","24 timer"]].map(([v,l])=><button key={v} className={range===v?"active":""} onClick={()=>setRange(v)}>{l}</button>)}</div></div>
+ <div className="system-charts"><Chart title="CPU-forbrug" detail="Belastning i procent" samples={samples} field="system_cpu_usage_percent" color="blue" unit="%"/><Chart title="CPU-temperatur" detail="Advarsel ved 70°C" samples={samples} field="pi_cpu_temperature" color="orange" unit="°C"/><Chart title="RAM-forbrug" detail="Brugt fysisk hukommelse" samples={samples} field="system_memory_used_percent" color="green" unit="%"/></div>
+ <div className="system-lower"><article className="surface system-panel"><div className="pro-card-head compact"><div><h2>Services</h2><p>Aktuel status på Pi’en</p></div><Server size={19}/></div><div className="system-services">{services.map(([name,value])=><div key={String(name)}><i className={service(value)}/><strong>{t(name)}</strong><span className={service(value)}>{value==="active"?"OK":value==="failed"?"Fejl":value==="inactive"?"Stoppet":"Ukendt"}</span></div>)}</div></article>
+ <article className="surface system-panel"><div className="pro-card-head compact"><div><h2>Netværk</h2><p>Forbindelse og trafik</p></div><Network size={19}/></div><div className="system-network"><strong>{t(state.network_interface)}</strong><span>{t(state.network_ipv4)}</span></div><div className="system-pairs">{[["Modtaget",traffic(state.network_rx_bytes)],["Sendt",traffic(state.network_tx_bytes)],["Gateway",state.network_gateway],["Link",`${t(state.network_link_speed_mbps)} Mbps`]].map(([k,v])=><div key={String(k)}><span>{t(k)}</span><strong>{t(v)}</strong></div>)}</div></article>
+ <article className="surface system-panel"><div className="pro-card-head compact"><div><h2>Systeminformation</h2><p>Hardware og software</p></div><Cpu size={19}/></div><div className="system-pairs">{[["Model",state.pi_model??state.system_model],["Hostname",state.system_hostname],["OS",state.system_os],["Kernel",state.system_kernel],["Arkitektur",state.system_architecture],["Python",state.system_python_version],["HCH5 Control",state.system_hch5_version],["Load 1 / 5 / 15",`${t(state.system_load_1m)} / ${t(state.system_load_5m)} / ${t(state.system_load_15m)}`],["Belastning",n(state.system_load_1m)!=null&&n(state.system_cpu_count)!=null?n(state.system_load_1m)!/n(state.system_cpu_count)!>=1?"Høj":"Normal":"—"]].map(([k,v])=><div key={String(k)}><span>{t(k)}</span><strong>{t(v)}</strong></div>)}</div></article></div></section>
 }

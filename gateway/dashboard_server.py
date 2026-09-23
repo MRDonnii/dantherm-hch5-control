@@ -12,7 +12,7 @@ except ModuleNotFoundError:
 LOGGER = logging.getLogger("passivelink-dashboard")
 ASSET_TYPES = {".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8"}
 RANGES = {"1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800, "30d": 2592000}
-HISTORY_FIELDS = ("outdoor_temp", "supply_temp", "extract_temp", "exhaust_temp", "hrc2_t5_temperature", "flow_temperature", "return_temperature", "co2", "fan_supply_rpm", "fan_extract_rpm", "fan_supply_percent", "fan_extract_percent", "heat_recovery_efficiency")
+HISTORY_FIELDS = ("outdoor_temp", "supply_temp", "extract_temp", "exhaust_temp", "hrc2_t5_temperature", "flow_temperature", "return_temperature", "co2", "fan_supply_rpm", "fan_extract_rpm", "fan_supply_percent", "fan_extract_percent", "heat_recovery_efficiency", "system_cpu_usage_percent", "pi_cpu_temperature", "system_memory_used_percent", "system_load_1m")
 
 class HistoryStore:
     """Bounded sample history. Optional: any failure disables it without
@@ -26,6 +26,9 @@ class HistoryStore:
             with self._connect() as db:
                 columns = ",".join(f'"{field}" REAL' for field in HISTORY_FIELDS)
                 db.execute(f"CREATE TABLE IF NOT EXISTS samples (ts INTEGER PRIMARY KEY,{columns})")
+                existing = {row[1] for row in db.execute("PRAGMA table_info(samples)")}
+                for field in HISTORY_FIELDS:
+                    if field not in existing: db.execute(f'ALTER TABLE samples ADD COLUMN "{field}" REAL')
             self.available = True
         except (OSError, sqlite3.Error) as error:
             self.error = str(error)
@@ -97,6 +100,7 @@ class DashboardHttpServer:
             merged["heat_recovery_efficiency"] = round(recovery, 1) if recovery is not None and 0 <= recovery <= 105 else None
         except (KeyError, TypeError, ValueError):
             merged["heat_recovery_efficiency"] = None
+        if merged.get("pi_cpu_temperature") is None: merged["pi_cpu_temperature"] = merged.get("system_cpu_temperature")
         self.history.record(merged); return merged
     @staticmethod
     def _read(path: str) -> str | None:
@@ -109,7 +113,7 @@ class DashboardHttpServer:
     def _system_snapshot(self) -> dict[str, object]:
         now = time.monotonic()
         if self._system_cache and now - self._system_last_fetch < 10: return dict(self._system_cache)
-        data: dict[str, object] = {"system_hostname": socket.gethostname(), "system_os": platform.freedesktop_os_release().get("PRETTY_NAME"), "system_architecture": platform.machine(), "system_time": time.strftime("%Y-%m-%d %H:%M:%S %Z"), "system_timezone": self._read("/etc/timezone"), "system_cpu_frequency_mhz": None, "system_cpu_usage_percent": None}
+        data: dict[str, object] = {"system_hostname": socket.gethostname(), "system_os": platform.freedesktop_os_release().get("PRETTY_NAME"), "system_architecture": platform.machine(), "system_time": time.strftime("%Y-%m-%d %H:%M:%S %Z"), "system_timezone": self._read("/etc/timezone"), "system_cpu_frequency_mhz": None, "system_cpu_usage_percent": None, "system_kernel": platform.release(), "system_python_version": platform.python_version(), "system_model": self._read("/proc/device-tree/model"), "system_hch5_version": self._read(str(Path(__file__).resolve().parent / "VERSION")) or self._read(str(Path(__file__).resolve().parent.parent / "VERSION"))}
         try: data["system_cpu_frequency_mhz"] = round(int(self._read("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq") or 0) / 1000)
         except ValueError: pass
         try:
@@ -119,14 +123,25 @@ class DashboardHttpServer:
                 if total_delta > 0: data["system_cpu_usage_percent"] = round((1 - idle_delta / total_delta) * 100, 1)
             self._cpu_sample = (total, idle)
         except (ValueError, IndexError): pass
+        try:
+            loads = os.getloadavg(); data.update({"system_load_1m": round(loads[0], 2), "system_load_5m": round(loads[1], 2), "system_load_15m": round(loads[2], 2), "system_cpu_count": os.cpu_count()})
+        except OSError: pass
+        try:
+            uptime = float((self._read("/proc/uptime") or "").split()[0]); data["system_uptime_seconds"] = int(uptime); data["system_boot_time"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - uptime))
+        except (ValueError, IndexError): pass
+        try: data["system_cpu_temperature"] = round(int(self._read("/sys/class/thermal/thermal_zone0/temp") or "") / 1000, 1)
+        except ValueError: data["system_cpu_temperature"] = None
         mem = {}
         try:
             for line in (self._read("/proc/meminfo") or "").splitlines():
                 key, _, value = line.partition(":"); mem[key] = int(value.strip().split()[0])
+            data["system_memory_total_bytes"] = mem.get("MemTotal", 0) * 1024
+            data["system_memory_used_bytes"] = (mem.get("MemTotal", 0) - mem.get("MemAvailable", 0)) * 1024
+            data["system_memory_used_percent"] = round(data["system_memory_used_bytes"] / data["system_memory_total_bytes"] * 100, 1) if data["system_memory_total_bytes"] else None
             data["system_swap_used_percent"] = round((mem.get("SwapTotal", 0) - mem.get("SwapFree", 0)) / mem["SwapTotal"] * 100, 1) if mem.get("SwapTotal") else 0
         except (ValueError, IndexError): data["system_swap_used_percent"] = None
         try:
-            usage = shutil.disk_usage("/"); data["system_root_total_gb"] = round(usage.total / 1073741824, 1); data["system_root_used_percent"] = round(usage.used / usage.total * 100, 1)
+            usage = shutil.disk_usage("/"); data["system_root_total_gb"] = round(usage.total / 1073741824, 1); data["system_root_used_gb"] = round(usage.used / 1073741824, 1); data["system_root_free_gb"] = round(usage.free / 1073741824, 1); data["system_root_used_percent"] = round(usage.used / usage.total * 100, 1)
         except OSError: pass
         root = next((line.split() for line in (self._read("/proc/mounts") or "").splitlines() if len(line.split()) > 3 and line.split()[1] == "/"), None)
         if root: data.update({"system_root_source": root[0], "system_rootfs_type": root[2], "system_root_read_only": "ro" in root[3].split(",")})
@@ -146,7 +161,11 @@ class DashboardHttpServer:
         for service, label in (("NetworkManager", "NetworkManager"), ("systemd-networkd", "systemd-networkd"), ("dhcpcd", "dhcpcd"), ("networking", "ifupdown")):
             if self._run("/usr/bin/systemctl", "is-active", service) == "active": stack = label; break
         data["network_stack"] = stack
-        for service, prefix in ((os.getenv("DANTHERM_GATEWAY_SERVICE","dantherm-webui-gateway.service"), "gateway"), (os.getenv("DANTHERM_ONEWIRE_SERVICE","dantherm-webui-onewire.service"), "onewire"), ("ssh.service", "ssh")):
+        onewire_service = os.getenv("DANTHERM_ONEWIRE_SERVICE")
+        if not onewire_service:
+            candidates = ("dantherm-passivelink-onewire.service", "dantherm-webui-onewire.service")
+            onewire_service = next((name for name in candidates if self._run("/usr/bin/systemctl", "is-active", name) == "active"), candidates[0])
+        for service, prefix in ((os.getenv("DANTHERM_GATEWAY_SERVICE","dantherm-webui-gateway.service"), "gateway"), (onewire_service, "onewire"), (os.getenv("DANTHERM_ADMIN_SERVICE","dantherm-webui-admin.service"), "admin"), ("ssh.service", "ssh")):
             output = self._run("/usr/bin/systemctl", "show", service, "-p", "ActiveState", "-p", "SubState", "-p", "MainPID", "-p", "NRestarts", "-p", "MemoryCurrent") or ""
             values = dict(line.split("=", 1) for line in output.splitlines() if "=" in line)
             for key, value in values.items(): data[f"service_{prefix}_{key.lower()}"] = value
