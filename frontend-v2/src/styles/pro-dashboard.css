@@ -51,10 +51,9 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .status-led { width: 10px; height: 10px; border-radius: 999px; background: #4fe18c; box-shadow: 0 0 0 4px rgb(79 225 140 / 9%),0 0 16px rgb(79 225 140 / 55%); }
 .status-led.warn { background: var(--orange); box-shadow: 0 0 0 4px rgb(255 173 85 / 9%),0 0 16px rgb(255 173 85 / 35%); }
 
-.dashboard-main-grid { display: grid; grid-template-columns: minmax(0,1.62fr) minmax(360px,.72fr); gap: 12px; align-items: start; }
-.overview-air-column { min-width: 0; display: grid; gap: 12px; align-content: start; }
+.dashboard-main-grid { display: grid; grid-template-columns: minmax(0,1.62fr) minmax(360px,.72fr); grid-template-areas: "unit controls" "climate afterheat"; gap: 12px; align-items: stretch; }
 .surface { border-color: #1d3544; background: linear-gradient(145deg,#0d1d27,#0a1720); box-shadow: 0 13px 36px rgb(0 0 0 / 15%); }
-.pro-air-card { min-width: 0; padding: 15px 16px 13px; border-radius: 13px; overflow: hidden; }
+.pro-air-card { grid-area: unit; min-width: 0; display: flex; flex-direction: column; padding: 15px 16px 13px; border-radius: 13px; overflow: hidden; }
 .pro-card-head { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .pro-card-head h2 { margin: 0; font-size: 16px; letter-spacing: -.015em; }
 .pro-card-head p { margin: 3px 0 0; color: #7f96a6; font-size: 9px; }
@@ -64,7 +63,8 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
    so the vanishing point sits above it: the exhaust end turns away, gets
    smaller and rises towards the horizon instead of pinching to the middle,
    which read as seen from eye level. The padding keeps the raised top in the card. */
-.hch5-visual { margin-top: 4px; padding-top: 16px; perspective: 1900px; perspective-origin: 25% -80%; }
+.hch5-visual { flex: 1; display: flex; flex-direction: column; margin-top: 4px; padding-top: 16px; perspective: 1900px; perspective-origin: 25% -80%; }
+.hch5-visual .unit-readback-row { margin-top: auto; }
 /* Seen from the afterheat end: the left side stays put while the exhaust
    end turns slightly away from the viewer. */
 .hch5-visual > svg { width: 100%; height: auto; display: block; transform: rotateY(9deg); transform-origin: 0 50%; }
@@ -249,7 +249,7 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .readback-icon.heater::before { content: "≋"; position: absolute; inset: 0; display: grid; place-items: center; color: #7893a3; font-size: 24px; transform: rotate(90deg); }
 .readback-icon.heater.active::before { color: #ffae5c; text-shadow: 0 0 10px #ff8b3d; }
 
-.pro-control-column { display: grid; gap: 10px; }
+.pro-control-column { grid-area: controls; min-width: 0; display: grid; gap: 10px; }
 .pro-control-card { padding: 15px; border-radius: 13px; }
 .control-label { display: block; margin: 15px 0 7px; color: #93a9b6; font-size: 9px; font-weight: 700; }
 .pro-segment { display: grid; gap: 5px; padding: 4px; border: 1px solid #203d4e; border-radius: 10px; background: #0b1922; }
@@ -281,7 +281,7 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .status-action-card small { color: #66808f; font-size: 7px; }
 .status-action-card > button,.fireplace-actions button { min-width: 34px; height: 32px; padding: 0 7px; border: 1px solid #284657; border-radius: 8px; background: #0c1d27; color: #a9c2ce; cursor: pointer; }
 .fireplace-actions { display: flex; gap: 4px; }
-.afterheat-setpoint-card { min-height: 84px; display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; padding: 13px 14px; border-radius: 12px; }
+.afterheat-setpoint-card { grid-area: afterheat; min-height: 84px; display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; align-content: center; padding: 13px 14px; border-radius: 12px; }
 .afterheat-copy { display: grid; gap: 2px; }
 .afterheat-copy span { color: #86a0af; font-size: 8px; text-transform: uppercase; letter-spacing: .08em; }
 .afterheat-copy strong { font-size: 10px; }
@@ -289,9 +289,9 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .setpoint-stepper { display: grid; grid-template-columns: 38px 68px 38px; align-items: center; border: 1px solid #274657; border-radius: 9px; overflow: hidden; }
 .setpoint-stepper button { border: 0; border-radius: 0; font-size: 19px; }
 .setpoint-stepper strong { height: 38px; display: grid; place-items: center; background: #0a1821; font-size: 12px; }
-.climate-panel { min-width: 0; padding: 14px 15px; border-radius: 13px; }
-.climate-metrics { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; margin-top: 11px; }
-.climate-metric { min-height: 108px; position: relative; display: grid; grid-template-columns: 24px 1fr; grid-template-rows: auto auto auto 6px; gap: 2px 8px; align-content: center; padding: 10px 12px; border: 1px solid #1e3a4a; border-radius: 10px; background: #0a1922; overflow: hidden; }
+.climate-panel { grid-area: climate; min-width: 0; padding: 12px 15px; border-radius: 13px; }
+.climate-metrics { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; margin-top: 8px; }
+.climate-metric { min-height: 90px; position: relative; display: grid; grid-template-columns: 24px 1fr; grid-template-rows: auto auto auto 6px; gap: 2px 8px; align-content: center; padding: 8px 12px; border: 1px solid #1e3a4a; border-radius: 10px; background: #0a1922; overflow: hidden; }
 .climate-metric > svg,.climate-metric > .metric-drop,.climate-metric > .metric-filter,.climate-metric > .metric-heat { grid-row: 1/4; align-self: start; color: #65d99a; font-size: 20px; }
 .climate-metric.blue > .metric-drop { color: #68bfff; }
 .climate-metric.cyan > .metric-filter { color: #70d8f5; }
@@ -318,9 +318,9 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .update-stage { margin-top: 7px; color: #718d9e; font-size: 8px; text-transform: uppercase; letter-spacing: .08em; }
 
 @media (max-width: 1350px) {
-  .dashboard-main-grid { grid-template-columns: 1fr; }
+  .dashboard-main-grid { grid-template-columns: 1fr; grid-template-areas: "unit" "climate" "controls" "afterheat"; }
   .pro-control-column { grid-template-columns: repeat(2,1fr); }
-  .pro-control-card,.afterheat-setpoint-card { grid-column: 1/-1; }
+  .pro-control-card { grid-column: 1/-1; }
 }
 @media (max-width: 980px) {
   .app-shell,body[data-sidebar="collapsed"] .app-shell { grid-template-columns: minmax(0,1fr); }
@@ -333,7 +333,7 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
   .overview-status-pills { display: grid; grid-template-columns: 1fr 1fr; }
   .overview-status-pills > div:last-child { grid-column: 1/-1; }
   .pro-control-column { grid-template-columns: 1fr; }
-  .pro-control-card,.afterheat-setpoint-card { grid-column: auto; }
+  .pro-control-card { grid-column: auto; }
   .pro-control-pair { grid-template-columns: 1fr; }
   .unit-readback-row,.climate-metrics { grid-template-columns: 1fr 1fr; }
   .unit-readback { grid-template-columns: 30px minmax(0,1fr); gap: 7px; padding: 8px 9px; }

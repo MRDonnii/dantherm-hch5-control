@@ -222,32 +222,20 @@ export function OverviewPage() {
       </header>
 
       <div className="dashboard-main-grid">
-        <div className="overview-air-column">
-          <article className="surface pro-air-card">
-            <div className="pro-card-head">
-              <div><h2>Luftstrømme og temperaturer</h2><p>Live luftveje gennem HCH5 med aktuelle temperaturer og fysisk status.</p></div>
-              <span className={`status-chip${online ? "" : " muted"}`}><span className="live-dot"/>{online ? "Live" : "Afventer"}</span>
-            </div>
-            <Hch5UnitDiagram
-              outdoor={outdoor} extract={extract} exhaust={exhaust} beforeHeater={beforeHeater} afterHeater={afterHeater}
-              room={room} frost={frost} flowWater={flowWater} returnWater={returnWater}
-              supplyRpm={supplyRpm} extractRpm={extractRpm} supplyPercent={supplyPercent} extractPercent={extractPercent}
-              bypassActual={bypassActual} bypassRequest={bypassRequest} heating={heating} recovery={recovery}
-              busActive={busHealthy} bypassRaw={bypassRaw} afterheatLockout={afterheatLockout}
-              bypassTravelDirection={bypassTravelDirection} bypassTravelSeconds={bypassTravelSeconds} bypassTravelTotal={bypassTravelTotal}
-            />
-          </article>
-
-          <article className="surface climate-panel">
-            <div className="pro-card-head compact"><div><h2>Indeklimadata</h2><p>Aktuelle værdier</p></div></div>
-            <div className="climate-metrics">
-              <div className="climate-metric green"><Leaf size={21}/><span>CO₂</span><strong>{whole(co2)} <small>ppm</small></strong><em>{co2 === null ? "Ukendt" : co2 < 800 ? "God" : co2 < 1200 ? "Moderat" : "Høj"}</em><i style={{ width: `${co2 === null ? 0 : Math.min(100, Math.max(5, co2 / 16))}%` }}/></div>
-              <div className="climate-metric blue"><span className="metric-drop">●</span><span>Luftfugtighed</span><strong>{whole(humidity)} <small>%</small></strong><em>{humidity === null ? "Ukendt" : humidity < 60 ? "Normal" : "Høj"}</em><i style={{ width: `${humidity ?? 0}%` }}/></div>
-              <div className="climate-metric cyan"><span className="metric-filter">▧</span><span>Filter</span><strong>{whole(filterLife)} <small>%</small></strong><em>{filterLife === null ? "Ukendt" : filterLife > 40 ? "OK" : filterLife > 15 ? "Snart skift" : "Skift filter"}</em><i style={{ width: `${Math.max(0, Math.min(100, filterLife ?? 0))}%` }}/></div>
-              <div className="climate-metric neutral"><span className="metric-heat">≋</span><span>Eftervarme setpunkt</span><strong>{shownAfterheat === "off" ? "OFF" : temp(shownAfterheat)}</strong><em>{afterheatStatus}</em><i style={{ width: `${shownAfterheat === "off" ? 0 : ((shownAfterheat - 10) / 25) * 100}%` }}/></div>
-            </div>
-          </article>
-        </div>
+        <article className="surface pro-air-card">
+          <div className="pro-card-head">
+            <div><h2>Luftstrømme og temperaturer</h2><p>Live luftveje gennem HCH5 med aktuelle temperaturer og fysisk status.</p></div>
+            <span className={`status-chip${online ? "" : " muted"}`}><span className="live-dot"/>{online ? "Live" : "Afventer"}</span>
+          </div>
+          <Hch5UnitDiagram
+            outdoor={outdoor} extract={extract} exhaust={exhaust} beforeHeater={beforeHeater} afterHeater={afterHeater}
+            room={room} frost={frost} flowWater={flowWater} returnWater={returnWater}
+            supplyRpm={supplyRpm} extractRpm={extractRpm} supplyPercent={supplyPercent} extractPercent={extractPercent}
+            bypassActual={bypassActual} bypassRequest={bypassRequest} heating={heating} recovery={recovery}
+            busActive={busHealthy} bypassRaw={bypassRaw} afterheatLockout={afterheatLockout}
+            bypassTravelDirection={bypassTravelDirection} bypassTravelSeconds={bypassTravelSeconds} bypassTravelTotal={bypassTravelTotal}
+          />
+        </article>
 
         <aside className="pro-control-column">
           <article className="surface pro-control-card">
@@ -298,19 +286,29 @@ export function OverviewPage() {
               </div>
             </article>
           </div>
-
-          <article className="surface afterheat-setpoint-card">
-            <div className="afterheat-copy"><span>Eftervarme setpunkt</span>{afterheatLockout
-              // The summer stop replaces the RS485 details so the card stays compact.
-              ? <div className="afterheat-lockout">Spærret af HAC1: udetemperaturen er {temp(outdoor)}. Eftervarmen tænder først, når det er under {whole(afterheatCutoff)}{"\u00a0"}°C ude.</div>
-              : <><strong>RS485: {actualAfterheatSelection}</strong><small>Ønsket: {shownAfterheat === "off" ? "OFF" : `${whole(shownAfterheat)} °C`} · Varmekald: {afterheatStatus}. HAC1 regulerer selv varmefladen.</small></>}</div>
-            <div className="setpoint-stepper">
-              <button disabled={shownAfterheat === "off"} onClick={() => stepAfterheat(-1)}>−</button>
-              <strong>{shownAfterheat === "off" ? "OFF" : `${whole(shownAfterheat)} °C`}</strong>
-              <button disabled={shownAfterheat === 35} onClick={() => stepAfterheat(1)}>+</button>
-            </div>
-          </article>
         </aside>
+
+        <article className="surface climate-panel">
+          <div className="pro-card-head compact"><div><h2>Indeklimadata</h2><p>Aktuelle værdier</p></div></div>
+          <div className="climate-metrics">
+            <div className="climate-metric green"><Leaf size={21}/><span>CO₂</span><strong>{whole(co2)} <small>ppm</small></strong><em>{co2 === null ? "Ukendt" : co2 < 800 ? "God" : co2 < 1200 ? "Moderat" : "Høj"}</em><i style={{ width: `${co2 === null ? 0 : Math.min(100, Math.max(5, co2 / 16))}%` }}/></div>
+            <div className="climate-metric blue"><span className="metric-drop">●</span><span>Luftfugtighed</span><strong>{whole(humidity)} <small>%</small></strong><em>{humidity === null ? "Ukendt" : humidity < 60 ? "Normal" : "Høj"}</em><i style={{ width: `${humidity ?? 0}%` }}/></div>
+            <div className="climate-metric cyan"><span className="metric-filter">▧</span><span>Filter</span><strong>{whole(filterLife)} <small>%</small></strong><em>{filterLife === null ? "Ukendt" : filterLife > 40 ? "OK" : filterLife > 15 ? "Snart skift" : "Skift filter"}</em><i style={{ width: `${Math.max(0, Math.min(100, filterLife ?? 0))}%` }}/></div>
+            <div className="climate-metric neutral"><span className="metric-heat">≋</span><span>Eftervarme setpunkt</span><strong>{shownAfterheat === "off" ? "OFF" : temp(shownAfterheat)}</strong><em>{afterheatStatus}</em><i style={{ width: `${shownAfterheat === "off" ? 0 : ((shownAfterheat - 10) / 25) * 100}%` }}/></div>
+          </div>
+        </article>
+
+        <article className="surface afterheat-setpoint-card">
+          <div className="afterheat-copy"><span>Eftervarme setpunkt</span>{afterheatLockout
+            // The summer stop replaces the RS485 details so the card stays compact.
+            ? <div className="afterheat-lockout">Spærret af HAC1: udetemperaturen er {temp(outdoor)}. Eftervarmen tænder først, når det er under {whole(afterheatCutoff)}{"\u00a0"}°C ude.</div>
+            : <><strong>RS485: {actualAfterheatSelection}</strong><small>Ønsket: {shownAfterheat === "off" ? "OFF" : `${whole(shownAfterheat)} °C`} · Varmekald: {afterheatStatus}. HAC1 regulerer selv varmefladen.</small></>}</div>
+          <div className="setpoint-stepper">
+            <button disabled={shownAfterheat === "off"} onClick={() => stepAfterheat(-1)}>−</button>
+            <strong>{shownAfterheat === "off" ? "OFF" : `${whole(shownAfterheat)} °C`}</strong>
+            <button disabled={shownAfterheat === 35} onClick={() => stepAfterheat(1)}>+</button>
+          </div>
+        </article>
       </div>
     </section>
   );
