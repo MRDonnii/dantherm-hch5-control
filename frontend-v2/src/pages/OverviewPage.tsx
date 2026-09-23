@@ -14,6 +14,7 @@ type AuthState = { csrf?: string | null };
 const AFTERHEAT_SEND_DELAY_MS = 1200;
 
 function number(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
@@ -73,6 +74,9 @@ export function OverviewPage() {
   const afterheatTimer = useRef<number | null>(null);
   const afterheatPending = useRef<{ target: AfterheatValue; seq: number } | null>(null);
   const afterheatSeq = useRef(0);
+  const thermostatDraft = useRef<Record<string, number | null>>({});
+  const thermostatTimers = useRef<Record<string, number>>({});
+  const [, setThermostatRevision] = useState(0);
 
   const refresh = useCallback(async () => {
     const [unitResult, controllerResult, authResult] = await Promise.allSettled([
@@ -110,6 +114,23 @@ export function OverviewPage() {
       setBusy(null);
     }
   }, [csrf, refresh]);
+
+  const stepThermostat = (key: "t3_setpoint" | "t5_setpoint", label: string, current: number | null, direction: 1 | -1) => {
+    const next = direction > 0
+      ? current === null ? 10 : Math.min(35, current + 1)
+      : current === null || current <= 10 ? null : current - 1;
+    thermostatDraft.current[key] = next;
+    setThermostatRevision(value => value + 1);
+    window.clearTimeout(thermostatTimers.current[key]);
+    thermostatTimers.current[key] = window.setTimeout(async () => {
+      delete thermostatTimers.current[key];
+      await command(key, { [key]: next }, next === null ? `${label} er sat til OFF.` : `${label} er sat til ${next} °C.`);
+      if (thermostatDraft.current[key] === next) {
+        delete thermostatDraft.current[key];
+        setThermostatRevision(value => value + 1);
+      }
+    }, AFTERHEAT_SEND_DELAY_MS);
+  };
 
   const sendAfterheat = useCallback(async (target: AfterheatValue, seq: number) => {
     await command(
@@ -168,11 +189,12 @@ export function OverviewPage() {
         bypassRun.remainingSeconds === null ? null : `${formatRemaining(bypassRun.remainingSeconds)} tilbage`,
       ].filter(Boolean).join(" · ")
     : bypassActual ? "åben" : "lukket";
+  const heatKnown = typeof controller.actual_afterheat === "boolean" || typeof unit.afterheat_active === "boolean";
   const heating = controller.actual_afterheat === true || unit.afterheat_active === true;
   // HAC1 never heats at 15 C outdoor or above; say so instead of just "Inaktiv".
   const afterheatLockout = controller.actual_afterheat_outdoor_lockout === true;
   const afterheatCutoff = number(controller.afterheat_outdoor_cutoff) ?? 15;
-  const afterheatStatus = heating ? "Aktiv" : afterheatLockout ? "Spærret af sommerstop" : "Inaktiv";
+  const afterheatStatus = heating ? "Aktiv" : afterheatLockout ? "Spærret af sommerstop" : heatKnown ? "Inaktiv" : "Ukendt";
   const fireplace = controller.actual_fireplace === true || unit.fireplace === true;
   const mode = String(controller.mode ?? "local_auto");
   const level = number(controller.effective_level) ?? 3;
@@ -312,13 +334,8 @@ export function OverviewPage() {
             </div>
           </div>
           {([["t3_setpoint", "T3 setpunkt"], ["t5_setpoint", "T5 setpunkt"]] as const).map(([key, label]) => {
-            const value = number(controller[key]);
-            const step = (direction: 1 | -1) => {
-              const next = direction > 0
-                ? value === null ? 10 : Math.min(35, value + 1)
-                : value === null || value <= 10 ? null : value - 1;
-              void command(key, { [key]: next }, next === null ? `${label} er sat til OFF.` : `${label} er sat til ${next} °C.`);
-            };
+            const value = Object.hasOwn(thermostatDraft.current, key) ? thermostatDraft.current[key] : number(controller[key]);
+            const step = (direction: 1 | -1) => stepThermostat(key, label, value, direction);
             return (
               <div className="afterheat-row" key={key}>
                 <div className="afterheat-copy"><span>{label}</span><strong>{value === null ? "OFF" : `${whole(value)} °C`}</strong></div>
