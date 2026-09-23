@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.0-beta.53
+
+- Remove the small duplicate T2AH temperature pin beside the afterheat coil; keep the large T2AH reading on the supply-air pipe.
+
 ## 1.2.0-beta.52
 
 - Remove the T2-before-afterheat and HRC2 room T5 readouts from the HCH5 overview card and mobile summary while their readings are unreliable. This is display-only; the gateway values and controller measurements are unchanged.
