@@ -35,11 +35,13 @@ class DashboardTests(unittest.TestCase):
                 db.execute("INSERT INTO samples (ts, co2) VALUES (?, ?)", (int(time.time()) - 20, 700))
             store = MODULE.HistoryStore(path, sample_seconds=10)
             self.assertTrue(store.available)
-            store.record({"system_cpu_usage_percent": 25, "pi_cpu_temperature": 43, "system_memory_used_percent": 40}, now=time.time())
+            store.record({"system_cpu_usage_percent": 25, "pi_cpu_temperature": 43, "system_memory_used_percent": 40, "heating_coil_after_temperature": 22.5, "heating_coil_frost_temperature": 6.8}, now=time.time())
             rows = store.query("1h")
             self.assertEqual(rows[0]["co2"], 700)
             self.assertEqual(rows[-1]["system_cpu_usage_percent"], 25)
             self.assertEqual(rows[-1]["pi_cpu_temperature"], 43)
+            self.assertEqual(rows[-1]["heating_coil_after_temperature"], 22.5)
+            self.assertEqual(rows[-1]["heating_coil_frost_temperature"], 6.8)
     def test_system_snapshot_has_resource_fields_and_onewire_service(self):
         with tempfile.TemporaryDirectory() as tmp:
             server = MODULE.DashboardHttpServer("127.0.0.1", 0, {}, "Test", None, history_path=Path(tmp) / "history.sqlite3")

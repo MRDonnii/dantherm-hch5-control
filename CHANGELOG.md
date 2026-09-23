@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0-beta.49
+
+- Click any temperature reading in the HCH5 unit overview to see its last 24 hours in a popup. The chart shows values and time at the hovered point; the popup works with mouse, touch and keyboard.
+- The afterheat-water card is larger and shows Frem, Retur and Afkøl (Frem minus Retur). Each reading has its own history graph.
+- Store the T2AH and frost readings in the existing bounded history database. Their graphs fill from the first sample after this update; older samples cannot be reconstructed.
+
 ## 1.2.0-beta.34
 
 - The exchanger now says when the bypass damper travels: "Åbner bypass" or "Lukker bypass" with how far open it is in % (the damper's own 0-255 readback) and a bar that follows it, while the damper blade, fog cross-fade and actuator animation keep running. A forced-open request shows "Åbner bypass" from the moment it is read back, because the real damper is slow: on the live unit it took 181-189 s from On to fully open in four runs and about 3 minutes to close, and the reported position moves in coarse steps that can hold for over a minute. The Bypass-styring card and the Teknik page show the same %.

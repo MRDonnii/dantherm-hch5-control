@@ -229,6 +229,8 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .hch-temp-port.tone-cold .hch-temp-port-value { fill: #7fd0ff; }
 .hch-temp-port.tone-warm .hch-temp-port-value { fill: #ffb066; }
 .hch-temp-port.tone-green .hch-temp-port-value { fill: #74ecab; }
+.hch-temp-port[role="button"],.hch-sensor-pin[role="button"],.hch-water-reading[role="button"] { cursor: pointer; outline: none; }
+.hch-temp-port[role="button"]:hover .hch-temp-port-plate,.hch-temp-port[role="button"]:focus-visible .hch-temp-port-plate,.hch-sensor-pin[role="button"]:hover rect,.hch-sensor-pin[role="button"]:focus-visible rect { stroke: #86d7ff; stroke-width: 2; }
 .hch-sensor-pin circle { fill: #70ccff; stroke: #d2f2ff; stroke-width: 1; }
 .hch-sensor-pin line { stroke: #688597; stroke-width: 1; }
 .hch-sensor-pin rect { fill: #0a1822; stroke: #284859; }
@@ -236,7 +238,11 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .hch-sensor-pin .pin-value { fill: #e8f6fc; font-size: 16px; font-weight: 800; }
 .hch-water-callout rect { fill: #0a1822; stroke: #25495c; }
 .hch-water-callout text { fill: #a3b9c6; font-size: 13.5px; font-weight: 650; }
-.hch-water-callout .water-value { fill: #e8f7fd; font-size: 16px; font-weight: 800; }
+.hch-water-callout .water-value { fill: #e8f7fd; font-size: 20px; font-weight: 800; }
+.hch-water-callout .water-title { fill: #c8e5f3; font-size: 19px; font-weight: 800; }
+.hch-water-callout .water-delta { fill: #74ecab; font-size: 19px; font-weight: 800; }
+.hch-water-reading rect { fill: transparent; stroke: none; }
+.hch-water-reading:hover rect,.hch-water-reading:focus-visible rect { fill: rgb(90 175 215 / 16%); }
 
 .unit-readback-row { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; margin-top: -4px; }
 .unit-readback { min-height: 67px; display: grid; grid-template-columns: 42px minmax(0,1fr); align-items: center; gap: 9px; padding: 9px 11px; border: 1px solid #1d3b4d; border-radius: 10px; background: #0a1922; }
@@ -378,6 +384,8 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
   .hch-mobile-flow-head .connected { color: var(--green); }
   .hch-mobile-lane { display: grid; grid-template-columns: minmax(0,1fr) 38px minmax(0,1fr); align-items: center; gap: 6px; }
   .hch-mobile-reading { min-width: 0; display: grid; gap: 3px; padding: 10px; border: 1px solid #315269; border-radius: 9px; background: #0d2636; }
+  .hch-mobile-reading,.hch-mobile-subreadings button { width: 100%; text-align: left; color: inherit; font: inherit; cursor: pointer; }
+  .hch-mobile-reading:focus-visible,.hch-mobile-subreadings button:focus-visible { outline: 2px solid #86d7ff; outline-offset: 2px; }
   .hch-mobile-lane.extract .hch-mobile-reading { border-color: #66503d; background: #2a211e; }
   .hch-mobile-reading small { color: #a6c1d0; font-size: 9px; white-space: nowrap; }
   .hch-mobile-reading strong { color: #eefaff; font-size: 18px; line-height: 1; }
@@ -389,7 +397,7 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
   .hch-mobile-core strong { color: var(--green); font-size: 16px; }
   .hch-mobile-core .bypass-open { color: var(--blue); }
   .hch-mobile-subreadings { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
-  .hch-mobile-subreadings span { display: grid; gap: 3px; color: #91aab8; font-size: 8px; }
+  .hch-mobile-subreadings span,.hch-mobile-subreadings button { display: grid; gap: 3px; padding: 5px 6px; border: 1px solid #315269; border-radius: 7px; background: #0d2636; color: #91aab8; font-size: 9px; }
   .hch-mobile-subreadings strong { color: #e1f0f6; font-size: 10px; }
   .unit-readback-row { gap: 6px; }
   .unit-readback { min-height: 56px; }
@@ -426,7 +434,7 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 
 @media (max-width:680px) {
   .hch-mobile-flow { margin: 0 0 9px; padding: 8px; gap: 5px; }
-  .hch-mobile-flow-head,.hch-mobile-route,.hch-mobile-subreadings { display: none; }
+  .hch-mobile-flow-head,.hch-mobile-route { display: none; }
   .hch-mobile-lane { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 5px; }
   .hch-mobile-reading { padding: 7px 8px; }
   .hch-mobile-reading strong { font-size: 15px; }
