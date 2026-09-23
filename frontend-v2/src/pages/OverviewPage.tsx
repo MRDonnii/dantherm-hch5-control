@@ -300,15 +300,36 @@ export function OverviewPage() {
         </article>
 
         <article className="surface afterheat-setpoint-card">
-          <div className="afterheat-copy"><span>Eftervarme setpunkt</span>{afterheatLockout
-            // The summer stop replaces the RS485 details so the card stays compact.
-            ? <div className="afterheat-lockout">Spærret af HAC1: udetemperaturen er {temp(outdoor)}. Eftervarmen tænder først, når det er under {whole(afterheatCutoff)}{"\u00a0"}°C ude.</div>
-            : <><strong>RS485: {actualAfterheatSelection}</strong><small>Ønsket: {shownAfterheat === "off" ? "OFF" : `${whole(shownAfterheat)} °C`} · Varmekald: {afterheatStatus}. HAC1 regulerer selv varmefladen.</small></>}</div>
-          <div className="setpoint-stepper">
-            <button disabled={shownAfterheat === "off"} onClick={() => stepAfterheat(-1)}>−</button>
-            <strong>{shownAfterheat === "off" ? "OFF" : `${whole(shownAfterheat)} °C`}</strong>
-            <button disabled={shownAfterheat === 35} onClick={() => stepAfterheat(1)}>+</button>
+          <div className="afterheat-row">
+            <div className="afterheat-copy"><span>Eftervarme setpunkt</span>{afterheatLockout
+              // The summer stop replaces the HAC1 details so the card stays compact.
+              ? <div className="afterheat-lockout">Spærret af HAC1: udetemperaturen er {temp(outdoor)}. Eftervarmen tænder først, når det er under {whole(afterheatCutoff)}{"\u00a0"}°C ude.</div>
+              : <><strong>I HAC1: {actualAfterheatSelection}</strong><small>Varmekald: {afterheatStatus}</small></>}</div>
+            <div className="setpoint-stepper">
+              <button disabled={shownAfterheat === "off"} onClick={() => stepAfterheat(-1)}>−</button>
+              <strong>{shownAfterheat === "off" ? "OFF" : `${whole(shownAfterheat)} °C`}</strong>
+              <button disabled={shownAfterheat === 35} onClick={() => stepAfterheat(1)}>+</button>
+            </div>
           </div>
+          {([["t3_setpoint", "T3 setpunkt"], ["t5_setpoint", "T5 setpunkt"]] as const).map(([key, label]) => {
+            const value = number(controller[key]);
+            const step = (direction: 1 | -1) => {
+              const next = direction > 0
+                ? value === null ? 10 : Math.min(35, value + 1)
+                : value === null || value <= 10 ? null : value - 1;
+              void command(key, { [key]: next }, next === null ? `${label} er sat til OFF.` : `${label} er sat til ${next} °C.`);
+            };
+            return (
+              <div className="afterheat-row" key={key}>
+                <div className="afterheat-copy"><span>{label}</span><strong>{value === null ? "OFF" : `${whole(value)} °C`}</strong></div>
+                <div className="setpoint-stepper">
+                  <button disabled={value === null || busy === key} onClick={() => step(-1)}>−</button>
+                  <strong>{value === null ? "OFF" : `${whole(value)} °C`}</strong>
+                  <button disabled={value === 35 || busy === key} onClick={() => step(1)}>+</button>
+                </div>
+              </div>
+            );
+          })}
         </article>
       </div>
     </section>

@@ -13,6 +13,18 @@ class ControllerTests(unittest.TestCase):
         state = ControllerState(Path(directory.name) / "state.json")
         return state, ControllerEngine(state)
 
+    def test_t3_t5_setpoints_default_off_and_validate(self):
+        state, _engine = self.make()
+        self.assertIsNone(state.data["t3_setpoint"])
+        self.assertIsNone(state.data["t5_setpoint"])
+        state.configure({"t5_setpoint": 21})
+        self.assertEqual(ControllerState(state.path).data["t5_setpoint"], 21)
+        state.configure({"t5_setpoint": None})
+        self.assertIsNone(state.data["t5_setpoint"])
+        for bad in (5, 40, "x", True):
+            with self.assertRaises(ControllerError):
+                state.configure({"t3_setpoint": bad})
+
     def test_always_enabled_and_old_disabled_state_migrates(self):
         state, engine = self.make()
         self.assertTrue(state.data["enabled"])

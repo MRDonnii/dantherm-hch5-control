@@ -167,6 +167,8 @@ class ControllerState:
         "fireplace_duration_minutes": 0,
         "afterheat_setpoint": 20,
         "afterheat_enabled": True,
+        "t3_setpoint": None,
+        "t5_setpoint": None,
         "schedule_enabled": False,
         "night_enabled": False,
         "night_start": "22:00",
@@ -282,6 +284,12 @@ class ControllerState:
         except (TypeError, ValueError):
             self.data["afterheat_setpoint"] = 20
         self.data["afterheat_enabled"] = bool(self.data.get("afterheat_enabled", True))
+        for key in ("t3_setpoint", "t5_setpoint"):
+            try:
+                value = self.data.get(key)
+                self.data[key] = None if value is None else (int(value) if 10 <= int(value) <= 35 else None)
+            except (TypeError, ValueError):
+                self.data[key] = None
         for key in ("schedule_enabled", "night_enabled", "vacation_enabled", "cooling_enabled"):
             self.data[key] = bool(self.data.get(key, False))
         try:
@@ -363,7 +371,7 @@ class ControllerState:
                 "rh_setpoint", "rh_hysteresis", "co2_setpoint", "co2_hysteresis",
                 "auto_step_rh", "auto_step_co2", "downshift_delay_seconds",
                 "boost_hold_seconds", "ha_timeout_seconds", "bypass", "fireplace",
-                "fireplace_minutes", "afterheat_setpoint", "afterheat_enabled", "profiles", "schedule_enabled",
+                "fireplace_minutes", "afterheat_setpoint", "afterheat_enabled", "t3_setpoint", "t5_setpoint", "profiles", "schedule_enabled",
                 "schedule", "night_enabled", "night_start", "night_end", "night_level",
                 "night_air_quality_max_level", "bathroom_rh_setpoint",
                 "bathroom_rh_hysteresis", "bathroom_max_level",
@@ -487,6 +495,12 @@ class ControllerState:
                     raise ControllerError("Eftervarme-setpunkt skal være 10..35 °C")
                 self.data["afterheat_setpoint"] = value
                 self.data["afterheat_enabled"] = True
+            for key, label in (("t3_setpoint", "T3"), ("t5_setpoint", "T5")):
+                if key in patch:
+                    value = patch[key]
+                    if value is not None and (isinstance(value, bool) or not isinstance(value, int) or not 10 <= value <= 35):
+                        raise ControllerError(f"{label}-setpunkt skal være 10..35 °C eller OFF")
+                    self.data[key] = value
             if "afterheat_enabled" in patch:
                 if not isinstance(patch["afterheat_enabled"], bool):
                     raise ControllerError("afterheat_enabled skal være boolean")
