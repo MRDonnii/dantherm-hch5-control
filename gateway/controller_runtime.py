@@ -511,7 +511,8 @@ class ControllerRuntime:
         self.config.configure(patch)
         self.config.data["enabled"] = True
         self._evaluate_master()
-        if apply and self.hardware_writes_allowed():
+        hardware_patch = set(patch) - {"t3_setpoint", "t5_setpoint"}
+        if apply and hardware_patch and self.hardware_writes_allowed():
             self.apply_once()
         return self.snapshot()
 

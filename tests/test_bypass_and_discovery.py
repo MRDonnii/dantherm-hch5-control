@@ -3,6 +3,7 @@ import importlib.machinery
 import sys
 import types
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "gateway"))
@@ -126,7 +127,19 @@ class BypassAndDiscoveryTests(unittest.TestCase):
         self.assertEqual(gateway.state["afterheat_selection"], 23)
         self.assertEqual(gateway.state["afterheat_setpoint"], 23)
 
-    def test_afterheat_chain_replays_hcp4_temperature_and_command_blocks(self):
+    def test_afterheat_setpoint_writes_only_the_verified_thermostat_block(self):
+        gateway = make_gateway()
+        writes = wire_hac1_acks(gateway)
+        serial = type("Serial", (), {"flush": lambda self: None})()
+        self.assertEqual(gateway.write_afterheat_setpoint(serial, 22), 22)
+        self.assertEqual([reason for _data, reason in writes], ["CONTROL_AFTERHEAT_THERMOSTAT"])
+        self.assertEqual(int.from_bytes(writes[0][0][2:4], "big"), 185)
+        self.assertEqual(
+            [int.from_bytes(writes[0][0][i:i + 2], "big") for i in range(7, 17, 2)],
+            [1, 22 * 256, 15, 0x17FE, 0xFF03],
+        )
+
+    def test_periodic_temperature_refresh_writes_only_live_t1_to_t5_block(self):
         gateway = make_gateway()
         gateway.state.update({
             "outdoor_temp": 14.15,
@@ -137,18 +150,35 @@ class BypassAndDiscoveryTests(unittest.TestCase):
         })
         writes = wire_hac1_acks(gateway)
         serial = type("Serial", (), {"flush": lambda self: None})()
-        self.assertEqual(gateway.write_afterheat_setpoint(serial, 22), 22)
-        self.assertEqual([reason for _data, reason in writes], [
-            "CONTROL_AFTERHEAT_TEMPERATURES", "CONTROL_AFTERHEAT_THERMOSTAT"
-        ])
+        self.assertEqual(
+            gateway.write_afterheat_temperature_block(serial),
+            [1415, 2094, 2077, 1465, 2340],
+        )
+        self.assertEqual([reason for _data, reason in writes], ["CONTROL_AFTERHEAT_TEMPERATURES"])
+        self.assertEqual(int.from_bytes(writes[0][0][2:4], "big"), 180)
         self.assertEqual(
             [int.from_bytes(writes[0][0][i:i + 2], "big") for i in range(7, 17, 2)],
             [1415, 2094, 2077, 1465, 2340],
         )
-        self.assertEqual(
-            [int.from_bytes(writes[1][0][i:i + 2], "big") for i in range(7, 17, 2)],
-            [1, 22 * 256, 15, 0x17FE, 0xFF03],
+
+    def test_temperature_refresh_is_bounded_and_uses_latest_outdoor_temperature(self):
+        gateway = make_gateway()
+        gateway.controller = SimpleNamespace(hardware_writes_allowed=lambda: True)
+        gateway.last_afterheat_temperature_refresh = 0.0
+        gateway.state["outdoor_temp"] = 14.15
+        writes = []
+        gateway.write_afterheat_temperature_block = lambda _ser: writes.append(
+            gateway.state["outdoor_temp"]
         )
+        serial = type("Serial", (), {})()
+
+        self.assertTrue(gateway.refresh_afterheat_temperature_block_if_due(serial, now=4.0))
+        self.assertFalse(gateway.refresh_afterheat_temperature_block_if_due(serial, now=7.9))
+        gateway.state["outdoor_temp"] = 14.23
+        self.assertTrue(gateway.refresh_afterheat_temperature_block_if_due(serial, now=8.0))
+        gateway.controller.hardware_writes_allowed = lambda: False
+        self.assertFalse(gateway.refresh_afterheat_temperature_block_if_due(serial, now=12.0))
+        self.assertEqual(writes, [14.15, 14.23])
 
     def test_missing_t5_falls_back_to_t3_and_never_blocks(self):
         gateway = make_gateway()
@@ -158,7 +188,8 @@ class BypassAndDiscoveryTests(unittest.TestCase):
         })
         writes = wire_hac1_acks(gateway)
         serial = type("Serial", (), {"flush": lambda self: None})()
-        self.assertEqual(gateway.write_afterheat_setpoint(serial, 22), 22)
+        gateway.write_afterheat_temperature_block(serial)
+        self.assertEqual(int.from_bytes(writes[0][0][2:4], "big"), 180)
         self.assertEqual(int.from_bytes(writes[0][0][15:17], "big"), 2077)
 
     def test_afterheat_off_uses_verified_hcp4_zero_setpoint_block(self):
@@ -172,9 +203,10 @@ class BypassAndDiscoveryTests(unittest.TestCase):
         serial = type("Serial", (), {"flush": lambda self: None})()
         self.assertIsNone(gateway.write_afterheat_setpoint(serial, None))
         self.assertEqual(
-            [int.from_bytes(writes[1][0][i:i + 2], "big") for i in range(7, 17, 2)],
+            [int.from_bytes(writes[0][0][i:i + 2], "big") for i in range(7, 17, 2)],
             [1, 0, 15, 0x17FE, 0xFF03],
         )
+        self.assertEqual(int.from_bytes(writes[0][0][2:4], "big"), 185)
 
     def test_afterheat_accepts_ack_with_garbled_crc_byte(self):
         gateway = make_gateway()
@@ -185,7 +217,7 @@ class BypassAndDiscoveryTests(unittest.TestCase):
         writes = wire_hac1_acks(gateway, corrupt_crc=True)
         serial = type("Serial", (), {"flush": lambda self: None})()
         self.assertEqual(gateway.write_afterheat_setpoint(serial, 22), 22)
-        self.assertEqual(len(writes), 2)
+        self.assertEqual(len(writes), 1)
 
     def test_afterheat_accepts_ack_missing_last_crc_byte(self):
         gateway = make_gateway()
@@ -196,7 +228,7 @@ class BypassAndDiscoveryTests(unittest.TestCase):
         writes = wire_hac1_acks(gateway, truncate=True)
         serial = type("Serial", (), {"flush": lambda self: None})()
         self.assertEqual(gateway.write_afterheat_setpoint(serial, 23), 23)
-        self.assertEqual(len(writes), 2)
+        self.assertEqual(len(writes), 1)
 
     def test_afterheat_chain_missing_acknowledgement_fails_after_retry(self):
         gateway = make_gateway()
@@ -209,9 +241,9 @@ class BypassAndDiscoveryTests(unittest.TestCase):
         gateway.serial_write = lambda _ser, data, reason: writes.append(reason) or len(data)
         gateway.serial_read = lambda *_args: b""
         serial = type("Serial", (), {"flush": lambda self: None})()
-        with self.assertRaisesRegex(RuntimeError, "missing FC16 acknowledgement for register 180"):
+        with self.assertRaisesRegex(RuntimeError, "missing FC16 acknowledgement for register 185"):
             gateway.write_afterheat_setpoint(serial, 22)
-        self.assertEqual(writes, ["CONTROL_AFTERHEAT_TEMPERATURES"] * 2)
+        self.assertEqual(writes, ["CONTROL_AFTERHEAT_THERMOSTAT"] * 2)
 
     def test_hac1_ack_is_own_transaction_and_keeps_pi_master(self):
         """Regression 2026-09-23: a late-read ack released Pi every cycle."""
@@ -242,9 +274,9 @@ class BypassAndDiscoveryTests(unittest.TestCase):
         gateway.serial_read = serial_read
         serial = type("Serial", (), {"flush": lambda self: None})()
         self.assertEqual(gateway.write_afterheat_setpoint(serial, 22), 22)
-        self.assertEqual(len(writes), 2)
+        self.assertEqual(len(writes), 1)
         self.assertEqual(arbitrator.master, arbitrator.PI)
-        self.assertEqual(arbitrator.own_echo_count, 2)
+        self.assertEqual(arbitrator.own_echo_count, 1)
         self.assertEqual(arbitrator.foreign_write_count, 0)
 
     def test_discovery_is_stable_during_fallback_and_never_deletes_entities(self):

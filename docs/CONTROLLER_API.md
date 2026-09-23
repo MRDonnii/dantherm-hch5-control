@@ -26,6 +26,16 @@ Examples:
 {"afterheat_setpoint":22}
 ```
 
+The HAC1 afterheat setpoint writes only the verified FC16 block 185..189;
+register 186 carries the requested setpoint in degrees Celsius multiplied by
+256, with the other words kept to their captured values. No standalone
+single-register write has been verified.
+The live temperature block 180..184 is refreshed independently every four
+seconds while the Pi is the permitted bus master, preserving the outdoor
+temperature used by HAC1's afterheat lockout. `t3_setpoint` and `t5_setpoint`
+are currently persisted locally only; no verified Modbus write mapping exists
+for either setting.
+
 ```json
 {"fireplace":true}
 ```

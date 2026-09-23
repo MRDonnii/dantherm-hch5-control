@@ -660,6 +660,8 @@ class Gateway:
         self.last_override_write = 0.0
         self.last_control_verify = 0.0
         self.last_afterheat_poll = 0.0
+        self.last_afterheat_temperature_refresh = 0.0
+        self.last_afterheat_block_at: float | None = None
         self.last_hrc2_t5_poll = 0.0
         self.last_temperature_snapshot_poll = 0.0
         self.last_bypass_request_poll = 0.0
@@ -1583,6 +1585,11 @@ class Gateway:
     def _write_afterheat_block(
         self, ser: serial.Serial, start: int, values: list[int], reason: str
     ) -> None:
+        last_block_at = getattr(self, "last_afterheat_block_at", None)
+        if last_block_at is not None:
+            remaining = 0.8 - (time.monotonic() - last_block_at)
+            if remaining > 0:
+                time.sleep(remaining)
         frame = self.write_multiple_frame(0x40, start, values)
         # HAC1 answers ~50 ms later with the standard 8-byte FC16 ack
         # (40 10 00 B4 00 05 4F 3D). Captures 2026-09-23 showed its last CRC
@@ -1605,6 +1612,7 @@ class Gateway:
                 received.extend(self.serial_read(ser, 256))
                 index = received.find(header)
                 if index >= 0 and (header_seen or len(received) >= index + 8):
+                    self.last_afterheat_block_at = time.monotonic()
                     return
                 header_seen = index >= 0
         raise RuntimeError(f"missing FC16 acknowledgement for register {start}")
@@ -1631,25 +1639,43 @@ class Gateway:
             words.append(round(float(self.state[key]) * 100))
         return words
 
+    def write_afterheat_temperature_block(self, ser: serial.Serial) -> list[int]:
+        """Refresh the verified live T1..T5 telemetry block independently."""
+        temperatures = self._afterheat_temperature_words()
+        self._write_afterheat_block(
+            ser, 180, temperatures, "CONTROL_AFTERHEAT_TEMPERATURES"
+        )
+        return temperatures
+
+    def refresh_afterheat_temperature_block_if_due(
+        self, ser: serial.Serial, *, now: float | None = None
+    ) -> bool:
+        now = time.monotonic() if now is None else now
+        if now - self.last_afterheat_temperature_refresh < 4.0:
+            return False
+        if not self.controller.hardware_writes_allowed():
+            return False
+        self.last_afterheat_temperature_refresh = now
+        try:
+            self.write_afterheat_temperature_block(ser)
+        except Exception as error:
+            LOG.error("Afterheat temperature refresh failed: %s", error)
+            return False
+        return True
+
     def write_afterheat_setpoint(self, ser: serial.Serial, value: int | None) -> int | None:
-        """Replay the observed HCP4 thermostat chain for HAC1.
+        """Write only the verified HAC1 thermostat block.
 
         HCP4 refreshes FC16 blocks 180..184 and 185..189 every four seconds.
-        HAC1 acknowledges each block with an 8-byte FC16 response.
-        Register 180 must carry the live outdoor temperature: HAC1 only
-        allows afterheat below 15 C outdoor, and a stale value would block
-        or allow heating regardless of the actual weather.
+        The 180..184 telemetry block is refreshed separately so a setpoint
+        update cannot rewrite temperature data. Register 180 carries the live
+        outdoor temperature used by HAC1's 15 C afterheat lockout.
         The enabled 185 block is CRC-verified at 10 C. OFF uses the same
         verified constants with register 186 set to zero; repeated OFF
         captures reconstructed the complete frame including CRC E5 E1.
         """
         if value is not None and not 10 <= value <= 35:
             raise ValueError("afterheat setpoint must be 10..35 C or OFF")
-        temperatures = self._afterheat_temperature_words()
-        self._write_afterheat_block(
-            ser, 180, temperatures, "CONTROL_AFTERHEAT_TEMPERATURES"
-        )
-        time.sleep(0.8)
         command = [1, 0 if value is None else value * 256, 15, 0x17FE, 0xFF03]
         self._write_afterheat_block(
             ser, 185, command, "CONTROL_AFTERHEAT_THERMOSTAT"
@@ -2319,6 +2345,7 @@ class Gateway:
                             self.write_fireplace_pattern(ser, 0, 1, 0, supply)
                             self.last_fireplace_write = time.monotonic()
                             self.publish_fireplace_timer()
+                    self.refresh_afterheat_temperature_block_if_due(ser)
                     if (
                         self.active_reads_enabled
                         and time.monotonic() - self.last_afterheat_poll >= 15.0

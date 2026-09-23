@@ -37,6 +37,19 @@ class ControllerRuntimeTests(unittest.TestCase):
                 self.assertIs(snapshot["actual_afterheat_outdoor_lockout"], expected)
                 self.assertEqual(snapshot["afterheat_outdoor_cutoff"], 15.0)
 
+    def test_t3_t5_updates_are_local_and_do_not_apply_hardware(self):
+        runtime = self.make_runtime()
+        applied = []
+        runtime.hardware_writes_allowed = lambda: True
+        runtime.apply_once = lambda: applied.append("hardware")
+
+        runtime.configure({"t3_setpoint": 22})
+        runtime.configure({"t5_setpoint": 24})
+
+        self.assertEqual(runtime.config.data["t3_setpoint"], 22)
+        self.assertEqual(runtime.config.data["t5_setpoint"], 24)
+        self.assertEqual(applied, [])
+
     def test_bypass_travel_time_and_direction_are_reported(self):
         # The damper reports no position, so progress is the time since it
         # left its end position against the measured ~180 s travel.

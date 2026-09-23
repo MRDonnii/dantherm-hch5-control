@@ -57,9 +57,11 @@ All values are persistent and editable in the WebUI.
 
 ## Afterheat
 
-The WebUI exposes a persistent HAC1 supply-air afterheat setpoint from 18..30 °C (default 20 °C). The gateway reads the current five-word HAC1 block first and sends FC16 only when the setpoint actually changes.
+The WebUI exposes a persistent HAC1 supply-air afterheat setpoint from 18..30 °C (default 20 °C). Its verified FC16 command writes only the HAC1 thermostat block 185..189; register 186 contains the setpoint as °C × 256, with the other words retained from the captured frame. No standalone single-register write has been verified. The separate live T1..T5 telemetry block 180..184 is refreshed every four seconds while the Pi is the permitted bus master, so user setpoint changes never rewrite temperature data and the outdoor-temperature lockout remains current.
 
 The controller must reuse the physically observed/verified HAC1 FC16 setpoint write sequence from the local gateway/captures. It must not invent a new afterheat register write.
+
+T3 and T5 setpoints are saved locally only. No verified T3/T5 setpoint register mapping is available, so neither control sends Modbus writes until a physical capture verifies the destination and encoding.
 
 The HCH5/HAC1 remains responsible for the actual valve/frost/afterheat regulation. This controller does not implement or overwrite frost/defrost logic.
 

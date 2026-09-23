@@ -124,7 +124,12 @@ export function OverviewPage() {
     window.clearTimeout(thermostatTimers.current[key]);
     thermostatTimers.current[key] = window.setTimeout(async () => {
       delete thermostatTimers.current[key];
-      await command(key, { [key]: next }, next === null ? `${label} er sat til OFF.` : `${label} er sat til ${next} °C.`);
+      const value = next === null ? "OFF" : `${next} °C`;
+      await command(
+        key,
+        { [key]: next },
+        `${label} er gemt lokalt som ${value}; ingen hardwarekommando sendt.`,
+      );
       if (thermostatDraft.current[key] === next) {
         delete thermostatDraft.current[key];
         setThermostatRevision(value => value + 1);
@@ -347,6 +352,7 @@ export function OverviewPage() {
               </div>
             );
           })}
+          <p className="settings-help">T3- og T5-setpunkter gemmes lokalt. Der findes endnu ingen verificeret Modbus-mapping, så de sendes ikke til enheden.</p>
         </article>
       </div>
     </section>
