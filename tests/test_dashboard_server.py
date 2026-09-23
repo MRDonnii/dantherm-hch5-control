@@ -70,7 +70,7 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn("afterheat_valve", overview)
         self.assertIn("HAC1 regulerer selv varmefladen", overview)
         self.assertIn('["/technique", "Teknik", Gauge]', shell)
-        self.assertNotIn('["/updates", "Opdateringer", RefreshCw]', shell)
+        self.assertIn('["/updates", "Opdateringer", RefreshCw]', shell)
         self.assertIn('availableUpdate && <NavLink className="topbar-update-tab" to="/updates"', shell)
         self.assertIn('path="/technique"', app)
         self.assertIn('path="/updates"', app)

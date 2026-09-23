@@ -25,6 +25,7 @@ const navigation = [
   ["/system", "System", Boxes],
   ["/home-assistant", "Home Assistant", Zap],
   ["/diagnostics", "Diagnostik", Wrench],
+  ["/updates", "Opdateringer", RefreshCw],
   ["/settings", "Indstillinger", Settings],
 ] as const;
 

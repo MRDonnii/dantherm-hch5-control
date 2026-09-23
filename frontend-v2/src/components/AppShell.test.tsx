@@ -40,6 +40,6 @@ describe("AppShell update tab and control feedback", () => {
     const tab = await screen.findByRole("link", { name: /Opdatering klar/ });
     expect(tab.getAttribute("href")).toBe("/updates");
     expect(tab.textContent).toContain("1.2.0-beta.37");
-    expect(document.querySelector(".sidebar-nav a[href='/updates']")).toBeNull();
+    expect(document.querySelector(".sidebar-nav a[href='/updates']")).not.toBeNull();
   });
 });
