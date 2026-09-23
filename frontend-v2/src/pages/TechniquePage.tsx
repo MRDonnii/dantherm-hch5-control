@@ -27,6 +27,12 @@ function epoch(value: unknown) {
   const parsed = number(value);
   return parsed === null ? "—" : new Date(parsed * 1000).toLocaleString("da-DK");
 }
+// Damper readback 0-255: part-way means it is travelling (about three minutes end to end).
+function bypassPosition(controller: Data) {
+  const raw = number(controller.actual_bypass_raw);
+  if (raw !== null && raw > 0 && raw < 255) return `Bevæger sig · ${Math.round(raw / 2.55)} % åben`;
+  return bool(controller.actual_bypass, "Åben", "Lukket");
+}
 function masterLabel(value: unknown) {
   if (value === "pi") return "Raspberry Pi";
   if (value === "hcp4") return "HCP4";
@@ -134,7 +140,7 @@ export function TechniquePage() {
             <InfoList rows={[
               { label: "Tilluft ventilator", value: `${text(controller.actual_fan_supply_rpm)} RPM · ${text(controller.actual_fan_supply_percent)}%` },
               { label: "Fraluft ventilator", value: `${text(controller.actual_fan_extract_rpm)} RPM · ${text(controller.actual_fan_extract_percent)}%` },
-              { label: "Bypass faktisk", value: bool(controller.actual_bypass, "Åben", "Lukket") },
+              { label: "Bypass faktisk", value: bypassPosition(controller) },
               { label: "Bypass ønske", value: text(controller.actual_bypass_request) },
             ]}/>
             <InfoList rows={[

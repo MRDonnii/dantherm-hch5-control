@@ -177,8 +177,12 @@ export function OverviewPage() {
   const bypassActual = unit.bypass_active === true || controller.actual_bypass === true;
   const bypassRaw = number(controller.actual_bypass_raw) ?? number(unit.bypass_raw);
   const bypassMoving = bypassRaw !== null && bypassRaw !== 0 && bypassRaw !== 255;
-  const bypassActualLabel = bypassMoving ? "bevæger sig" : bypassActual ? "åben" : "lukket";
   const bypassRequest = String(controller.actual_bypass_request ?? unit.bypass_request ?? controller.bypass ?? "off");
+  // The damper reports 0-255 and takes about three minutes, so show how far
+  // open it is while it travels, and "åbner" from the moment On is read back.
+  const bypassOpenPercent = bypassRaw === null ? null : Math.round(Math.min(255, Math.max(0, bypassRaw)) / 2.55);
+  const bypassOpening = bypassRequest.toLowerCase() === "on" && bypassRaw !== null && bypassRaw < 255;
+  const bypassActualLabel = bypassOpening ? `åbner · ${bypassOpenPercent} %` : bypassMoving ? `bevæger sig · ${bypassOpenPercent} %` : bypassActual ? "åben" : "lukket";
   const heating = controller.actual_afterheat === true || unit.afterheat_active === true;
   // HAC1 never heats at 15 C outdoor or above; say so instead of just "Inaktiv".
   const afterheatLockout = controller.actual_afterheat_outdoor_lockout === true;

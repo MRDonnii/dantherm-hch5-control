@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0-beta.34
+
+- The exchanger now says when the bypass damper travels: "Åbner bypass" or "Lukker bypass" with how far open it is in % (the damper's own 0-255 readback) and a bar that follows it, while the damper blade, fog cross-fade and actuator animation keep running. A forced-open request shows "Åbner bypass" from the moment it is read back, because the real damper is slow: on the live unit it took 181-189 s from On to fully open in four runs and about 3 minutes to close, and the reported position moves in coarse steps that can hold for over a minute. The Bypass-styring card and the Teknik page show the same %.
+- Better 3D in the unit drawing: the far-end outdoor-air and exhaust ducts run off backwards, narrowing and fading out before their open ends come into view, with T1/T4 where the air fades out; the fans are seen slightly from behind at an angle, with drum and motor can; the core and the filters show their depth in the cabinet's projection, and the open front shows the cabinet's floor and right-hand wall.
+- All labels and readings in the drawing are considerably larger, the drawing fills the card width without empty bands, and the readback row below it stacks its texts so they no longer wrap.
+- Fixes the afterheat coil's pipes, which were never drawn since 1.2.0-beta.22 because their SVG path was malformed; they now glow when HAC1 heats.
+
 ## 1.2.0-beta.33
 
 - Keeps the afterheat card compact during the summer stop: the lockout notice replaces the RS485 selection and the detail line instead of being added below them, and it is sized to the card. Temperatures keep their value and "°C" on one line.
