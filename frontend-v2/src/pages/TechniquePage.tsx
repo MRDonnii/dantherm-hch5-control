@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Activity, Cpu, GitBranch, Radio, Waves } from "lucide-react";
 import { InfoList } from "../components/InfoList";
 import { requestJson } from "../lib/api";
+import { bypassTravel, formatRemaining } from "../lib/bypass";
 import "../styles/panels.css";
 
 type Data = Record<string, unknown>;
@@ -27,11 +28,13 @@ function epoch(value: unknown) {
   const parsed = number(value);
   return parsed === null ? "—" : new Date(parsed * 1000).toLocaleString("da-DK");
 }
-// Damper readback 0-255: part-way means it is travelling (about three minutes end to end).
+// The damper reports only closed/opening/closing/open and runs for about
+// three minutes, so a travel is shown with its time-based progress.
 function bypassPosition(controller: Data) {
-  const raw = number(controller.actual_bypass_raw);
-  if (raw !== null && raw > 0 && raw < 255) return `Bevæger sig · ${Math.round(raw / 2.55)} % åben`;
-  return bool(controller.actual_bypass, "Åben", "Lukket");
+  const run = bypassTravel({ raw: number(controller.actual_bypass_raw), requestOn: false, direction: controller.actual_bypass_travel_direction, seconds: controller.actual_bypass_travel_seconds, total: controller.bypass_travel_expected_seconds });
+  if (!run) return bool(controller.actual_bypass, "Åben", "Lukket");
+  const heading = run.direction === "opening" ? "Åbner" : run.direction === "closing" ? "Lukker" : "Bevæger sig";
+  return run.percent === null || run.remainingSeconds === null ? heading : `${heading} · ${run.percent} % · ${formatRemaining(run.remainingSeconds)} tilbage`;
 }
 function masterLabel(value: unknown) {
   if (value === "pi") return "Raspberry Pi";

@@ -3,6 +3,7 @@ import { ArrowRight, Flame, Gauge, Leaf, RefreshCw, Snowflake, Wind } from "luci
 import { Link } from "react-router-dom";
 import { Hch5UnitDiagram } from "../components/Hch5UnitDiagram";
 import { postJson, requestJson } from "../lib/api";
+import { bypassTravel, formatRemaining } from "../lib/bypass";
 import "../styles/overview.css";
 
 type Data = Record<string, unknown>;
@@ -178,11 +179,19 @@ export function OverviewPage() {
   const bypassRaw = number(controller.actual_bypass_raw) ?? number(unit.bypass_raw);
   const bypassMoving = bypassRaw !== null && bypassRaw !== 0 && bypassRaw !== 255;
   const bypassRequest = String(controller.actual_bypass_request ?? unit.bypass_request ?? controller.bypass ?? "off");
-  // The damper reports 0-255 and takes about three minutes, so show how far
-  // open it is while it travels, and "åbner" from the moment On is read back.
-  const bypassOpenPercent = bypassRaw === null ? null : Math.round(Math.min(255, Math.max(0, bypassRaw)) / 2.55);
-  const bypassOpening = bypassRequest.toLowerCase() === "on" && bypassRaw !== null && bypassRaw < 255;
-  const bypassActualLabel = bypassOpening ? `åbner · ${bypassOpenPercent} %` : bypassMoving ? `bevæger sig · ${bypassOpenPercent} %` : bypassActual ? "åben" : "lukket";
+  // The damper takes about three minutes: say which way it runs, how far
+  // along it is and how long is left, from the moment On is read back.
+  const bypassTravelDirection = controller.actual_bypass_travel_direction as string | null | undefined;
+  const bypassTravelSeconds = number(controller.actual_bypass_travel_seconds);
+  const bypassTravelTotal = number(controller.bypass_travel_expected_seconds);
+  const bypassRun = bypassTravel({ raw: bypassRaw, requestOn: bypassRequest.toLowerCase() === "on", direction: bypassTravelDirection, seconds: bypassTravelSeconds, total: bypassTravelTotal });
+  const bypassActualLabel = bypassRun
+    ? [
+        bypassRun.direction === "opening" ? "åbner" : bypassRun.direction === "closing" ? "lukker" : "bevæger sig",
+        bypassRun.percent === null ? null : `${bypassRun.percent} %`,
+        bypassRun.remainingSeconds === null ? null : `${formatRemaining(bypassRun.remainingSeconds)} tilbage`,
+      ].filter(Boolean).join(" · ")
+    : bypassActual ? "åben" : "lukket";
   const heating = controller.actual_afterheat === true || unit.afterheat_active === true;
   // HAC1 never heats at 15 C outdoor or above; say so instead of just "Inaktiv".
   const afterheatLockout = controller.actual_afterheat_outdoor_lockout === true;
@@ -250,6 +259,7 @@ export function OverviewPage() {
             supplyRpm={supplyRpm} extractRpm={extractRpm} supplyPercent={supplyPercent} extractPercent={extractPercent}
             bypassActual={bypassActual} bypassRequest={bypassRequest} heating={heating} recovery={recovery}
             busActive={busHealthy} bypassRaw={bypassRaw} afterheatLockout={afterheatLockout}
+            bypassTravelDirection={bypassTravelDirection} bypassTravelSeconds={bypassTravelSeconds} bypassTravelTotal={bypassTravelTotal}
           />
         </article>
 

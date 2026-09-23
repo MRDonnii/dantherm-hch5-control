@@ -37,6 +37,19 @@ class ControllerRuntimeTests(unittest.TestCase):
                 self.assertIs(snapshot["actual_afterheat_outdoor_lockout"], expected)
                 self.assertEqual(snapshot["afterheat_outdoor_cutoff"], 15.0)
 
+    def test_bypass_travel_time_and_direction_are_reported(self):
+        # The damper reports no position, so progress is the time since it
+        # left its end position against the measured ~180 s travel.
+        state = {"bypass_raw": 64, "bypass_travel_direction": "opening",
+                 "bypass_travel_started_monotonic": time.monotonic() - 42}
+        snapshot = self.make_runtime(state).snapshot()
+        self.assertEqual(snapshot["actual_bypass_travel_direction"], "opening")
+        self.assertAlmostEqual(snapshot["actual_bypass_travel_seconds"], 42, delta=1)
+        self.assertEqual(snapshot["bypass_travel_expected_seconds"], 180)
+        resting = self.make_runtime({"bypass_raw": 255, "bypass_travel_started_monotonic": None}).snapshot()
+        self.assertIsNone(resting["actual_bypass_travel_seconds"])
+        self.assertIsNone(resting["actual_bypass_travel_direction"])
+
     def test_smart_auto_can_request_every_level_1_to_6_from_co2(self):
         expected = {250: 1, 700: 2, 800: 3, 900: 4, 1100: 5, 1300: 6}
         for co2, level in expected.items():

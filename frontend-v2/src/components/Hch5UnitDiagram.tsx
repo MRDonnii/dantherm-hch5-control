@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { bypassOpenShare, bypassTravel, formatRemaining, type BypassDirection } from "../lib/bypass";
 
 type Num = number | null;
 type Point = readonly [number, number];
@@ -23,40 +24,34 @@ export interface Hch5UnitDiagramProps {
   recovery: number | null;
   /** RS485 traffic is flowing; animates data pulses along the Modbus cable. */
   busActive?: boolean;
-  /** Raw damper position from the unit: 0 closed, 255 open, between = travelling. */
+  /** Damper status from the unit: 0 closed, 64 opening, 32 closing, 255 open. */
   bypassRaw?: number | null;
+  /** From the controller: which way the damper travels and for how long so far. */
+  bypassTravelDirection?: string | null;
+  bypassTravelSeconds?: number | null;
+  bypassTravelTotal?: number | null;
   /** HAC1 outdoor lockout: afterheat never runs at 15 C outdoor or above. */
   afterheatLockout?: boolean;
 }
 
-// Matches the CSS transitions of the damper blade and the fog cross-fade, so a
-// damper that jumps straight from closed to open is still shown travelling.
-const BYPASS_TRAVEL_MS = 2600;
-
-type BypassMotion = "opening" | "closing" | null;
 // What the exchanger shows while the damper is not at rest. "moving" is a
-// damper seen part-way with no known direction, e.g. right after a reload.
-type BypassPhase = "opening" | "closing" | "moving" | null;
+// damper seen part-way with no known direction.
+type BypassPhase = BypassDirection | "moving" | null;
 const BYPASS_PHASE_TITLE = { opening: "Åbner bypass", closing: "Lukker bypass", moving: "Bypass-spjæld" } as const;
 const BYPASS_PHASE_LABEL = { opening: "Åbner…", closing: "Lukker…", moving: "Bevæger sig…" } as const;
 
-// Direction comes from how the position changes, not from the request:
-// in Auto the unit opens and closes the damper by itself.
-function useBypassMotion(position: number, travelling: boolean): BypassMotion {
+// Direction of the last change of the damper code while it travels, as a
+// fallback when the controller has not seen the start: in Auto the unit
+// opens and closes the damper by itself.
+function useBypassMotion(code: number, travelling: boolean): BypassDirection | null {
   const previous = useRef<number | null>(null);
-  const [motion, setMotion] = useState<BypassMotion>(null);
+  const [motion, setMotion] = useState<BypassDirection | null>(null);
   useEffect(() => {
     const last = previous.current;
-    previous.current = position;
-    if (last === null || last === position) {
-      if (!travelling) setMotion(null);
-      return;
-    }
-    setMotion(position > last ? "opening" : "closing");
-    if (travelling) return;
-    const timer = window.setTimeout(() => setMotion(null), BYPASS_TRAVEL_MS);
-    return () => window.clearTimeout(timer);
-  }, [position, travelling]);
+    previous.current = code;
+    if (!travelling) setMotion(null);
+    else if (last !== null && last !== code) setMotion(code > last ? "opening" : "closing");
+  }, [code, travelling]);
   return motion;
 }
 
@@ -98,7 +93,7 @@ const BYPASS_EXTRACT = `M${ROOM_SIDE_X} 205 H268 Q294 205 294 231 V364 Q294 388 
 const CORE_POINTS = "420,178 620,178 700,262 620,346 420,346 340,262";
 const CORE_CORNERS: Point[] = [[420, 178], [620, 178], [700, 262], [620, 346], [420, 346], [340, 262]];
 const CORE_PLATES = [196, 214, 232, 250, 268, 286, 304, 322];
-const BYPASS_PROGRESS = "M462 300 H578";
+const BYPASS_PROGRESS = "M462 290 H578";
 
 // One oblique projection for the whole unit, depth going up-left like the
 // top and the afterheat end of the cabinet: the parts inside are extruded
@@ -258,19 +253,22 @@ function Rs485Wiring({ active }: { active: boolean }) {
 }
 
 export function Hch5UnitDiagram(props:Hch5UnitDiagramProps) {
-  const {outdoor,extract,exhaust,beforeHeater,afterHeater,room,frost,flowWater,returnWater,supplyRpm,extractRpm,supplyPercent,extractPercent,bypassActual,bypassRequest,heating,recovery,busActive=false,bypassRaw=null,afterheatLockout=false}=props;
-  const rawPosition=typeof bypassRaw==="number"&&Number.isFinite(bypassRaw)?Math.min(1,Math.max(0,bypassRaw/255)):null;
-  const bypassPosition=rawPosition??(bypassActual?1:0);
-  const bypassTravelling=rawPosition!==null&&rawPosition>0&&rawPosition<1;
-  const bypassMotion=useBypassMotion(bypassPosition,bypassTravelling);
-  const bypassOpen=bypassPosition>=.5;
-  // The real damper needs about three minutes and reports its position in
-  // coarse steps, so a forced-open request counts as opening from the moment
-  // it is read back, before the position has left 0.
+  const {outdoor,extract,exhaust,beforeHeater,afterHeater,room,frost,flowWater,returnWater,supplyRpm,extractRpm,supplyPercent,extractPercent,bypassActual,bypassRequest,heating,recovery,busActive=false,bypassRaw=null,bypassTravelDirection=null,bypassTravelSeconds=null,bypassTravelTotal=null,afterheatLockout=false}=props;
+  // The unit reports only closed/opening/closing/open and needs about three
+  // minutes, so progress is the time since the damper left its end position;
+  // the blade and the fog follow that estimate, and On counts as opening from
+  // the moment it is read back.
+  const bypassCode=typeof bypassRaw==="number"&&Number.isFinite(bypassRaw)?Math.min(255,Math.max(0,bypassRaw)):null;
+  const settledOpen=bypassCode===null?bypassActual:bypassCode>=255;
   const bypassWanted=bypassRequest.toLowerCase()==="on";
-  const bypassPhase:BypassPhase=bypassMotion??(bypassWanted&&rawPosition!==null&&rawPosition<1?"opening":bypassTravelling?"moving":null);
-  const bypassPercent=Math.round(bypassPosition*100);
-  const bypassLabel=bypassPhase?`${BYPASS_PHASE_LABEL[bypassPhase]} ${bypassPercent} %`:bypassOpen?"Åben":"Lukket";
+  const observedMotion=useBypassMotion(bypassCode??(settledOpen?255:0),bypassCode!==null&&bypassCode>0&&bypassCode<255);
+  const travel=bypassTravel({raw:bypassCode,requestOn:bypassWanted,direction:bypassTravelDirection,seconds:bypassTravelSeconds,total:bypassTravelTotal,observed:observedMotion});
+  const bypassPhase:BypassPhase=travel?travel.direction??"moving":null;
+  const bypassPosition=bypassOpenShare(travel,settledOpen);
+  const bypassOpen=bypassPosition>=.5;
+  const bypassPercent=travel?.percent??null;
+  const bypassRemaining=travel?.remainingSeconds??null;
+  const bypassLabel=bypassPhase?`${BYPASS_PHASE_LABEL[bypassPhase]}${bypassPercent===null?"":` ${bypassPercent} %`}`:bypassOpen?"Åben":"Lukket";
   // Extract is drawn on both routes; the damper position cross-fades the fog
   // from the core to the bottom channel as it opens, and back as it closes.
   const coreRoute={opacity:1-bypassPosition} as CSSProperties; const bypassRoute={opacity:bypassPosition} as CSSProperties;
@@ -336,13 +334,16 @@ export function Hch5UnitDiagram(props:Hch5UnitDiagramProps) {
           <text className="hch-channel-label" x="541" y="393" textAnchor="middle">Bypass-kanal</text>
           <Exchanger bypassed={bypassOpen}/>
           {/* While the damper travels, the core says which way and how far open
-              it is (reported position 0-255 as %), with a bar that follows it. */}
+              its estimated time based progress, with a bar that follows it. */}
           {bypassPhase
             ? <g className={`hch-bypass-progress ${bypassPhase}`}>
-                <text className="hch-exchanger-title" x="520" y="247" textAnchor="middle">{BYPASS_PHASE_TITLE[bypassPhase]}</text>
-                <text className="hch-recovery" x="520" y="283" textAnchor="middle">{bypassPercent} %</text>
+                <text className="hch-exchanger-title" x="520" y="242" textAnchor="middle">{BYPASS_PHASE_TITLE[bypassPhase]}</text>
+                <text className="hch-recovery" x="520" y="276" textAnchor="middle">{bypassPercent===null?"Kører…":`${bypassPercent} %`}</text>
                 <path className="bypass-progress-track" d={BYPASS_PROGRESS} pathLength={100}/>
-                <path className="bypass-progress-fill" d={BYPASS_PROGRESS} pathLength={100} style={{strokeDasharray:`${bypassPercent} 100`}}/>
+                {bypassPercent===null
+                  ? <path className="bypass-progress-fill indeterminate" d={BYPASS_PROGRESS} pathLength={100}/>
+                  : <path className="bypass-progress-fill" d={BYPASS_PROGRESS} pathLength={100} style={{strokeDasharray:`${bypassPercent} 100`}}/>}
+                <text className="hch-bypass-countdown" x="520" y="315" textAnchor="middle">{bypassRemaining===null?"Spjældet kører ca. 3 min":`ca. ${formatRemaining(bypassRemaining)} tilbage`}</text>
               </g>
             : <><text className="hch-exchanger-title" x="520" y="255" textAnchor="middle">Varmeveksler</text><text className="hch-recovery" x="520" y="293" textAnchor="middle">{bypassOpen?"BYPASS":recovery===null?"—":`${recovery}%`}</text></>}
           {[["P3",438,204],["P1",602,204],["P2",438,334],["P4",602,334]].map(([port,x,y])=><text key={port} className="hch-core-port" x={x} y={y} textAnchor="middle">{port}</text>)}
@@ -377,8 +378,8 @@ export function Hch5UnitDiagram(props:Hch5UnitDiagramProps) {
       <TempPort cx={-150} cy={365} title="Indblæsning · T2AH" value={fmt(afterHeater)} tone="green"/>
       <SensorPin x={144} y={365} label="T2 før flade" value={fmt(beforeHeater,"°")} width={112} lift={50}/><SensorPin x={-28} y={365} label="T2AH" value={fmt(afterHeater,"°")} width={74} lift={50}/><SensorPin x={57} y={292} label="Frost" value={fmt(frost,"°")}/><SensorPin x={502} y={126} label="T5 rum" value={fmt(room,"°")} width={90}/>
       <g className="hch-water-callout" transform="translate(-236 424)"><rect width="166" height="80" rx="12"/><text x="14" y="22">Eftervarmevand</text><text className="water-value" x="14" y="46">Fremløb {fmt(flowWater)}</text><text className="water-value" x="14" y="68">Retur {fmt(returnWater)}</text></g>
-      <g className="hch-bypass-callout" transform="translate(806 448)"><rect width="240" height="62" rx="12"/><text x="120" y="23" textAnchor="middle">Bypass-spjæld · ønske {bypassWanted?"On":"Auto"}</text><text className="bypass-state" x="120" y="48" textAnchor="middle">{bypassLabel}</text></g>
+      <g className="hch-bypass-callout" transform="translate(806 448)"><rect width="240" height="62" rx="12"/><text x="120" y="23" textAnchor="middle">Bypass-spjæld · ønske {bypassWanted?"On":"Auto"}</text><text className="bypass-state" x="120" y="48" textAnchor="middle">{bypassLabel}{bypassRemaining===null?"":` · ${formatRemaining(bypassRemaining)}`}</text></g>
     </svg>
-    <div className="unit-readback-row"><div className="unit-readback"><span className="readback-icon fan"/><div><small>Tilluft ventilator</small><strong>{int(supplyRpm)} RPM</strong><em>{int(supplyPercent)}%</em></div></div><div className="unit-readback"><span className="readback-icon fan"/><div><small>Fraluft ventilator</small><strong>{int(extractRpm)} RPM</strong><em>{int(extractPercent)}%</em></div></div><div className="unit-readback"><span className={`readback-icon damper ${bypassOpen?"active":""}`}/><div><small>Bypass-spjæld</small><strong>{bypassPhase?bypassLabel:bypassOpen?"Åbent":"Lukket"}</strong><em>Ønske: {bypassWanted?"On":"Auto"}</em></div></div><div className="unit-readback"><span className={`readback-icon heater ${heating?"active":""}`}/><div><small>Ekstern eftervarme</small><strong>{heating?"Aktiv":afterheatLockout?"Spærret":"Ikke aktiv"}</strong><em>{afterheatLockout?"Sommerstop: ude ≥ 15 °C":"Kun setpunkt styres"}</em></div></div></div>
+    <div className="unit-readback-row"><div className="unit-readback"><span className="readback-icon fan"/><div><small>Tilluft ventilator</small><strong>{int(supplyRpm)} RPM</strong><em>{int(supplyPercent)}%</em></div></div><div className="unit-readback"><span className="readback-icon fan"/><div><small>Fraluft ventilator</small><strong>{int(extractRpm)} RPM</strong><em>{int(extractPercent)}%</em></div></div><div className="unit-readback"><span className={`readback-icon damper ${bypassOpen?"active":""}`}/><div><small>Bypass-spjæld</small><strong>{bypassPhase?bypassLabel:bypassOpen?"Åbent":"Lukket"}</strong><em>{bypassRemaining===null?`Ønske: ${bypassWanted?"On":"Auto"}`:`ca. ${formatRemaining(bypassRemaining)} tilbage`}</em></div></div><div className="unit-readback"><span className={`readback-icon heater ${heating?"active":""}`}/><div><small>Ekstern eftervarme</small><strong>{heating?"Aktiv":afterheatLockout?"Spærret":"Ikke aktiv"}</strong><em>{afterheatLockout?"Sommerstop: ude ≥ 15 °C":"Kun setpunkt styres"}</em></div></div></div>
   </div>;
 }

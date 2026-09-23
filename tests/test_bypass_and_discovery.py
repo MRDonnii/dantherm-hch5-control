@@ -299,6 +299,41 @@ class BypassAndDiscoveryTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "fireplace"):
             gateway.write_bypass_request(object(), "on")
 
+    def test_damper_status_codes_mark_travel_start_and_direction(self):
+        # Live HCH5 2026-09-23: 0 closed, 64 opening, 32 closing, 255 open,
+        # each travel lasting ~180 s. The code is a status, not a position.
+        gateway = make_gateway()
+
+        def status(raw):
+            body = bytes.fromhex("01040a" + "0050" + "08b6" + "079a") + raw.to_bytes(2, "big") + bytes.fromhex("0002")
+            gateway.decode(body + crc16(body).to_bytes(2, "little"))
+
+        status(0)
+        self.assertIsNone(gateway.state.get("bypass_travel_started_monotonic"))
+        status(64)
+        started = gateway.state["bypass_travel_started_monotonic"]
+        self.assertIsInstance(started, float)
+        self.assertEqual(gateway.state["bypass_travel_direction"], "opening")
+        self.assertIs(gateway.state["bypass_active"], False)
+        status(64)  # holds 64 for the whole travel; the start must not move
+        self.assertEqual(gateway.state["bypass_travel_started_monotonic"], started)
+        status(255)
+        self.assertIsNone(gateway.state["bypass_travel_started_monotonic"])
+        self.assertIsNone(gateway.state["bypass_travel_direction"])
+        self.assertIs(gateway.state["bypass_active"], True)
+        status(32)
+        self.assertEqual(gateway.state["bypass_travel_direction"], "closing")
+        self.assertIsInstance(gateway.state["bypass_travel_started_monotonic"], float)
+        status(0)
+        self.assertIsNone(gateway.state["bypass_travel_direction"])
+
+    def test_damper_travel_seen_mid_way_after_restart_has_no_start(self):
+        gateway = make_gateway()
+        body = bytes.fromhex("01040a" + "0050" + "08b6" + "079a" + "0020" + "0002")
+        gateway.decode(body + crc16(body).to_bytes(2, "little"))
+        self.assertEqual(gateway.state["bypass_travel_direction"], "closing")
+        self.assertIsNone(gateway.state["bypass_travel_started_monotonic"])
+
     def test_passive_temperature_frame_publishes_canonical_before_heater_key(self):
         gateway = make_gateway()
         body = bytes.fromhex("010408" + "0576094c083705a2")

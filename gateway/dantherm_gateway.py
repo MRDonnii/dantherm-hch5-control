@@ -48,6 +48,8 @@ INFO_STATE_KEYS = {
     "operating_mode",
     "current_level",
     "bypass_active",
+    "bypass_raw",
+    "bypass_travel_direction",
     "fireplace",
     "standby",
     "night_mode",
@@ -55,6 +57,10 @@ INFO_STATE_KEYS = {
     "filter_alarm",
 }
 KNOWN_SLAVES = {1, 0x40}
+# FC04 register 7 is the damper's status, not its position (captured on the
+# live HCH5 2026-09-23): 0 closed, 64 opening, 32 closing, 255 open. The unit
+# runs the damper for a fixed ~180 s in either direction.
+BYPASS_TRAVEL_CODES = {64: "opening", 32: "closing"}
 FIREPLACE_DURATION_SECONDS = 15 * 60
 FILTER_INTERVAL_MIN_DAYS = 90
 FILTER_INTERVAL_MAX_DAYS = 360
@@ -1187,6 +1193,27 @@ class Gateway:
         log = LOG.info if key in INFO_STATE_KEYS else LOG.debug
         log("%s=%s", key, payload)
 
+    def publish_bypass_raw(self, raw: int):
+        """Publish the damper status and remember when a travel started.
+
+        A travel only has a known start when the damper was seen leaving an
+        end position; after a restart mid-travel the elapsed time is unknown.
+        """
+        previous = self.state.get("bypass_raw")
+        self.publish("bypass_raw", raw)
+        self.publish("bypass_active", raw == 255)
+        if raw == previous:
+            return
+        if raw in (0, 255):
+            self.state["bypass_travel_started_monotonic"] = None
+            self.publish("bypass_travel_direction", None)
+        elif previous in (0, 255):
+            self.state["bypass_travel_started_monotonic"] = time.monotonic()
+            self.publish("bypass_travel_direction", "opening" if previous == 0 else "closing")
+        else:
+            self.state["bypass_travel_started_monotonic"] = None
+            self.publish("bypass_travel_direction", BYPASS_TRAVEL_CODES.get(raw))
+
     def publish_filter_status(self):
         if not self.filter_enabled:
             return
@@ -1324,10 +1351,9 @@ class Gateway:
                 self.publish("heat_recovery_efficiency", efficiency)
                 self.publish("fan_extract_rpm", extract_rpm)
                 self.publish("fan_supply_rpm", supply_rpm)
-                self.publish("bypass_raw", bypass_raw)
-                # Verificeret 2026-07-17 mod fysisk auto-bypass:
-                # 0 = lukket, 255 = helt åben; mellemtrin er spjældbevægelse.
-                self.publish("bypass_active", bypass_raw == 255)
+                # Verificeret 2026-07-17 mod fysisk auto-bypass: 0 = lukket,
+                # 255 = helt åben; 64/32 = åbner/lukker (målt 2026-09-23).
+                self.publish_bypass_raw(bypass_raw)
                 self.publish("status_code", status)
         elif fn == 6:
             register = int.from_bytes(frame[2:4], "big")
@@ -1782,8 +1808,7 @@ class Gateway:
             self.publish("heat_recovery_efficiency", humidity_raw)
             self.publish("fan_extract_rpm", extract_rpm)
             self.publish("fan_supply_rpm", supply_rpm)
-            self.publish("bypass_raw", bypass_raw)
-            self.publish("bypass_active", bypass_raw == 255)
+            self.publish_bypass_raw(bypass_raw)
             self.publish("status_code", status_code)
             measured_rh = round(humidity_raw * 100 / 255, 1) if 0 < humidity_raw <= 255 else None
             extract_temp = self.state.get("extract_temp")

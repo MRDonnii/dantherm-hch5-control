@@ -26,6 +26,9 @@ VALID_PRIORITIES = {"auto", "low", "normal", "high", "critical"}
 # Register 209 staying 0 above this limit is correct HAC1 behaviour, not a
 # Pi/RS485 fault - do not debug it. It is not configurable over RS485.
 AFTERHEAT_OUTDOOR_CUTOFF_C = 15.0
+# The HCH5 runs its bypass damper for about three minutes either way
+# (180 s measured on the live unit 2026-09-23) and reports no position.
+BYPASS_TRAVEL_SECONDS = 180
 
 
 class ControllerRuntime:
@@ -457,6 +460,12 @@ class ControllerRuntime:
         outdoor = self._safe_number(
             self._first(self.gateway_state, "outdoor_temp", "outdoor_temperature"), -50, 60
         )
+        travel_started = self.gateway_state.get("bypass_travel_started_monotonic")
+        travel_seconds = (
+            round(max(0.0, time.monotonic() - float(travel_started)), 1)
+            if isinstance(travel_started, (int, float))
+            else None
+        )
         if self.master.master == MasterArbitrator.HCP4:
             control_state = "paused_hcp4_master"
         elif self.master.master == MasterArbitrator.PI:
@@ -474,6 +483,9 @@ class ControllerRuntime:
             "actual_bypass_raw": self._first(self.gateway_state, "bypass_raw"),
             "actual_bypass_request": self._first(self.gateway_state, "bypass_request"),
             "actual_bypass_request_raw": self._first(self.gateway_state, "bypass_request_raw"),
+            "actual_bypass_travel_direction": self._first(self.gateway_state, "bypass_travel_direction"),
+            "actual_bypass_travel_seconds": travel_seconds,
+            "bypass_travel_expected_seconds": BYPASS_TRAVEL_SECONDS,
             "actual_fireplace": self._first(self.gateway_state, "fireplace"),
             "actual_afterheat": self._first(self.gateway_state, "afterheat_active"),
             "actual_afterheat_setpoint": self._first(self.gateway_state, "afterheat_setpoint"),

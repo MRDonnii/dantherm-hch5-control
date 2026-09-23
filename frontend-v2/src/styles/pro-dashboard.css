@@ -59,7 +59,11 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .pro-card-head p { margin: 3px 0 0; color: #7f96a6; font-size: 9px; }
 .pro-card-head.compact h2 { font-size: 15px; }
 
-.hch5-visual { margin-top: 4px; perspective: 1900px; }
+/* The drawing looks down on the unit (its top and afterheat end are visible),
+   so the vanishing point sits above it: the exhaust end turns away, gets
+   smaller and rises towards the horizon instead of pinching to the middle,
+   which read as seen from eye level. The padding keeps the raised top in the card. */
+.hch5-visual { margin-top: 4px; padding-top: 16px; perspective: 1900px; perspective-origin: 25% -80%; }
 /* Seen from the afterheat end: the left side stays put while the exhaust
    end turns slightly away from the viewer. */
 .hch5-visual > svg { width: 100%; height: auto; display: block; transform: rotateY(9deg); transform-origin: 0 50%; }
@@ -104,7 +108,8 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .hch-recovery { fill: #fff; font-size: 34px; font-weight: 850; text-shadow: 0 2px 8px #000; }
 .hch-bypass rect { fill: #0b1b25; stroke: #426074; }
 .hch-bypass text { fill: #a9beca; font-size: 10px; font-weight: 700; }
-/* 2.6 s matches BYPASS_TRAVEL_MS in Hch5UnitDiagram.tsx. */
+/* The blade and the fog glide between the ~2 s updates of the damper's
+   time-based position (the real damper runs for about three minutes). */
 .bypass-blade { fill: #72c6f8; transform-box: fill-box; transform-origin: center; transition: transform 2.6s cubic-bezier(.45, 0, .2, 1), fill .6s; }
 .hch-bypass.open .bypass-blade { fill: #58dfa1; }
 /* Damper on the lower fan motor; the orange actuator matches the real unit. */
@@ -124,6 +129,10 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .bypass-progress-track { fill: none; stroke: rgb(4 12 18 / 82%); stroke-width: 11; stroke-linecap: round; }
 .bypass-progress-fill { fill: none; stroke: #ffa45c; stroke-width: 7; stroke-linecap: round; transition: stroke-dasharray 2.6s cubic-bezier(.45, 0, .2, 1); animation: pro-bypass-progress 1.4s ease-in-out infinite alternate; }
 @keyframes pro-bypass-progress { from { opacity: .55; } to { opacity: 1; } }
+/* Start of the travel not seen (e.g. after a gateway restart): no %, just a runner. */
+.bypass-progress-fill.indeterminate { stroke-dasharray: 22 78; animation: pro-bypass-runner 1.8s linear infinite; }
+@keyframes pro-bypass-runner { from { stroke-dashoffset: 22; } to { stroke-dashoffset: -100; } }
+.hch-bypass-countdown { fill: #d7c3ad; font-size: 14px; font-weight: 700; paint-order: stroke; stroke: #08141c; stroke-width: 4px; stroke-linejoin: round; }
 .hch-lockout-badge rect { fill: rgb(40 26 8 / 90%); stroke: #e9a54a; stroke-width: 1.2; }
 .hch-lockout-badge text { fill: #ffd08a; font-size: 13.5px; font-weight: 800; letter-spacing: .01em; }
 .hch-channel-label { fill: #7f98a6; font-size: 14px; font-weight: 700; letter-spacing: .02em; }
@@ -175,7 +184,8 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 :root[data-motion="reduced"] .hch-fan-rotor,
 :root[data-motion="reduced"] .hch-bus-core,
 :root[data-motion="reduced"] .hch-bypass.moving .bypass-actuator,
-:root[data-motion="reduced"] .bypass-progress-fill {
+:root[data-motion="reduced"] .bypass-progress-fill,
+:root[data-motion="reduced"] .bypass-progress-fill.indeterminate {
   animation: none !important;
 }
 :root[data-motion="reduced"] .hch-fog-a,
