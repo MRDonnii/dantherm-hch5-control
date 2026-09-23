@@ -242,11 +242,10 @@ function AirWisps({ path, kind, speed }: { path: string; kind: "supply" | "extra
 // Wiring view: the unit's control board, the HAC1 afterheat controller and
 // the Raspberry Pi share one RS485/Modbus RTU cable (unit = slave 1, HAC1 =
 // slave 0x40, Pi = gateway). HAC1 wires its own T2AH and frost sensors and
-// the water valve actuator.
+// the water valve actuator; the T2AH lead is omitted with its removed marker.
 function Rs485Wiring({ active }: { active: boolean }) {
   const bus = "M254 410 V496 M142 496 H600";
   return <g className={`hch-wiring${active ? " active" : ""}`}>
-    <path className="hch-signal-wire" d="M2 474 V420 H-28 V371"/>
     <path className="hch-signal-wire" d="M112 474 V292 H63"/>
     <path className="hch-signal-wire" d="M23 474 V446"/>
     <path className="hch-bus-cable" d={bus}/><path className="hch-bus-core" d={bus}/>
