@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0-beta.50
+
+- Hide T2, T2AH, HAC1 frost, and HRC2 T5 readings when no valid sample arrives for 45 seconds; stale and unverifiable historical readings appear as gaps.
+- Prevent temperature diagram fallbacks from displaying T2 as T2AH or extract temperature as room/T5.
+- T3/T5 setpoints remain local-only until verified hardware write mappings are available.
+
 ## 1.2.0-beta.49
 
 - Click any temperature reading in the HCH5 unit overview to see its last 24 hours in a popup. The chart shows values and time at the hovered point; the popup works with mouse, touch and keyboard.
