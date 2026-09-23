@@ -50,6 +50,38 @@ class ControllerRuntimeTests(unittest.TestCase):
         self.assertEqual(runtime.config.data["t5_setpoint"], 24)
         self.assertEqual(applied, [])
 
+    def test_stale_t2_t2ah_and_t5_are_not_reported_as_live_values(self):
+        stale_sample = time.monotonic() - 46
+        runtime = self.make_runtime({
+            "supply_temperature": 21.5,
+            "supply_temp": 21.5,
+            "supply_temperature_sample_monotonic": stale_sample,
+            "temperature_sample_monotonic": stale_sample,
+            "heating_coil_after_temperature": 23.2,
+            "heating_coil_after_temperature_sample_monotonic": stale_sample,
+            "heating_coil_frost_temperature": 6.8,
+            "heating_coil_frost_temperature_sample_monotonic": stale_sample,
+            "hrc2_t5_temperature": 23.2,
+            "hrc2_t5_temperature_sample_monotonic": stale_sample,
+            "extract_temp": 20.1,
+        })
+
+        snapshot = runtime.snapshot()
+
+        self.assertIsNone(snapshot["actual_supply_before_heater_temperature"])
+        self.assertIsNone(snapshot["actual_supply_air_temperature"])
+        self.assertIsNone(snapshot["actual_afterheat_frost_temperature"])
+        self.assertIsNone(snapshot["measurements"]["room"])
+
+    def test_generic_temperature_timestamp_does_not_refresh_t2(self):
+        runtime = self.make_runtime({
+            "supply_temperature": 21.5,
+            "supply_temp": 21.5,
+            "temperature_sample_monotonic": time.monotonic(),
+        })
+
+        self.assertIsNone(runtime.snapshot()["actual_supply_before_heater_temperature"])
+
     def test_bypass_travel_time_and_direction_are_reported(self):
         # The damper reports no position, so progress is the time since it
         # left its end position against the measured ~180 s travel.

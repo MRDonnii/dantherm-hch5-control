@@ -92,6 +92,11 @@ class BypassAndDiscoveryTests(unittest.TestCase):
         self.assertIs(gateway.state["afterheat_active"], True)
         self.assertEqual(gateway.state["afterheat_active_source"], "passive_hcp4_hac1_register_209")
         self.assertIsInstance(gateway.state["afterheat_active_updated_at"], float)
+        self.assertEqual(gateway.state["heating_coil_after_temperature"], 21.26)
+        self.assertIsInstance(
+            gateway.state["heating_coil_after_temperature_sample_monotonic"], float
+        )
+        self.assertEqual(gateway.state["heating_coil_frost_temperature"], 17.17)
 
         values[-1] = 0
         frame = bytes([0x40, 0x03, 10]) + b"".join(value.to_bytes(2, "big") for value in values) + b"\x00\x00"
@@ -113,6 +118,8 @@ class BypassAndDiscoveryTests(unittest.TestCase):
         gateway.decode(temperatures)
         self.assertEqual(gateway.state["supply_temp"], 20.94)
         self.assertEqual(gateway.state["hrc2_t5_temperature"], 23.40)
+        self.assertIsInstance(gateway.state["supply_temperature_sample_monotonic"], float)
+        self.assertIsInstance(gateway.state["hrc2_t5_temperature_sample_monotonic"], float)
 
         off = gateway.write_multiple_frame(
             0x40, 185, [1, 0, 15, 0x17FE, 0xFF03]
@@ -126,6 +133,16 @@ class BypassAndDiscoveryTests(unittest.TestCase):
         gateway.decode(enabled)
         self.assertEqual(gateway.state["afterheat_selection"], 23)
         self.assertEqual(gateway.state["afterheat_setpoint"], 23)
+
+    def test_identical_temperature_sample_refreshes_sensor_freshness(self):
+        gateway = make_gateway()
+        gateway.publish_temperature("heating_coil_after_temperature", 23.2)
+        first_sample = gateway.state["heating_coil_after_temperature_sample_monotonic"]
+        gateway.publish_temperature("heating_coil_after_temperature", 23.2)
+        self.assertGreaterEqual(
+            gateway.state["heating_coil_after_temperature_sample_monotonic"],
+            first_sample,
+        )
 
     def test_afterheat_setpoint_writes_only_the_verified_thermostat_block(self):
         gateway = make_gateway()

@@ -31,17 +31,93 @@ class DashboardTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "history.sqlite3"
             with sqlite3.connect(path) as db:
-                db.execute("CREATE TABLE samples (ts INTEGER PRIMARY KEY, co2 REAL)")
-                db.execute("INSERT INTO samples (ts, co2) VALUES (?, ?)", (int(time.time()) - 20, 700))
+                db.execute(
+                    "CREATE TABLE samples (ts INTEGER PRIMARY KEY, co2 REAL, supply_temp REAL, "
+                    "heating_coil_after_temperature REAL, hrc2_t5_temperature REAL)"
+                )
+                db.execute(
+                    "INSERT INTO samples VALUES (?, ?, ?, ?, ?)",
+                    (int(time.time()) - 20, 700, 21.5, 23.2, 22.4),
+                )
             store = MODULE.HistoryStore(path, sample_seconds=10)
             self.assertTrue(store.available)
-            store.record({"system_cpu_usage_percent": 25, "pi_cpu_temperature": 43, "system_memory_used_percent": 40, "heating_coil_after_temperature": 22.5, "heating_coil_frost_temperature": 6.8}, now=time.time())
+            store.record({
+                "system_cpu_usage_percent": 25,
+                "pi_cpu_temperature": 43,
+                "system_memory_used_percent": 40,
+                "heating_coil_after_temperature": 22.5,
+                "heating_coil_after_temperature_sample_monotonic": time.monotonic(),
+                "heating_coil_frost_temperature": 6.8,
+                "heating_coil_frost_temperature_sample_monotonic": time.monotonic(),
+            }, now=time.time())
             rows = store.query("1h")
             self.assertEqual(rows[0]["co2"], 700)
+            self.assertIsNone(rows[0]["supply_temp"])
+            self.assertIsNone(rows[0]["heating_coil_after_temperature"])
+            self.assertIsNone(rows[0]["hrc2_t5_temperature"])
             self.assertEqual(rows[-1]["system_cpu_usage_percent"], 25)
             self.assertEqual(rows[-1]["pi_cpu_temperature"], 43)
             self.assertEqual(rows[-1]["heating_coil_after_temperature"], 22.5)
             self.assertEqual(rows[-1]["heating_coil_frost_temperature"], 6.8)
+
+    def test_stale_t2_t2ah_and_t5_are_hidden_from_state_and_history(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            stale = time.monotonic() - 46
+            fresh = time.monotonic()
+            state = {
+                "supply_temp": 21.5,
+                "supply_temperature": 21.5,
+                "supply_temperature_sample_monotonic": stale,
+                "heating_coil_after_temperature": 23.2,
+                "heating_coil_after_temperature_sample_monotonic": fresh,
+                "hrc2_t5_temperature": 23.2,
+                "hrc2_t5_temperature_sample_monotonic": stale,
+            }
+            server = MODULE.DashboardHttpServer(
+                "127.0.0.1", 0, state, "Test", None,
+                history_path=Path(tmp) / "history.sqlite3",
+            )
+
+            snapshot = server.snapshot()
+            row = server.history.query("1h")[-1]
+
+            self.assertIsNone(snapshot["supply_temp"])
+            self.assertEqual(snapshot["heating_coil_after_temperature"], 23.2)
+            self.assertIsNone(snapshot["hrc2_t5_temperature"])
+            self.assertIsNone(row["supply_temp"])
+            self.assertEqual(row["heating_coil_after_temperature"], 23.2)
+            self.assertIsNone(row["hrc2_t5_temperature"])
+
+    def test_never_sampled_t2_t2ah_and_t5_are_not_exposed_or_recorded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = {
+                "supply_temp": 21.5,
+                "supply_temperature": 21.5,
+                "heating_coil_after_temperature": 23.2,
+                "hrc2_t5_temperature": 23.2,
+            }
+            server = MODULE.DashboardHttpServer(
+                "127.0.0.1", 0, state, "Test", None,
+                history_path=Path(tmp) / "history.sqlite3",
+            )
+
+            snapshot = server.snapshot()
+            row = server.history.query("1h")[-1]
+
+            for field in (
+                "supply_temp",
+                "supply_temperature",
+                "heating_coil_after_temperature",
+                "hrc2_t5_temperature",
+            ):
+                self.assertIsNone(snapshot[field])
+            for field in (
+                "supply_temp",
+                "heating_coil_after_temperature",
+                "hrc2_t5_temperature",
+            ):
+                self.assertIsNone(row[field])
+
     def test_system_snapshot_has_resource_fields_and_onewire_service(self):
         with tempfile.TemporaryDirectory() as tmp:
             server = MODULE.DashboardHttpServer("127.0.0.1", 0, {}, "Test", None, history_path=Path(tmp) / "history.sqlite3")
@@ -91,6 +167,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Bypass-spjæld", diagram)
         self.assertIn("afterheat_setpoint", overview)
         self.assertNotIn("afterheat_valve", overview)
+        self.assertNotIn('first(unit, "heating_coil_after_temperature", "supply_temp")', overview)
+        self.assertNotIn('first(unit, "hrc2_t5_temperature", "room_temp", "extract_temp")', overview)
         self.assertIn("I HAC1:", overview)
         self.assertIn("Varmekald:", overview)
         self.assertIn('["/technique", "Teknik", Gauge]', shell)

@@ -34,6 +34,7 @@ import yaml
 from controller_core import HardwareAdapter
 from controller_dashboard_server import ControllerDashboardHttpServer
 from controller_runtime import ControllerRuntime
+from sensor_freshness import SENSOR_SAMPLE_TIMESTAMPS
 
 LOG = logging.getLogger("dantherm_gateway")
 
@@ -1195,6 +1196,19 @@ class Gateway:
         log = LOG.info if key in INFO_STATE_KEYS else LOG.debug
         log("%s=%s", key, payload)
 
+    def publish_temperature(self, key: str, value: object, *, source: str | None = None):
+        self.publish(key, value, source=source)
+        timestamp_keys = SENSOR_SAMPLE_TIMESTAMPS.get(key)
+        if (
+            timestamp_keys
+            and isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and -35 <= float(value) <= 100
+        ):
+            self.state[timestamp_keys[0]] = time.monotonic()
+            if key in {"supply_temp", "supply_temperature"}:
+                self.state["temperature_sample_monotonic"] = time.monotonic()
+
     def publish_bypass_raw(self, raw: int):
         """Publish the damper status and remember when a travel started.
 
@@ -1262,11 +1276,11 @@ class Gateway:
                     values,
                 ):
                     if 500 <= raw <= 4000:
-                        self.publish(
+                        self.publish_temperature(
                             key, raw / 100.0,
                             source="passive_hcp4_hac1_register_180",
                         )
-                self.publish(
+                self.publish_temperature(
                     "supply_temperature", values[1] / 100.0,
                     source="passive_hcp4_hac1_register_181",
                 )
@@ -1327,6 +1341,16 @@ class Gateway:
                 # manuelle test (2026-08-31, aabn/luk/setpunkt-test). Det er
                 # IKKE en glidende positionsvaerdi -- kun to stabile tilstande
                 # er nogensinde set trods gentagne delvise fysiske aabninger.
+                if 500 <= values[0] <= 4000:
+                    self.publish_temperature(
+                        "heating_coil_after_temperature", values[0] / 100.0,
+                        source="passive_hcp4_hac1_register_205",
+                    )
+                if 500 <= values[1] <= 6000:
+                    self.publish_temperature(
+                        "heating_coil_frost_temperature", values[1] / 100.0,
+                        source="passive_hcp4_hac1_register_206",
+                    )
                 self.publish(
                     "afterheat_active", values[4] == 16,
                     source="passive_hcp4_hac1_register_209",
@@ -1344,8 +1368,8 @@ class Gateway:
                     values,
                 ):
                     value = raw / 100.0
-                    self.publish(legacy_key, value)
-                    self.publish(canonical_key, value)
+                    self.publish_temperature(legacy_key, value)
+                    self.publish_temperature(canonical_key, value)
                 self.state["temperature_sample_monotonic"] = time.monotonic()
                 self.state["temperature_source"] = "hch5_fc04"
             elif len(values) == 5:
@@ -1825,8 +1849,8 @@ class Gateway:
                 temperatures,
             ):
                 value = raw / 100.0
-                self.publish(legacy_key, value)
-                self.publish(canonical_key, value)
+                self.publish_temperature(legacy_key, value)
+                self.publish_temperature(canonical_key, value)
             self.state["temperature_sample_monotonic"] = time.monotonic()
             self.state["temperature_source"] = "hch5_fc04_active"
         if status is not None:
@@ -1862,9 +1886,9 @@ class Gateway:
             # coil. Ordinary unit T2 (supply_temp) is the temperature before
             # the coil, so together they form the valid air-side delta.
             if len(hac205) == 5 and 500 <= hac205[0] <= 4000:
-                self.publish("heating_coil_after_temperature", hac205[0] / 100.0)
+                self.publish_temperature("heating_coil_after_temperature", hac205[0] / 100.0)
             if len(hac205) == 5 and 500 <= hac205[1] <= 6000:
-                self.publish("heating_coil_frost_temperature", hac205[1] / 100.0)
+                self.publish_temperature("heating_coil_frost_temperature", hac205[1] / 100.0)
             # Same verified register-209 semantics as decode(): 0 is inactive
             # and 16 is active when words 207/208 contain the HAC1 markers.
             if len(hac205) == 5 and hac205[2:4] == [0x8000, 0x8000]:
@@ -1918,7 +1942,7 @@ class Gateway:
             self.tcp_mirror.broadcast(body + crc16(body).to_bytes(2, "little"))
         raw = values[0]
         if 500 <= raw <= 4000:
-            self.publish("hrc2_t5_temperature", raw / 100.0)
+            self.publish_temperature("hrc2_t5_temperature", raw / 100.0)
 
     def poll_temperature_snapshot(self, ser: serial.Serial):
         """Read all seven temperatures in one FC03 transaction, without writes."""
@@ -1961,9 +1985,9 @@ class Gateway:
         for key, value in snapshot.items():
             if value is None:
                 continue
-            self.publish(key, value)
+            self.publish_temperature(key, value)
             if key in aliases:
-                self.publish(aliases[key], value)
+                self.publish_temperature(aliases[key], value)
         if snapshot["supply_temperature"] is not None:
             self.state["temperature_sample_monotonic"] = time.monotonic()
             self.state["temperature_source"] = "hac1_snapshot_180_209"

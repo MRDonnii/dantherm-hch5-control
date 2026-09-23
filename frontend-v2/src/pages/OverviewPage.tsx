@@ -208,8 +208,8 @@ export function OverviewPage() {
   const extract = first(unit, "extract_temp", "extract_temperature");
   const exhaust = first(unit, "exhaust_temp", "exhaust_temperature");
   const beforeHeater = first(controller, "actual_supply_before_heater_temperature") ?? first(unit, "supply_temperature", "supply_temp");
-  const afterHeater = first(controller, "actual_supply_air_temperature") ?? first(unit, "heating_coil_after_temperature", "supply_temp");
-  const room = measurement(controller, "room") ?? first(unit, "hrc2_t5_temperature", "room_temp", "extract_temp");
+  const afterHeater = first(controller, "actual_supply_air_temperature") ?? first(unit, "heating_coil_after_temperature");
+  const room = measurement(controller, "room") ?? first(unit, "hrc2_t5_temperature", "room_temp");
   const frost = first(controller, "actual_afterheat_frost_temperature") ?? first(unit, "heating_coil_frost_temperature");
   const flowWater = first(unit, "flow_temperature");
   const returnWater = first(unit, "return_temperature");

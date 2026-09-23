@@ -36,6 +36,17 @@ temperature used by HAC1's afterheat lockout. `t3_setpoint` and `t5_setpoint`
 are currently persisted locally only; no verified Modbus write mapping exists
 for either setting.
 
+Live T2, T2AH, HAC1 frost, and HRC2 T5 readings are hidden from state and
+history when no valid sample has arrived for 45 seconds. Missing samples are
+stored as gaps, not as repeated copies of the last value. Historical rows
+without freshness markers from before this change are treated as unverifiable
+and their affected temperature values are hidden.
+
+The gateway refreshes these values from passive bus frames and, only when
+`serial.active_reads_enabled` is true, from a read-only FC03 snapshot of HAC1
+registers 180–209 every 10 seconds. This freshness change does not enable
+active polling.
+
 ```json
 {"fireplace":true}
 ```

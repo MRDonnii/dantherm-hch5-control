@@ -17,6 +17,7 @@ from pathlib import Path
 
 from controller_core import ControllerEngine, ControllerError, ControllerState, HardwareAdapter
 from master_arbitration import MasterArbitrator, RtuFrameStream
+from sensor_freshness import fresh_sensor_value, sensor_sample_age
 
 LOG = logging.getLogger("passivelink-controller")
 VALID_PRIORITIES = {"auto", "low", "normal", "high", "critical"}
@@ -116,11 +117,21 @@ class ControllerRuntime:
 
     def refresh_measurements(self) -> None:
         state = self.gateway_state
+        room = self._first(
+            {
+                "room_temp": fresh_sensor_value(state, "room_temp"),
+                "hrc2_t5_temperature": fresh_sensor_value(state, "hrc2_t5_temperature"),
+                "room_temperature": fresh_sensor_value(state, "room_temperature"),
+            },
+            "room_temp",
+            "hrc2_t5_temperature",
+            "room_temperature",
+        )
         self.engine.update_measurements(
             rh=self._first(state, "humidity", "relative_humidity"),
             co2=self._first(state, "co2"),
             outdoor=self._first(state, "outdoor_temp", "outdoor_temperature"),
-            room=self._first(state, "room_temp", "hrc2_t5_temperature", "room_temperature", "extract_temp"),
+            room=room,
         )
 
     @staticmethod
@@ -445,18 +456,23 @@ class ControllerRuntime:
         result.update(self.master.snapshot())
         result.update(self._smart_input_snapshot())
         writes_allowed = self.master.writes_allowed()
-        sample_at = self._first(self.gateway_state, "temperature_sample_monotonic")
-        sample_age = None
-        if isinstance(sample_at, (int, float)):
-            sample_age = max(0.0, time.monotonic() - float(sample_at))
-        before_heater = self._first(self.gateway_state, "supply_temperature", "supply_temp")
-        if sample_age is not None and sample_age > 45:
-            before_heater = None
+        sample_age = sensor_sample_age(self.gateway_state, "supply_temperature")
+        before_heater = self._first(
+            {
+                "supply_temperature": fresh_sensor_value(self.gateway_state, "supply_temperature"),
+                "supply_temp": fresh_sensor_value(self.gateway_state, "supply_temp"),
+            },
+            "supply_temperature",
+            "supply_temp",
+        )
         before_source = (
             str(self.gateway_state.get("temperature_source") or "canonical_t2")
-            if self.gateway_state.get("supply_temperature") is not None
-            else "unit_t2_legacy"
+            if before_heater is not None and self.gateway_state.get("supply_temperature") is not None
+            else "unit_t2_legacy" if before_heater is not None
+            else None
         )
+        after_heater = fresh_sensor_value(self.gateway_state, "heating_coil_after_temperature")
+        frost_temperature = fresh_sensor_value(self.gateway_state, "heating_coil_frost_temperature")
         outdoor = self._safe_number(
             self._first(self.gateway_state, "outdoor_temp", "outdoor_temperature"), -50, 60
         )
@@ -493,9 +509,9 @@ class ControllerRuntime:
             "actual_supply_before_heater_temperature": before_heater,
             "actual_supply_before_heater_temperature_source": before_source,
             "actual_supply_before_heater_age_seconds": round(sample_age, 1) if sample_age is not None else None,
-            "actual_supply_air_temperature": self._first(self.gateway_state, "heating_coil_after_temperature", "supply_temp"),
-            "actual_supply_air_temperature_source": "hac1_t2ah" if self.gateway_state.get("heating_coil_after_temperature") is not None else "unit_t2",
-            "actual_afterheat_frost_temperature": self._first(self.gateway_state, "heating_coil_frost_temperature"),
+            "actual_supply_air_temperature": after_heater,
+            "actual_supply_air_temperature_source": "hac1_t2ah" if after_heater is not None else None,
+            "actual_afterheat_frost_temperature": frost_temperature,
             "actual_afterheat_outdoor_lockout": (
                 None if outdoor is None else outdoor >= AFTERHEAT_OUTDOOR_CUTOFF_C
             ),

@@ -9,10 +9,20 @@ try:
     from webui_auth import AuthManager
 except ModuleNotFoundError:
     _auth_spec=importlib.util.spec_from_file_location("webui_auth",Path(__file__).with_name("webui_auth.py")); _auth_module=importlib.util.module_from_spec(_auth_spec); _auth_spec.loader.exec_module(_auth_module); AuthManager=_auth_module.AuthManager
+try:
+    from sensor_freshness import fresh_sensor_value, hide_stale_sensor_values
+except ModuleNotFoundError:
+    _sensor_spec=importlib.util.spec_from_file_location("sensor_freshness",Path(__file__).with_name("sensor_freshness.py")); _sensor_module=importlib.util.module_from_spec(_sensor_spec); _sensor_spec.loader.exec_module(_sensor_module); fresh_sensor_value=_sensor_module.fresh_sensor_value; hide_stale_sensor_values=_sensor_module.hide_stale_sensor_values
 LOGGER = logging.getLogger("passivelink-dashboard")
 ASSET_TYPES = {".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8"}
 RANGES = {"1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800, "30d": 2592000}
 HISTORY_FIELDS = ("outdoor_temp", "supply_temp", "extract_temp", "exhaust_temp", "hrc2_t5_temperature", "heating_coil_after_temperature", "heating_coil_frost_temperature", "flow_temperature", "return_temperature", "co2", "fan_supply_rpm", "fan_extract_rpm", "fan_supply_percent", "fan_extract_percent", "heat_recovery_efficiency", "system_cpu_usage_percent", "pi_cpu_temperature", "system_memory_used_percent", "system_load_1m")
+HISTORY_SENSOR_MARKERS = {
+    "supply_temp": "supply_temp_sample_fresh",
+    "heating_coil_after_temperature": "heating_coil_after_temperature_sample_fresh",
+    "heating_coil_frost_temperature": "heating_coil_frost_temperature_sample_fresh",
+    "hrc2_t5_temperature": "hrc2_t5_temperature_sample_fresh",
+}
 
 class HistoryStore:
     """Bounded sample history. Optional: any failure disables it without
@@ -27,7 +37,7 @@ class HistoryStore:
                 columns = ",".join(f'"{field}" REAL' for field in HISTORY_FIELDS)
                 db.execute(f"CREATE TABLE IF NOT EXISTS samples (ts INTEGER PRIMARY KEY,{columns})")
                 existing = {row[1] for row in db.execute("PRAGMA table_info(samples)")}
-                for field in HISTORY_FIELDS:
+                for field in (*HISTORY_FIELDS, *HISTORY_SENSOR_MARKERS.values()):
                     if field not in existing: db.execute(f'ALTER TABLE samples ADD COLUMN "{field}" REAL')
             self.available = True
         except (OSError, sqlite3.Error) as error:
@@ -38,13 +48,20 @@ class HistoryStore:
         if not self.available: return
         now = now or time.time()
         if now - self.last_sample < self.sample_seconds: return
+        sample_freshness = {
+            field: int(fresh_sensor_value(state, field) is not None)
+            for field in HISTORY_SENSOR_MARKERS
+        }
+        state = hide_stale_sensor_values(state)
         values = []
         for field in HISTORY_FIELDS:
             try: value = float(state[field])
             except (KeyError, TypeError, ValueError): value = None
             if field == "heat_recovery_efficiency" and value is not None and not 0 <= value <= 100: value = None
             values.append(value)
-        timestamp = int(now); placeholders = ",".join("?" for _ in range(len(HISTORY_FIELDS) + 1)); columns = ",".join(["ts", *(f'"{field}"' for field in HISTORY_FIELDS)])
+        all_fields = (*HISTORY_FIELDS, *HISTORY_SENSOR_MARKERS.values())
+        values.extend(sample_freshness[field] for field in HISTORY_SENSOR_MARKERS)
+        timestamp = int(now); placeholders = ",".join("?" for _ in range(len(all_fields) + 1)); columns = ",".join(["ts", *(f'"{field}"' for field in all_fields)])
         try:
             with self.lock, self._connect() as db:
                 db.execute(f"INSERT OR REPLACE INTO samples ({columns}) VALUES ({placeholders})", [timestamp, *values])
@@ -64,7 +81,15 @@ class HistoryStore:
             LOGGER.warning("History read failed, disabling: %s", error)
             return []
         stride = max(1, len(rows) // 720)
-        return [dict(row) for row in rows[::stride]]
+        samples = []
+        for row in rows[::stride]:
+            sample = dict(row)
+            for field, marker in HISTORY_SENSOR_MARKERS.items():
+                if sample.get(marker) != 1:
+                    sample[field] = None
+                sample.pop(marker, None)
+            samples.append(sample)
+        return samples
 
 class DashboardHttpServer:
     """Serve the UI without exposing any write/control endpoint."""
@@ -90,6 +115,7 @@ class DashboardHttpServer:
             payload["preheater_diagnostics_reachable"] = True; self._preheater_cache = dict(payload); self._preheater_last_fetch = now; return payload
     def snapshot(self) -> dict[str, object]:
         merged = dict(self.state); merged.update(self._fetch_preheater()); merged.update(self._system_snapshot())
+        merged = hide_stale_sensor_values(merged)
         age = merged.get("bus_last_frame_age")
         merged["available"] = merged.get("bus_traffic") is True and isinstance(age, (int, float)) and age <= 5
         merged["heat_recovery_efficiency_raw"] = merged.get("heat_recovery_efficiency")

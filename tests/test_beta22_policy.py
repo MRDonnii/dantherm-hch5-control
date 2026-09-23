@@ -18,10 +18,10 @@ def test_bathroom_policy_and_night_air_quality_cap(tmp_path):
     assert resolved["night_active"] is True
 
 def test_t2_prefers_canonical_temperature_and_stales(tmp_path):
-    gateway={"supply_temperature":18.4,"supply_temp":21.5,"temperature_sample_monotonic":time.monotonic(),"bus_traffic":False}
+    gateway={"supply_temperature":18.4,"supply_temp":21.5,"supply_temperature_sample_monotonic":time.monotonic(),"bus_traffic":False}
     runtime=ControllerRuntime(gateway_state=gateway,hardware=HardwareAdapter(),state_path=tmp_path/"controller.json")
     snap=runtime.snapshot();assert snap["actual_supply_before_heater_temperature"]==18.4;assert snap["actual_supply_before_heater_temperature_source"]=="canonical_t2"
-    gateway["temperature_sample_monotonic"]=time.monotonic()-60
+    gateway["supply_temperature_sample_monotonic"]=time.monotonic()-60
     assert runtime.snapshot()["actual_supply_before_heater_temperature"] is None
 
 def test_afterheat_ui_contract_is_setpoint_only():
