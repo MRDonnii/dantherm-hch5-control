@@ -265,6 +265,15 @@ function Rs485Wiring({ active }: { active: boolean }) {
 }
 
 export function Hch5UnitDiagram(props:Hch5UnitDiagramProps) {
+  const [mobileView, setMobileView] = useState(() => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(max-width: 680px)").matches);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(max-width: 680px)");
+    const update = () => setMobileView(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
   const {outdoor,extract,exhaust,beforeHeater,afterHeater,room,frost,flowWater,returnWater,supplyRpm,extractRpm,supplyPercent,extractPercent,bypassActual,bypassRequest,heating,recovery,busActive=false,bypassRaw=null,bypassTravelDirection=null,bypassTravelSeconds=null,bypassTravelTotal=null,afterheatLockout=false}=props;
   // The unit reports only closed/opening/closing/open and needs about three
   // minutes, so progress is the time since the damper left its end position;
@@ -292,7 +301,7 @@ export function Hch5UnitDiagram(props:Hch5UnitDiagramProps) {
   const {x:ox,y:oy,width:ow,height:oh}=OPENING;
   const backX=ox+ow+CABINET_DEPTH[0], backY=oy+oh+CABINET_DEPTH[1];
   return <div className={`hch5-visual${bypassOpen?" is-bypass":" is-recovery"}`}>
-    <svg viewBox={`${VIEW.x} ${VIEW.y} ${VIEW.width} ${VIEW.height}`} role="img" aria-label="HCH5 luftstrøm med intern bypass og ekstern eftervarme">
+    <svg viewBox={mobileView ? "150 40 850 510" : `${VIEW.x} ${VIEW.y} ${VIEW.width} ${VIEW.height}`} role="img" aria-label="HCH5 luftstrøm med intern bypass og ekstern eftervarme">
       <defs>
         <linearGradient id="metalFace" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stopColor="#596b76"/><stop offset=".4" stopColor="#263843"/><stop offset="1" stopColor="#14242e"/></linearGradient>
         <linearGradient id="metalTop" x1="0" x2="1"><stop offset="0" stopColor="#7b8991"/><stop offset=".48" stopColor="#40515b"/><stop offset="1" stopColor="#263640"/></linearGradient>

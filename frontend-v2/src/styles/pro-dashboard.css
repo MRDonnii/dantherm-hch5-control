@@ -345,7 +345,7 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
   .afterheat-setpoint-card { grid-template-columns: 1fr; }
   .setpoint-stepper { justify-self: stretch; grid-template-columns: 42px 1fr 42px; }
   .hch5-visual { overflow: visible; padding-top: 0; }
-  .hch5-visual > svg { display: none; }
+  .hch5-visual > svg { display: block; width: 100%; height: auto; transform: none; }
 }
 
 /* RS485/Modbus wiring between the unit, HAC1 and the Raspberry Pi. */
@@ -419,4 +419,13 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
   .overview-status-pills > div:last-child { grid-column: auto; }
   .overview-status-pills svg,.overview-status-pills .status-led { width: 8px; height: 8px; }
   .overview-status-pills strong { font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+
+@media (max-width:680px) {
+  .hch-mobile-flow { margin: 0 0 9px; padding: 8px; gap: 5px; }
+  .hch-mobile-flow-head,.hch-mobile-route,.hch-mobile-subreadings { display: none; }
+  .hch-mobile-lane { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 5px; }
+  .hch-mobile-reading { padding: 7px 8px; }
+  .hch-mobile-reading strong { font-size: 15px; }
+  .hch-mobile-core { padding: 5px; }
 }

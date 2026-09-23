@@ -12,3 +12,13 @@
 .history-chart-range { margin-left: auto; color: var(--muted); font-size: 8px; }
 .history-chart-empty { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 10px; border: 1px dashed var(--border); border-radius: 10px; }
 @media (max-width: 920px) { .history-grid { grid-template-columns: 1fr; } }
+
+@media (max-width: 680px) {
+  .history-range-segment { display: grid; width: 100%; margin: 0; grid-auto-flow: row; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 5px; }
+  .history-range-segment button { min-width: 0; min-height: 36px; padding: 6px 3px; }
+  .history-card { min-width: 0; padding: 13px; }
+  .history-chart { min-width: 0; }
+  .history-chart svg { height: 176px; }
+  .history-chart-legend { gap: 7px 12px; }
+  .history-chart-range { flex-basis: 100%; margin-left: 0; }
+}

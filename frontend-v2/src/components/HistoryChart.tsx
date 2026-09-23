@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 type Sample = Record<string, number | null>;
 
 export interface HistorySeries {
@@ -29,7 +30,8 @@ function formatClock(ts: number) {
 }
 
 export function HistoryChart({ samples, series, unit = "", height = 200 }: HistoryChartProps) {
-  const width = 960;
+  const container = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(960);
   const padding = { top: 10, right: 10, bottom: 22, left: 10 };
   const plotWidth = width - padding.left - padding.right;
   const plotHeight = height - padding.top - padding.bottom;
@@ -41,10 +43,19 @@ export function HistoryChart({ samples, series, unit = "", height = 200 }: Histo
 
   const finite = points.flatMap(item => item.values.filter((value): value is number => value !== null));
   const hasData = samples.length > 1 && finite.length > 1;
+  useEffect(() => {
+    const target = container.current;
+    if (!target) return;
+    const update = () => setWidth(Math.max(240, Math.round(target.getBoundingClientRect().width)));
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [hasData]);
 
   if (!hasData) {
     return (
-      <div className="history-chart-empty" style={{ height }}>
+      <div ref={container} className="history-chart-empty" style={{ height }}>
         <span>Ingen data i den valgte periode</span>
       </div>
     );
@@ -72,8 +83,8 @@ export function HistoryChart({ samples, series, unit = "", height = 200 }: Histo
   const last = samples[samples.length - 1]?.ts;
 
   return (
-    <div className="history-chart">
-      <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label="Historikgraf">
+    <div ref={container} className="history-chart">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Historikgraf">
         <line className="history-grid-line" x1={padding.left} x2={width - padding.right} y1={yFor(max)} y2={yFor(max)} />
         <line className="history-grid-line" x1={padding.left} x2={width - padding.right} y1={yFor(min)} y2={yFor(min)} />
         {paths.map(item => (
