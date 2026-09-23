@@ -36,7 +36,7 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 
 .topbar-v2 { min-height: 72px; padding: 12px 24px 12px 30px; background: rgb(8 20 29 / 86%); border-bottom-color: #18303f; }
 .topbar-title { font-size: 15px; letter-spacing: -.01em; }
-.content-stage { max-width: 1760px; padding: 22px 26px 42px; }
+.content-stage { max-width: 1760px; padding: 10px 26px 42px; }
 .status-chip { background: #0d1d27; border-color: #25404f; box-shadow: none; }
 
 .dashboard-overview { display: grid; gap: 12px; }
@@ -324,6 +324,7 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 }
 @media (max-width: 980px) {
   .app-shell,body[data-sidebar="collapsed"] .app-shell { grid-template-columns: minmax(0,1fr); }
+  .content-stage { padding-top: 12px; }
   .overview-heading-row { align-items: flex-start; flex-direction: column; }
   .overview-status-pills { width: 100%; }
   .overview-status-pills > div { flex: 1; min-width: 0; }
