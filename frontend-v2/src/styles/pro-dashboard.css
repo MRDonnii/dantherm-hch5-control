@@ -283,7 +283,8 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .status-action-card small { color: #66808f; font-size: 7px; }
 .status-action-card > button,.fireplace-actions button { min-width: 34px; height: 32px; padding: 0 7px; border: 1px solid #284657; border-radius: 8px; background: #0c1d27; color: #a9c2ce; cursor: pointer; }
 .fireplace-actions { display: flex; gap: 4px; }
-.afterheat-setpoint-card { grid-area: afterheat; min-height: 84px; display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; align-content: center; padding: 13px 14px; border-radius: 12px; }
+.afterheat-setpoint-card { grid-area: afterheat; min-height: 84px; display: grid; gap: 10px; align-content: center; padding: 13px 14px; border-radius: 12px; }
+.afterheat-row { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; }
 .afterheat-copy { display: grid; gap: 2px; }
 .afterheat-copy span { color: #86a0af; font-size: 8px; text-transform: uppercase; letter-spacing: .08em; }
 .afterheat-copy strong { font-size: 10px; }
@@ -344,7 +345,7 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
   .readback-icon::before { font-size: 16px !important; }
   .unit-readback strong { font-size: 14px; white-space: normal; }
   .unit-readback em { white-space: normal; }
-  .afterheat-setpoint-card { grid-template-columns: 1fr; }
+  .afterheat-row { grid-template-columns: 1fr; }
   .setpoint-stepper { justify-self: stretch; grid-template-columns: 42px 1fr 42px; }
   .hch5-visual { overflow: visible; padding-top: 0; }
   .hch5-visual > svg { display: block; width: 100%; height: auto; transform: none; }
