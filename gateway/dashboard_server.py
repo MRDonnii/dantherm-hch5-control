@@ -24,6 +24,15 @@ HISTORY_SENSOR_MARKERS = {
     "hrc2_t5_temperature": "hrc2_t5_temperature_sample_fresh",
 }
 
+def classify_boot_mode(cmdline: str) -> str:
+    if "root=/dev/nfs" in cmdline:
+        return "Netboot (NFS)"
+    if "root=/dev/mmcblk" in cmdline:
+        return "SD-kort"
+    if "root=PARTUUID=" in cmdline:
+        return "Lokal disk/SD"
+    return "Andet"
+
 class HistoryStore:
     """Bounded sample history. Optional: any failure disables it without
     ever taking down the controller, RS485, WebUI or auth."""
@@ -140,6 +149,8 @@ class DashboardHttpServer:
         now = time.monotonic()
         if self._system_cache and now - self._system_last_fetch < 10: return dict(self._system_cache)
         data: dict[str, object] = {"system_hostname": socket.gethostname(), "system_os": platform.freedesktop_os_release().get("PRETTY_NAME"), "system_architecture": platform.machine(), "system_time": time.strftime("%Y-%m-%d %H:%M:%S %Z"), "system_timezone": self._read("/etc/timezone"), "system_cpu_frequency_mhz": None, "system_cpu_usage_percent": None, "system_kernel": platform.release(), "system_python_version": platform.python_version(), "system_model": self._read("/proc/device-tree/model"), "system_hch5_version": self._read(str(Path(__file__).resolve().parent / "VERSION")) or self._read(str(Path(__file__).resolve().parent.parent / "VERSION"))}
+        cmdline = self._read("/proc/cmdline") or ""
+        data["system_boot_mode"] = classify_boot_mode(cmdline)
         try: data["system_cpu_frequency_mhz"] = round(int(self._read("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq") or 0) / 1000)
         except ValueError: pass
         try:

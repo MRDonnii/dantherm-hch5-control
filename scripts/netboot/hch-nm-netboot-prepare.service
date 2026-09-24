@@ -1,0 +1,13 @@
+[Unit]
+Description=Prepare NetworkManager files for HCH5 NFS boot
+Before=NetworkManager.service
+After=local-fs.target
+ConditionPathExists=/usr/lib/arm-linux-gnueabihf/NetworkManager/1.42.4
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/hch-nm-netboot-prepare.sh
+RemainAfterExit=yes
+
+[Install]
+RequiredBy=NetworkManager.service

@@ -278,13 +278,15 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                         return self._json_error(503, str(error))
                 if self.path != "/api/admin/action" or not dashboard.admin_token:
                     return self.send_error(405)
-                body = json.dumps(self._read_json() or {}).encode()
+                admin_action = self._read_json() or {}
+                body = json.dumps(admin_action).encode()
+                timeout = 45 if admin_action.get("action") in {"wifi_scan", "wifi_connect"} else 4
                 request = urllib.request.Request(
                     f"{dashboard.admin_url.rstrip('/')}/action", data=body, method="POST",
                     headers={"Authorization": f"Bearer {dashboard.admin_token}", "Content-Type": "application/json"},
                 )
                 try:
-                    with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request, timeout=4) as response:
+                    with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request, timeout=timeout) as response:
                         payload, status = response.read(), response.status
                 except urllib.error.HTTPError as error:
                     payload, status = error.read(), error.code

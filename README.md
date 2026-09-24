@@ -19,6 +19,8 @@ HCH5 Control turns a Raspberry Pi and a USB-RS485 adapter into a local controlle
 - Home Assistant API plus raw TCP mirror on port `4196`.
 - Stable/Beta update channels in the WebUI. Beta is opt-in.
 - First-user login, CSRF protection, system diagnostics and safe backups before updates.
+- System page with CPU, memory, temperature, service status, power profiles and Wi-Fi setup. Wi-Fi setup uses NetworkManager on Raspberry Pi OS Bookworm and works with both SD-card and network boot; an SD-card installation does not require TFTP or Unraid.
+- The current NFS netboot Pi uses `scripts/netboot/hch-nm-netboot-prepare.sh` with its systemd unit to work around 32-bit NetworkManager file-stat errors on the NFS export. SD-card installations use NetworkManager's normal persistent directories.
 
 ## Important: original HCP4 controller
 

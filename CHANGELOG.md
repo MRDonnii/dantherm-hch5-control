@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0-beta.57
+
+- Rework the System page with clearer resource and service status, selectable persistent Raspberry Pi power profiles, Wi-Fi scanning and secure Wi-Fi login from the authenticated WebUI.
+- Detect network boot and local disk/SD boot separately. Keep Ethernet preferred when both Ethernet and Wi-Fi are connected.
+- Persist Wi-Fi profiles for NFS boot where NetworkManager's plugin and profile directories require RAM-backed mounts; normal SD-card installations use NetworkManager's standard persistent storage.
+
 ## 1.2.0-beta.56
 
 - Serve the branding images before login from the controller WebUI server used on the Raspberry Pi.
