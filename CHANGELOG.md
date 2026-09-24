@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.0-beta.56
+
+- Serve the branding images before login from the controller WebUI server used on the Raspberry Pi.
+
 ## 1.2.0-beta.55
 
 - Add matching HCH PassiveLink branding to the WebUI navigation, login, favicon and touch icon. Make image assets available before and after login.

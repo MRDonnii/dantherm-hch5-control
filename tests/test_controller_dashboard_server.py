@@ -69,6 +69,12 @@ class ControllerDashboardTests(unittest.TestCase):
             server.auth.save("admin", "long-test-password", True)
             server.start(); port = server.server.server_address[1]
             try:
+                favicon = urllib.request.urlopen(f"http://127.0.0.1:{port}/assets/favicon.svg")
+                self.assertEqual(favicon.headers.get_content_type(), "image/svg+xml")
+                self.assertIn(b"<svg", favicon.read())
+                logo = urllib.request.urlopen(f"http://127.0.0.1:{port}/assets/brand-mark.svg")
+                self.assertEqual(logo.headers.get_content_type(), "image/svg+xml")
+                self.assertEqual(urllib.request.urlopen(f"http://127.0.0.1:{port}/assets/apple-touch-icon.png").headers.get_content_type(), "image/png")
                 unauth = urllib.request.Request(
                     f"http://127.0.0.1:{port}/api/controller/config", data=b"{}",
                     headers={"Content-Type": "application/json"}, method="POST",

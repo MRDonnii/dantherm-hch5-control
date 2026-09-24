@@ -90,7 +90,7 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                 if parsed.path in ("/login", "/setup"):
                     self._file(dashboard.web_root / "login.html", "text/html; charset=utf-8")
                     return
-                if parsed.path in ("/assets/auth.css", "/assets/auth.js"):
+                if parsed.path in ("/assets/auth.css", "/assets/auth.js", "/assets/favicon.svg", "/assets/apple-touch-icon.png", "/assets/brand-mark.svg"):
                     target = dashboard.web_root / Path(parsed.path).name
                     self._file(target, ASSET_TYPES.get(target.suffix))
                     return
