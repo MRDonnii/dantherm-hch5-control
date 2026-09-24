@@ -133,6 +133,12 @@ class DashboardTests(unittest.TestCase):
                 index = urllib.request.urlopen(f"http://127.0.0.1:{port}/").read()
                 self.assertIn(b"HCH5 Control", index)
                 self.assertIn(b"/assets/v2-", index)
+                self.assertIn(b"/assets/favicon.svg", index)
+                icon = urllib.request.urlopen(f"http://127.0.0.1:{port}/assets/favicon.svg")
+                self.assertEqual(icon.headers.get_content_type(), "image/svg+xml")
+                self.assertIn(b"<svg", icon.read())
+                touch = urllib.request.urlopen(f"http://127.0.0.1:{port}/assets/apple-touch-icon.png")
+                self.assertEqual(touch.headers.get_content_type(), "image/png")
                 self.assertIn(b":root", urllib.request.urlopen(f"http://127.0.0.1:{port}/assets/dashboard.css").read())
                 self.assertTrue(json.load(urllib.request.urlopen(f"http://127.0.0.1:{port}/state.json"))["available"])
                 request = urllib.request.Request(f"http://127.0.0.1:{port}/api/control", data=b"{}", method="POST")
@@ -145,6 +151,7 @@ class DashboardTests(unittest.TestCase):
             server.auth.path=Path(tmp)/"auth.json"; server.auth.save("admin","long-test-password",True); server.start(); port = server.server.server_address[1]
             try:
                 self.assertTrue(urllib.request.urlopen(f"http://127.0.0.1:{port}/").geturl().endswith("/login"))
+                self.assertEqual(urllib.request.urlopen(f"http://127.0.0.1:{port}/assets/brand-mark.svg").headers.get_content_type(), "image/svg+xml")
                 opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
                 request=urllib.request.Request(f"http://127.0.0.1:{port}/api/auth/login",data=json.dumps({"username":"admin","password":"long-test-password"}).encode(),headers={"Content-Type":"application/json"},method="POST")
                 self.assertEqual(opener.open(request).status,200); self.assertIn(b"HCH5 Control",opener.open(f"http://127.0.0.1:{port}/").read())

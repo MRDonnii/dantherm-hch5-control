@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
-  Activity,
   BarChart3,
   Boxes,
   ChevronLeft,
@@ -138,7 +137,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="app-shell">
       <aside className="sidebar" aria-label="Primær navigation">
         <div className="brand-block">
-          <div className="brand-mark" aria-hidden="true"><Activity size={24} /></div>
+          <div className="brand-mark" aria-hidden="true"><img src="/assets/brand-mark.svg" alt="" width="40" height="40" /></div>
           {!collapsed && <div className="brand-copy"><strong>HCH5 Control</strong><span>Modern local ventilation</span></div>}
           <button className="icon-button collapse-button" type="button" onClick={() => setCollapsed(value => !value)} aria-label={collapsed ? "Fold menu ud" : "Fold menu sammen"}>
             {collapsed ? <ChevronRight size={17} /> : <ChevronLeft size={17} />}

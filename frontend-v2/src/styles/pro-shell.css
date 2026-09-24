@@ -21,3 +21,5 @@
 .topbar-control-notice.error strong { color: #ffc0c0; }
 @media (max-width:920px) { .sidebar-product-note { display:none; } .pro-topbar .topbar-page-copy > span { display:none; } }
 @media (max-width:680px) { .topbar-clock { display:none; } .topbar-update-tab { padding-inline: 8px; font-size: 9px; } .topbar-update-tab small { display: none; } .topbar-control-notice { max-width: 38vw; } .topbar-control-notice strong { display: none; } }
+.brand-mark { padding: 0; background: none; border: 0; box-shadow: none; overflow: hidden; }
+.brand-mark img { display: block; width: 100%; height: 100%; object-fit: contain; }

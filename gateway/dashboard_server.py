@@ -14,7 +14,7 @@ try:
 except ModuleNotFoundError:
     _sensor_spec=importlib.util.spec_from_file_location("sensor_freshness",Path(__file__).with_name("sensor_freshness.py")); _sensor_module=importlib.util.module_from_spec(_sensor_spec); _sensor_spec.loader.exec_module(_sensor_module); fresh_sensor_value=_sensor_module.fresh_sensor_value; hide_stale_sensor_values=_sensor_module.hide_stale_sensor_values
 LOGGER = logging.getLogger("passivelink-dashboard")
-ASSET_TYPES = {".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8"}
+ASSET_TYPES = {".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png"}
 RANGES = {"1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800, "30d": 2592000}
 HISTORY_FIELDS = ("outdoor_temp", "supply_temp", "extract_temp", "exhaust_temp", "hrc2_t5_temperature", "heating_coil_after_temperature", "heating_coil_frost_temperature", "flow_temperature", "return_temperature", "co2", "fan_supply_rpm", "fan_extract_rpm", "fan_supply_percent", "fan_extract_percent", "heat_recovery_efficiency", "system_cpu_usage_percent", "pi_cpu_temperature", "system_memory_used_percent", "system_load_1m")
 HISTORY_SENSOR_MARKERS = {
@@ -217,7 +217,7 @@ class DashboardHttpServer:
                 if parsed.path == "/api/auth/status":
                     session=self._session(); self._json({"configured":dashboard.auth.configured(),"enabled":dashboard.auth.enabled(),"authenticated":session is not None,"username":session.get("username") if session else None,"csrf":session.get("csrf") if session else None}); return
                 if parsed.path in ("/login","/setup"): self._file(dashboard.web_root / "login.html","text/html; charset=utf-8"); return
-                if parsed.path in ("/assets/auth.css","/assets/auth.js"):
+                if parsed.path in ("/assets/auth.css","/assets/auth.js","/assets/favicon.svg","/assets/apple-touch-icon.png","/assets/brand-mark.svg"):
                     target=dashboard.web_root/Path(parsed.path).name; self._file(target,ASSET_TYPES.get(target.suffix)); return
                 if not dashboard.auth.configured(): self.send_response(302); self.send_header("Location","/setup"); self.end_headers(); return
                 if self._session() is None and dashboard.auth.enabled(): self.send_response(302); self.send_header("Location","/login"); self.end_headers(); return

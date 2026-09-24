@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.0-beta.55
+
+- Add matching HCH PassiveLink branding to the WebUI navigation, login, favicon and touch icon. Make image assets available before and after login.
+
 ## 1.2.0-beta.54
 
 - Remove the leftover dashed T2AH sensor lead to the removed marker beside the afterheat coil.
