@@ -16,6 +16,14 @@ spec.loader.exec_module(module)
 
 
 class SystemNetworkAdminTests(unittest.TestCase):
+    def test_saved_profile_unavailable_does_not_stop_admin_api(self):
+        with tempfile.TemporaryDirectory() as directory:
+            saved = Path(directory) / "power-profile"
+            saved.write_text("balanced\n")
+            with mock.patch.object(module, "PROFILE_FILE", saved), mock.patch.object(module, "set_profile", side_effect=ValueError("profile_unavailable")), mock.patch.object(module, "ThreadingHTTPServer") as server:
+                module.main()
+            server.return_value.serve_forever.assert_called_once()
+
     def test_nmcli_escaped_ssid_fields(self):
         self.assertEqual(module._nmcli_fields(r"*:Kitchen\: guest:78:WPA2"), ["*", "Kitchen: guest", "78", "WPA2"])
 

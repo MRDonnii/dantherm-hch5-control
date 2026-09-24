@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.0-beta.58
+
+- Keep the admin service available when a saved CPU power profile is unsupported on another Raspberry Pi model.
+
 ## 1.2.0-beta.57
 
 - Rework the System page with clearer resource and service status, selectable persistent Raspberry Pi power profiles, Wi-Fi scanning and secure Wi-Fi login from the authenticated WebUI.

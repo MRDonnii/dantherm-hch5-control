@@ -595,7 +595,7 @@ def main() -> None:
         if saved in PROFILES:
             try:
                 set_profile(saved)
-            except OSError:
+            except (OSError, ValueError):
                 pass
     ThreadingHTTPServer((BIND, PORT), Handler).serve_forever()
 
