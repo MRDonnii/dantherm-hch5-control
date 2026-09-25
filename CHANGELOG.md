@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0-beta.64
+
+- Afterheat room control defaults to Automatic: the average of the Home Assistant rooms that have a temperature, leaving out bathrooms and rooms used as stove or outdoor sensors, and T3 extract air only when no such room exists. Every installation adds its own rooms in the HCH PassiveLink integration; the WebUI explains where and shows which source is used right now.
+- Changes by Claude AI.
+
 ## 1.2.0-beta.63
 
 - Preserve HAC1 register 184 when refreshing T1–T5. A disconnected HRC2 room sensor is no longer replaced with T3 extract temperature in the T5 register. If HAC1's T5 word cannot be read, skip that temperature-block write.

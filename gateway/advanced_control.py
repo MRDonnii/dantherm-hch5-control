@@ -19,9 +19,11 @@ BR18_BATHROOM_LS = 15.0
 BR18_UTILITY_LS = 10.0
 LS_TO_M3H = 3.6
 
-# T3 (extract air) is the house average and always measured by the unit.
-# T5 (HRC2 remote) is not live once the Pi replaces HCP4, so it is only an option.
-TEMPERATURE_SOURCE_FIXED = {"t3", "t5", "ha_average"}
+# "auto": average of the owner's Home Assistant rooms that have a temperature
+# (bathrooms and stove/outdoor sensor rooms left out), else T3 extract air.
+# T3 alone mixes in kitchen and bathroom air; T5 (HRC2 remote) is not live
+# once the Pi replaces HCP4, so both are only options.
+TEMPERATURE_SOURCE_FIXED = {"auto", "t3", "t5", "ha_average"}
 ROOM_PREFIX = "room:"
 
 

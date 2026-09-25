@@ -225,7 +225,7 @@ class ControllerState:
         "afterheat_room_min": 17,
         "afterheat_room_max": 24,
         "afterheat_room_step_minutes": 10,
-        "afterheat_room_source": "t3",
+        "afterheat_room_source": "auto",
         # Fireplace mode held by a stove sensor or an external switch.
         "fireplace_auto_enabled": False,
         "fireplace_auto_source": "",
@@ -416,7 +416,7 @@ class ControllerState:
         if self.data["fireplace_auto_off_temp"] >= self.data["fireplace_auto_on_temp"]:
             self.data["fireplace_auto_off_temp"] = self.data["fireplace_auto_on_temp"] - 1.0
         for key, allow_fixed, default in (
-            ("afterheat_room_source", True, "t3"),
+            ("afterheat_room_source", True, "auto"),
             ("fireplace_auto_source", False, ""),
             ("outdoor_humidity_source", False, ""),
         ):

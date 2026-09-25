@@ -73,6 +73,7 @@ class ControllerRuntime:
         self.fireplace_auto_started_at: float | None = None
         self.fireplace_auto_blocked = False
         self.fireplace_auto_reason = "disabled"
+        self.afterheat_room_source_used: str | None = None
 
     @staticmethod
     def _first(state: dict[str, object], *keys: str):
@@ -146,10 +147,12 @@ class ControllerRuntime:
         extract_temp = self._safe_number(
             self._first(state, "extract_temp", "extract_temperature"), -30, 60
         )
+        room_temperature, room_source = self._afterheat_room_temperature(room, extract_temp)
+        self.afterheat_room_source_used = room_source if room_temperature is not None else None
         self.engine.set_external({
             "extract_temp": extract_temp,
             "outdoor_rh": self._source_value(self.config.data.get("outdoor_humidity_source"), "humidity"),
-            "afterheat_room_temperature": self._afterheat_room_temperature(room, extract_temp),
+            "afterheat_room_temperature": room_temperature,
             "stove_temperature": self._source_value(self.config.data.get("fireplace_auto_source"), "temperature"),
             "max_room_co2": self._max_room_co2(),
         })
@@ -173,22 +176,36 @@ class ControllerRuntime:
         value = self._fresh_ha_rooms().get(name, {}).get(kind)
         return float(value) if isinstance(value, (int, float)) else None
 
-    def _afterheat_room_temperature(self, t5: object, t3: float | None) -> float | None:
-        source = str(self.config.data.get("afterheat_room_source") or "t3")
+    def _ha_room_average_temperature(self) -> float | None:
+        """Average of the enabled HA rooms with a temperature.
+
+        Bathrooms are left out (showers skew them) and so are rooms chosen
+        as stove or outdoor sensors. Works with whatever rooms the owner of
+        the installation has added in the Home Assistant integration.
+        """
+        excluded = self._source_room_names()
+        temperatures = [
+            float(values["temperature"])
+            for name, values in self._fresh_ha_rooms().items()
+            if name not in excluded and values.get("enabled", True)
+            and not self._is_bathroom(name, values)
+            and isinstance(values.get("temperature"), (int, float))
+        ]
+        return round(sum(temperatures) / len(temperatures), 2) if temperatures else None
+
+    def _afterheat_room_temperature(self, t5: object, t3: float | None) -> tuple[float | None, str | None]:
+        """Room temperature for the afterheat and the source it came from."""
+        source = str(self.config.data.get("afterheat_room_source") or "auto")
+        if source == "auto":
+            average = self._ha_room_average_temperature()
+            return (average, "ha_average") if average is not None else (t3, "t3" if t3 is not None else None)
         if source == "t3":
-            return t3
+            return t3, "t3"
         if source == "t5":
-            return self._safe_number(t5, -30, 60)
+            return self._safe_number(t5, -30, 60), "t5"
         if source == "ha_average":
-            excluded = self._source_room_names()
-            values = [
-                float(values["temperature"])
-                for name, values in self._fresh_ha_rooms().items()
-                if name not in excluded and values.get("enabled", True)
-                and isinstance(values.get("temperature"), (int, float))
-            ]
-            return round(sum(values) / len(values), 2) if values else None
-        return self._source_value(source, "temperature")
+            return self._ha_room_average_temperature(), "ha_average"
+        return self._source_value(source, "temperature"), source
 
     def _max_room_co2(self) -> float | None:
         excluded = self._source_room_names()
@@ -687,6 +704,7 @@ class ControllerRuntime:
             "fireplace_signal": self.fireplace_signal if self._fireplace_signal_active(time.time()) else None,
             "stove_temperature": self.engine.external.get("stove_temperature"),
             "measurement_rooms": sorted(self.smart_rooms),
+            "afterheat_room_source_used": self.afterheat_room_source_used,
         })
         return result
 

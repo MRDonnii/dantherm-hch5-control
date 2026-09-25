@@ -240,14 +240,32 @@ class FireplaceAutoTests(unittest.TestCase):
         with self.assertRaises(ControllerError):
             runtime.external_signals({"fireplace": True, "valid_for_s": 5})
 
-    def test_afterheat_room_defaults_to_t3_extract_air(self):
+    def test_afterheat_room_auto_falls_back_to_t3_without_ha_rooms(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         runtime = ControllerRuntime(gateway_state={"extract_temp": 21.7, "hrc2_t5_temperature": 30.0},
                                     hardware=HardwareAdapter(), state_path=Path(temp.name) / "controller.json")
-        self.assertEqual(runtime.config.data["afterheat_room_source"], "t3")
+        self.assertEqual(runtime.config.data["afterheat_room_source"], "auto")
         runtime.refresh_measurements()
         self.assertEqual(runtime.engine.external["afterheat_room_temperature"], 21.7)
+        self.assertEqual(runtime.snapshot()["afterheat_room_source_used"], "t3")
+
+    def test_afterheat_room_auto_uses_owner_rooms_without_bathrooms_or_sensor_rooms(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        runtime = ControllerRuntime(gateway_state={"extract_temp": 24.0},
+                                    hardware=HardwareAdapter(), state_path=Path(temp.name) / "controller.json")
+        runtime.hardware_writes_allowed = lambda: False
+        runtime.configure({"fireplace_auto_source": "room:Brændeovn"})
+        runtime.room_inputs({"source": "home_assistant", "valid_for_s": 180, "rooms": {
+            "Living room": {"temperature": 21.0, "control": False},
+            "Bedroom": {"temperature": 19.0, "co2": 700},
+            "Bathroom": {"temperature": 26.0, "humidity": 80},
+            "Brændeovn": {"temperature": 40.0, "control": False},
+        }})
+        runtime.refresh_measurements()
+        self.assertEqual(runtime.engine.external["afterheat_room_temperature"], 20.0)
+        self.assertEqual(runtime.snapshot()["afterheat_room_source_used"], "ha_average")
 
     def test_ha_average_room_temperature_excludes_sensor_rooms(self):
         runtime = self.make_runtime()
