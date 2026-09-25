@@ -19,7 +19,9 @@ BR18_BATHROOM_LS = 15.0
 BR18_UTILITY_LS = 10.0
 LS_TO_M3H = 3.6
 
-TEMPERATURE_SOURCE_FIXED = {"t5", "ha_average"}
+# T3 (extract air) is the house average and always measured by the unit.
+# T5 (HRC2 remote) is not live once the Pi replaces HCP4, so it is only an option.
+TEMPERATURE_SOURCE_FIXED = {"t3", "t5", "ha_average"}
 ROOM_PREFIX = "room:"
 
 

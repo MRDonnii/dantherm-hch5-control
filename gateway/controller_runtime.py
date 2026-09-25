@@ -143,12 +143,13 @@ class ControllerRuntime:
             outdoor=self._first(state, "outdoor_temp", "outdoor_temperature"),
             room=room,
         )
+        extract_temp = self._safe_number(
+            self._first(state, "extract_temp", "extract_temperature"), -30, 60
+        )
         self.engine.set_external({
-            "extract_temp": self._safe_number(
-                self._first(state, "extract_temp", "extract_temperature"), -30, 60
-            ),
+            "extract_temp": extract_temp,
             "outdoor_rh": self._source_value(self.config.data.get("outdoor_humidity_source"), "humidity"),
-            "afterheat_room_temperature": self._afterheat_room_temperature(room),
+            "afterheat_room_temperature": self._afterheat_room_temperature(room, extract_temp),
             "stove_temperature": self._source_value(self.config.data.get("fireplace_auto_source"), "temperature"),
             "max_room_co2": self._max_room_co2(),
         })
@@ -172,8 +173,10 @@ class ControllerRuntime:
         value = self._fresh_ha_rooms().get(name, {}).get(kind)
         return float(value) if isinstance(value, (int, float)) else None
 
-    def _afterheat_room_temperature(self, t5: object) -> float | None:
-        source = str(self.config.data.get("afterheat_room_source") or "t5")
+    def _afterheat_room_temperature(self, t5: object, t3: float | None) -> float | None:
+        source = str(self.config.data.get("afterheat_room_source") or "t3")
+        if source == "t3":
+            return t3
         if source == "t5":
             return self._safe_number(t5, -30, 60)
         if source == "ha_average":

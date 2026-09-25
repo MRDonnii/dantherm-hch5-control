@@ -1,11 +1,16 @@
 # Changelog
 
+## 1.2.0-beta.61
+
+- Afterheat room control now uses T3 extract air (the house average, always measured by the unit) by default. The HRC2 T5 sensor stays selectable but is marked unreliable, because it is not updated once the Pi replaces HCP4.
+- Changes by Claude AI.
+
 ## 1.2.0-beta.60
 
 - Split Indstillinger into sections (House and airflow, Air quality, Moisture and dry air, Night, Afterheat, Free cooling, Fireplace and stove, Interface, Security). Every field has an explanation, and the page follows a new Dansk/English language choice under Interface.
 - House sizing: enter heated floor area, ceiling height, bathrooms and utility rooms. The controller calculates the BR18 requirement (0.3 l/s per m² plus wet-room extract), estimates airflow per level from the HCH5's 375 m³/h, accepts measured airflows from the commissioning report, and can set the base level and a reduced minimum that night, vacation and dry-air protection never go below.
 - Humidity by absolute water content: with an outdoor humidity source, the humidity demand is ignored when outdoor air would not dry the house. Dry-air protection caps the level when indoor air is dry and CO₂ is fine.
-- Afterheat can follow the room temperature (T5, average of Home Assistant rooms or one room): the supply setpoint moves one degree at a time between a lowest and highest value. Only the existing afterheat setpoint write is used.
+- Afterheat can follow the room temperature (T3 extract air by default, the average of Home Assistant rooms, one room, or the HRC2 T5 sensor, which is unreliable without HCP4): the supply setpoint moves one degree at a time between a lowest and highest value. Only the existing afterheat setpoint write is used.
 - Automatic fireplace mode held by a stove temperature (with start/stop hysteresis) or an external switch via `POST /api/controller/signals`, with afterrun and a maximum duration. Turning fireplace mode off manually waits until the signal clears.
 - Home Assistant rooms used as stove or outdoor sensors never drive air-quality decisions.
 - Changes by Claude AI.

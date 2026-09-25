@@ -240,6 +240,15 @@ class FireplaceAutoTests(unittest.TestCase):
         with self.assertRaises(ControllerError):
             runtime.external_signals({"fireplace": True, "valid_for_s": 5})
 
+    def test_afterheat_room_defaults_to_t3_extract_air(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        runtime = ControllerRuntime(gateway_state={"extract_temp": 21.7, "hrc2_t5_temperature": 30.0},
+                                    hardware=HardwareAdapter(), state_path=Path(temp.name) / "controller.json")
+        self.assertEqual(runtime.config.data["afterheat_room_source"], "t3")
+        runtime.refresh_measurements()
+        self.assertEqual(runtime.engine.external["afterheat_room_temperature"], 21.7)
+
     def test_ha_average_room_temperature_excludes_sensor_rooms(self):
         runtime = self.make_runtime()
         runtime.configure({"afterheat_room_source": "ha_average", "fireplace_auto_source": "room:Brændeovn"})
