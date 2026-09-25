@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0-beta.62
+
+- The overview diagram shows a "Styring nu" panel below T4: what currently decides the ventilation (Smart Auto, Local Auto, night, vacation, Quick Boost, free cooling, dry-air protection, fireplace or HCP4), the level and the reason in plain Danish, e.g. "CO₂ 722 ppm ved anlæggets egen føler".
+- Changes by Claude AI.
+
 ## 1.2.0-beta.61
 
 - Afterheat room control now uses T3 extract air (the house average, always measured by the unit) by default. The HRC2 T5 sensor stays selectable but is marked unreliable, because it is not updated once the Pi replaces HCP4.

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Flame, Gauge, Leaf, Snowflake, Wind, X } from "lucide-react";
 import { Hch5UnitDiagram } from "../components/Hch5UnitDiagram";
+import { describeControl } from "../lib/control";
 import { HistoryChart, type HistorySeries } from "../components/HistoryChart";
 import { postJson, requestJson } from "../lib/api";
 import { bypassTravel, formatRemaining } from "../lib/bypass";
@@ -299,6 +300,7 @@ export function OverviewPage() {
             bypassActual={bypassActual} bypassRequest={bypassRequest} heating={heating} recovery={recovery}
             busActive={busHealthy} bypassRaw={bypassRaw} afterheatLockout={afterheatLockout} afterheatCoil={controller.afterheat_coil === "water" ? "water" : "electric"}
             bypassTravelDirection={bypassTravelDirection} bypassTravelSeconds={bypassTravelSeconds} bypassTravelTotal={bypassTravelTotal}
+            control={online ? describeControl(controller) : null}
           />
         </article>
 

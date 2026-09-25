@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import type { ControlSummary } from "../lib/control";
 import { bypassOpenShare, bypassTravel, formatRemaining, type BypassDirection } from "../lib/bypass";
 
 type Num = number | null;
@@ -32,6 +33,8 @@ export interface Hch5UnitDiagramProps {
   afterheatLockout?: boolean;
   /** Afterheater drawn after the unit: an electric element (default) or a water coil fed with flow/return water. */
   afterheatCoil?: AfterheatCoil;
+  /** What currently decides the ventilation, shown bottom-right below T4. */
+  control?: ControlSummary | null;
   onTemperatureClick?: (sensor: string) => void;
 }
 export type AfterheatCoil = "electric" | "water";
@@ -277,6 +280,24 @@ function Rs485Wiring({ active, valveAt }: { active: boolean; valveAt: Point }) {
   </g>;
 }
 
+// "Styring nu": source, level and reason of the controller's current decision,
+// placed in the free corner right of the Raspberry Pi and below T4.
+const CONTROL_BOX = { x: 930, y: 420, width: 272, height: 126 };
+function ControlPanel({ control }: { control: ControlSummary }) {
+  const { x, y, width, height } = CONTROL_BOX;
+  return <g className={`hch-control-panel tone-${control.tone}`} aria-label={`Styring nu: ${control.title}${control.level ? `, trin ${control.level}` : ""}. ${control.reason}`}>
+    <rect className="control-body" x={x} y={y} width={width} height={height} rx="12"/>
+    <foreignObject x={x + 12} y={y + 8} width={width - 24} height={height - 16}>
+      <div className="hch-control-text">
+        <span className="hch-control-eyebrow">Styring nu</span>
+        <strong className="hch-control-title">{control.title}{control.level ? <em>Trin {control.level}</em> : null}</strong>
+        <span className="hch-control-reason">{control.reason}</span>
+        <span className="hch-control-footer">{control.footer}</span>
+      </div>
+    </foreignObject>
+  </g>;
+}
+
 function LockoutBadge() {
   return <g className="hch-lockout-badge"><rect x="-58" y="-25" width="116" height="50" rx="10"/><text x="0" y="-4" textAnchor="middle">Sommerstop</text><text x="0" y="15" textAnchor="middle">ude ≥ 15 °C</text></g>;
 }
@@ -320,7 +341,7 @@ function WaterCoil({ heating, lockout, flowWater, returnWater }: { heating: bool
 }
 
 export function Hch5UnitDiagram(props:Hch5UnitDiagramProps) {
-  const {outdoor,extract,exhaust,afterHeater,frost,flowWater,returnWater,supplyRpm,extractRpm,supplyPercent,extractPercent,bypassActual,bypassRequest,heating,recovery,busActive=false,bypassRaw=null,bypassTravelDirection=null,bypassTravelSeconds=null,bypassTravelTotal=null,afterheatLockout=false,afterheatCoil="electric",onTemperatureClick}=props;
+  const {outdoor,extract,exhaust,afterHeater,frost,flowWater,returnWater,supplyRpm,extractRpm,supplyPercent,extractPercent,bypassActual,bypassRequest,heating,recovery,busActive=false,bypassRaw=null,bypassTravelDirection=null,bypassTravelSeconds=null,bypassTravelTotal=null,afterheatLockout=false,afterheatCoil="electric",control=null,onTemperatureClick}=props;
   const water = afterheatCoil === "water";
   const waterDelta = flowWater === null || returnWater === null ? null : flowWater - returnWater;
   // The unit reports only closed/opening/closing/open and needs about three
@@ -456,6 +477,7 @@ export function Hch5UnitDiagram(props:Hch5UnitDiagramProps) {
       <TempPort cx={-150} cy={205} title="Udsugning · T3" value={fmt(extract)} tone="warm" sensor="extract" onClick={onTemperatureClick}/>
       <TempPort cx={-150} cy={365} title="Indblæsning · T2AH" value={fmt(afterHeater)} tone="green" sensor="afterHeater" onClick={onTemperatureClick}/>
       <SensorPin x={57} y={292} label="Frost" value={fmt(frost,"°")} sensor="frost" onClick={onTemperatureClick}/>
+      {control && <ControlPanel control={control}/>}
       <g className="hch-water-callout" transform="translate(-236 414)"><rect width="196" height="110" rx="12"/><text className="water-title" x="14" y="24">{water ? "Vandvarmeflade" : "Eftervarmevand"}</text>
         <g className="hch-water-reading" role="button" tabIndex={0} aria-label={`Frem: ${fmt(flowWater)}, vis 24 timers graf`} onClick={() => onTemperatureClick?.("flowWater")} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onTemperatureClick?.("flowWater"); } }}><rect x="8" y="31" width="180" height="23" rx="5"/><text className="water-value" x="14" y="48">Frem <tspan x="184" textAnchor="end">{fmt(flowWater)}</tspan></text></g>
         <g className="hch-water-reading" role="button" tabIndex={0} aria-label={`Retur: ${fmt(returnWater)}, vis 24 timers graf`} onClick={() => onTemperatureClick?.("returnWater")} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onTemperatureClick?.("returnWater"); } }}><rect x="8" y="57" width="180" height="23" rx="5"/><text className="water-value" x="14" y="74">Retur <tspan x="184" textAnchor="end">{fmt(returnWater)}</tspan></text></g>
