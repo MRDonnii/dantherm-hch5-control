@@ -166,6 +166,7 @@ class BypassAndDiscoveryTests(unittest.TestCase):
             "hrc2_t5_temperature": 23.40,
         })
         writes = wire_hac1_acks(gateway)
+        gateway.read_register_block = lambda _ser, slave, start, count: [1415, 2094, 2077, 1465, 2340]
         serial = type("Serial", (), {"flush": lambda self: None})()
         self.assertEqual(
             gateway.write_afterheat_temperature_block(serial),
@@ -197,17 +198,31 @@ class BypassAndDiscoveryTests(unittest.TestCase):
         self.assertFalse(gateway.refresh_afterheat_temperature_block_if_due(serial, now=12.0))
         self.assertEqual(writes, [14.15, 14.23])
 
-    def test_missing_t5_falls_back_to_t3_and_never_blocks(self):
+    def test_missing_t5_preserves_hac1_raw_word(self):
         gateway = make_gateway()
         gateway.state.update({
             "outdoor_temp": 14.15, "supply_temp": 20.94,
             "extract_temp": 20.77, "exhaust_temp": 14.65,
         })
         writes = wire_hac1_acks(gateway)
+        gateway.read_register_block = lambda _ser, slave, start, count: [1415, 2094, 2077, 1465, 32768]
         serial = type("Serial", (), {"flush": lambda self: None})()
         gateway.write_afterheat_temperature_block(serial)
         self.assertEqual(int.from_bytes(writes[0][0][2:4], "big"), 180)
-        self.assertEqual(int.from_bytes(writes[0][0][15:17], "big"), 2077)
+        self.assertEqual(int.from_bytes(writes[0][0][15:17], "big"), 32768)
+
+    def test_missing_hac1_t5_readback_blocks_temperature_write(self):
+        gateway = make_gateway()
+        gateway.state.update({
+            "outdoor_temp": 14.15, "supply_temp": 20.94,
+            "extract_temp": 20.77, "exhaust_temp": 14.65,
+        })
+        writes = wire_hac1_acks(gateway)
+        gateway.read_register_block = lambda *_args: None
+        serial = type("Serial", (), {"flush": lambda self: None})()
+        with self.assertRaisesRegex(RuntimeError, "T5 source word unavailable"):
+            gateway.write_afterheat_temperature_block(serial)
+        self.assertEqual(writes, [])
 
     def test_afterheat_off_uses_verified_hcp4_zero_setpoint_block(self):
         gateway = make_gateway()

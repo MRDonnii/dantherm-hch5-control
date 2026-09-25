@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.0-beta.63
+
+- Preserve HAC1 register 184 when refreshing T1–T5. A disconnected HRC2 room sensor is no longer replaced with T3 extract temperature in the T5 register. If HAC1's T5 word cannot be read, skip that temperature-block write.
+
 ## 1.2.0-beta.62
 
 - The overview diagram shows a "Styring nu" panel below T4: what currently decides the ventilation (Smart Auto, Local Auto, night, vacation, Quick Boost, free cooling, dry-air protection, fireplace or HCP4), the level and the reason in plain Danish, e.g. "CO₂ 722 ppm ved anlæggets egen føler".

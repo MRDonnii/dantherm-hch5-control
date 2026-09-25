@@ -1641,31 +1641,27 @@ class Gateway:
                 header_seen = index >= 0
         raise RuntimeError(f"missing FC16 acknowledgement for register {start}")
 
-    def _afterheat_temperature_words(self) -> list[int]:
+    def _afterheat_temperature_words(self, ser: serial.Serial) -> list[int]:
         def valid(key: str) -> bool:
             value = self.state.get(key)
             return isinstance(value, (int, float)) and -35 <= float(value) <= 100
 
-        # Register 184 is T5, the room sensor in the HRC2 remote. It is not
-        # live once Pi replaces HCP4, and HAC1 regulates afterheat on its own
-        # T2AH (register 205), so T5 must never block the chain: keep the
-        # value HAC1 already holds and fall back to T3 extract air, the other
-        # room reference selectable on the HRC2 remote.
-        t5_key = "hrc2_t5_temperature" if valid("hrc2_t5_temperature") else "extract_temp"
-        keys = (
-            "outdoor_temp", "supply_temp", "extract_temp", "exhaust_temp",
-            t5_key,
-        )
+        # HRC2 is disconnected when Pi is master. Preserve HAC1's raw T5 word;
+        # substituting T3 here would invent a room measurement in register 184.
+        current = self.read_register_block(ser, 0x40, 180, 5)
+        if current is None or len(current) != 5:
+            raise RuntimeError("afterheat T5 source word unavailable")
+        keys = ("outdoor_temp", "supply_temp", "extract_temp", "exhaust_temp")
         words: list[int] = []
         for key in keys:
             if not valid(key):
                 raise RuntimeError(f"afterheat temperature unavailable: {key}")
             words.append(round(float(self.state[key]) * 100))
-        return words
+        return [*words, current[4]]
 
     def write_afterheat_temperature_block(self, ser: serial.Serial) -> list[int]:
         """Refresh the verified live T1..T5 telemetry block independently."""
-        temperatures = self._afterheat_temperature_words()
+        temperatures = self._afterheat_temperature_words(ser)
         self._write_afterheat_block(
             ser, 180, temperatures, "CONTROL_AFTERHEAT_TEMPERATURES"
         )
