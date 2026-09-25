@@ -212,7 +212,7 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
 
                 # Machine-to-machine endpoints for Home Assistant. HA sends
                 # intent and room measurements only; Pi remains source of truth.
-                if self.path in ("/api/controller/heartbeat", "/api/controller/command", "/api/controller/inputs"):
+                if self.path in ("/api/controller/heartbeat", "/api/controller/command", "/api/controller/inputs", "/api/controller/signals"):
                     if not self._machine_auth():
                         return self._json_error(401, "Controller token mangler eller er ugyldigt")
                     data = self._read_json() or {}
@@ -221,6 +221,8 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                             return self._json(dashboard.controller_runtime.heartbeat(str(data.get("demand", "normal"))))
                         if self.path == "/api/controller/command":
                             return self._json(dashboard.controller_runtime.configure(data))
+                        if self.path == "/api/controller/signals":
+                            return self._json(dashboard.controller_runtime.external_signals(data))
                         return self._json(dashboard.controller_runtime.room_inputs(data))
                     except ControllerError as error:
                         return self._json_error(400, str(error))

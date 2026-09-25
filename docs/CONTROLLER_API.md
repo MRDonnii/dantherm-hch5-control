@@ -74,6 +74,16 @@ Pi derives levels 1–6 from worst-room CO2/RH and a 10-minute RH rise trigger. 
 
 At most 32 rooms are accepted. Invalid metadata or out-of-range measurements return HTTP 400 instead of being silently used. Bypass is status-only in this beta; non-`auto` commands are rejected because the verified hardware sequence is not documented.
 
+## POST /api/controller/signals
+
+Leased external switches, machine token required. Today only `fireplace`: while `true` and *Automatic fireplace mode* is enabled in the WebUI, the Pi holds the unit's fireplace mode (bypass closed) and keeps it for the configured afterrun after the signal ends. The lease (`valid_for_s`, 30–900 s, default 300) must be renewed; an expired lease counts as `false`.
+
+```json
+{"fireplace":true,"valid_for_s":300}
+```
+
+Rooms sent to `/api/controller/inputs` can also serve as measurement sources chosen in the WebUI: a stove temperature for automatic fireplace mode, outdoor humidity for absolute-humidity control, and a room temperature for afterheat. Rooms selected as stove or outdoor sources never take part in air-quality decisions; send them with `"control": false`.
+
 ## Master rule
 
 There is no normal controller ON/OFF. Pi becomes master automatically whenever the RS485 bus is healthy and HCP4 is absent. Any detected HCP4 FC06/FC16 activity immediately pauses Pi writes. During `unknown` arbitration state writes are blocked.

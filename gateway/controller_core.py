@@ -12,6 +12,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
+from advanced_control import (
+    HCH5_MAX_AIRFLOW_M3H,
+    absolute_humidity,
+    afterheat_room_target,
+    airflow_plan,
+    valid_source,
+)
+
 VALID_MODES = {"local_auto", "smart_auto", "manual"}
 VALID_DEMANDS = {"low", "normal", "high", "boost"}
 VALID_BYPASS = {"off", "on"}
@@ -121,6 +129,10 @@ def _time_window_active(now: datetime, start: str, end: str) -> bool:
     return current >= first or current < last
 
 
+def _round(value: float | None, digits: int = 2) -> float | None:
+    return None if value is None else round(value, digits)
+
+
 class HardwareAdapter:
     """Bindings to functions already verified on the physical installation."""
 
@@ -197,6 +209,37 @@ class ControllerState:
         "cooling_min_on_seconds": 600,
         "cooling_min_off_seconds": 300,
         "cooling_transition_timeout_seconds": 90,
+        # House sizing: the base and minimum fan level follow from BR18.
+        "sizing_enabled": False,
+        "house_area_m2": 150.0,
+        "ceiling_height_m": 2.5,
+        "house_bathrooms": 1,
+        "house_utility_rooms": 1,
+        "airflow_max_m3h": HCH5_MAX_AIRFLOW_M3H,
+        "airflow_measured": {},
+        "sizing_reduced_percent": 50,
+        # Afterheat setpoint follows the room temperature.
+        "afterheat_room_enabled": False,
+        "afterheat_room_target": 21.0,
+        "afterheat_room_gain": 1.5,
+        "afterheat_room_min": 17,
+        "afterheat_room_max": 24,
+        "afterheat_room_step_minutes": 10,
+        "afterheat_room_source": "t5",
+        # Fireplace mode held by a stove sensor or an external switch.
+        "fireplace_auto_enabled": False,
+        "fireplace_auto_source": "",
+        "fireplace_auto_on_temp": 25.0,
+        "fireplace_auto_off_temp": 24.0,
+        "fireplace_afterrun_minutes": 15,
+        "fireplace_max_hours": 6,
+        # Humidity demand only counts when outdoor air actually dries the house.
+        "humidity_smart_enabled": False,
+        "outdoor_humidity_source": "",
+        "humidity_margin_gm3": 0.5,
+        "dry_protection_enabled": False,
+        "dry_rh_limit": 30.0,
+        "dry_max_level": 2,
         "effective_source": "local_auto",
         "effective_level": 3,
         "effective_reason": "Controller starting",
@@ -352,6 +395,93 @@ class ControllerState:
             except (ControllerError, TypeError, ValueError):
                 values.update(enabled=True, start="07:00", end="22:00", level=3)
         self.data["schedule"] = schedule
+        self._sanitize_advanced()
+
+    def _sanitize_advanced(self) -> None:
+        for key in ("sizing_enabled", "afterheat_room_enabled", "fireplace_auto_enabled",
+                    "humidity_smart_enabled", "dry_protection_enabled"):
+            self.data[key] = bool(self.data.get(key, False))
+        for key, low, high in self.ADVANCED_FLOATS:
+            try:
+                self.data[key] = min(high, max(low, float(self.data.get(key, self.DEFAULTS[key]))))
+            except (TypeError, ValueError):
+                self.data[key] = self.DEFAULTS[key]
+        for key, low, high in self.ADVANCED_INTS:
+            try:
+                self.data[key] = min(high, max(low, int(self.data.get(key, self.DEFAULTS[key]))))
+            except (TypeError, ValueError):
+                self.data[key] = self.DEFAULTS[key]
+        if self.data["afterheat_room_min"] > self.data["afterheat_room_max"]:
+            self.data["afterheat_room_min"], self.data["afterheat_room_max"] = 17, 24
+        if self.data["fireplace_auto_off_temp"] >= self.data["fireplace_auto_on_temp"]:
+            self.data["fireplace_auto_off_temp"] = self.data["fireplace_auto_on_temp"] - 1.0
+        for key, allow_fixed, default in (
+            ("afterheat_room_source", True, "t5"),
+            ("fireplace_auto_source", False, ""),
+            ("outdoor_humidity_source", False, ""),
+        ):
+            try:
+                self.data[key] = valid_source(self.data.get(key), allow_fixed=allow_fixed) or default
+            except ValueError:
+                self.data[key] = default
+        try:
+            self.data["airflow_measured"] = self._clean_airflow(self.data.get("airflow_measured"))
+        except ControllerError:
+            self.data["airflow_measured"] = {}
+
+    ADVANCED_FLOATS = (
+        ("house_area_m2", 20.0, 1000.0), ("ceiling_height_m", 1.8, 6.0),
+        ("afterheat_room_target", 15.0, 26.0), ("afterheat_room_gain", 0.5, 5.0),
+        ("fireplace_auto_on_temp", 15.0, 400.0), ("fireplace_auto_off_temp", 10.0, 399.0),
+        ("humidity_margin_gm3", 0.0, 3.0), ("dry_rh_limit", 15.0, 45.0),
+    )
+    ADVANCED_INTS = (
+        ("house_bathrooms", 0, 10), ("house_utility_rooms", 0, 10),
+        ("airflow_max_m3h", 100, 1500), ("sizing_reduced_percent", 30, 100),
+        ("afterheat_room_min", 10, 35), ("afterheat_room_max", 10, 35),
+        ("afterheat_room_step_minutes", 2, 60), ("fireplace_afterrun_minutes", 0, 120),
+        ("fireplace_max_hours", 1, 24), ("dry_max_level", 1, 6),
+    )
+
+    @staticmethod
+    def _clean_airflow(value: object) -> dict[str, dict[str, int]]:
+        """Measured airflow per level (m3/h) from the commissioning report."""
+        if value in (None, ""):
+            return {}
+        if not isinstance(value, dict):
+            raise ControllerError("airflow_measured skal være et objekt")
+        cleaned: dict[str, dict[str, int]] = {}
+        for raw_level, values in value.items():
+            try:
+                level = int(raw_level)
+            except (TypeError, ValueError) as error:
+                raise ControllerError("Luftmængde kun for trin 1..6") from error
+            if level not in range(1, 7) or not isinstance(values, dict):
+                raise ControllerError("Luftmængde kun for trin 1..6")
+            entry: dict[str, int] = {}
+            for side in ("supply", "extract"):
+                raw = values.get(side)
+                if raw in (None, "", 0):
+                    continue
+                try:
+                    number = int(round(float(raw)))
+                except (TypeError, ValueError) as error:
+                    raise ControllerError("Luftmængde skal være et tal i m³/h") from error
+                if not 10 <= number <= 1500:
+                    raise ControllerError("Luftmængde skal være 10..1500 m³/h")
+                entry[side] = number
+            if entry:
+                cleaned[str(level)] = entry
+        return cleaned
+
+    def airflow_plan(self) -> dict[str, object]:
+        return airflow_plan(self.data, self.data["profiles"])
+
+    def normal_level(self) -> int:
+        """Base level: from the house size when sizing is on, else the user's."""
+        if self.data.get("sizing_enabled"):
+            return int(self.airflow_plan()["base_level"])
+        return int(self.data["local_normal_level"])
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -385,6 +515,7 @@ class ControllerState:
                 "cooling_room_setpoint", "cooling_hysteresis", "cooling_outdoor_min",
                 "cooling_min_delta", "cooling_level", "cooling_start_delay_seconds",
                 "cooling_min_on_seconds", "cooling_min_off_seconds", "cooling_transition_timeout_seconds",
+                *self.ADVANCED_KEYS,
             }
             unknown = set(patch) - allowed
             if unknown:
@@ -536,10 +667,75 @@ class ControllerState:
                     if profiles[level]["extract"] <= profiles[level - 1]["extract"] or profiles[level]["supply"] <= profiles[level - 1]["supply"]:
                         raise ControllerError("Niveauerne skal stige i både udsugning og indblæsning")
                 self.data["profiles"] = profiles
+            self._configure_advanced(patch)
             self._sanitize()
             self.data["updated_at"] = time.time()
             self.save()
             return self.snapshot()
+
+    ADVANCED_KEYS = (
+        "sizing_enabled", "house_area_m2", "ceiling_height_m", "house_bathrooms",
+        "house_utility_rooms", "airflow_max_m3h", "airflow_measured", "sizing_reduced_percent",
+        "afterheat_room_enabled", "afterheat_room_target", "afterheat_room_gain",
+        "afterheat_room_min", "afterheat_room_max", "afterheat_room_step_minutes",
+        "afterheat_room_source", "fireplace_auto_enabled", "fireplace_auto_source",
+        "fireplace_auto_on_temp", "fireplace_auto_off_temp", "fireplace_afterrun_minutes",
+        "fireplace_max_hours", "humidity_smart_enabled", "outdoor_humidity_source",
+        "humidity_margin_gm3", "dry_protection_enabled", "dry_rh_limit", "dry_max_level",
+    )
+    ADVANCED_LABELS = {
+        "house_area_m2": "Boligareal", "ceiling_height_m": "Loftshøjde",
+        "house_bathrooms": "Badeværelser", "house_utility_rooms": "Bryggers/toiletter",
+        "airflow_max_m3h": "Maks. luftmængde", "sizing_reduced_percent": "Reduceret minimum",
+        "afterheat_room_target": "Ønsket rumtemperatur", "afterheat_room_gain": "Forstærkning",
+        "afterheat_room_min": "Laveste indblæsning", "afterheat_room_max": "Højeste indblæsning",
+        "afterheat_room_step_minutes": "Minutter pr. trin",
+        "fireplace_auto_on_temp": "Pejs start", "fireplace_auto_off_temp": "Pejs stop",
+        "fireplace_afterrun_minutes": "Efterløb", "fireplace_max_hours": "Maks. varighed",
+        "humidity_margin_gm3": "Fugtmargin", "dry_rh_limit": "Tør luft-grænse",
+        "dry_max_level": "Maks. trin ved tør luft",
+    }
+
+    def _configure_advanced(self, patch: dict[str, object]) -> None:
+        for key in ("sizing_enabled", "afterheat_room_enabled", "fireplace_auto_enabled",
+                    "humidity_smart_enabled", "dry_protection_enabled"):
+            if key in patch:
+                if not isinstance(patch[key], bool):
+                    raise ControllerError(f"{key} skal være boolean")
+                self.data[key] = patch[key]
+        for key, low, high in self.ADVANCED_FLOATS:
+            if key in patch:
+                try:
+                    value = float(patch[key])
+                except (TypeError, ValueError) as error:
+                    raise ControllerError(f"{self.ADVANCED_LABELS[key]} skal være et tal") from error
+                if not low <= value <= high:
+                    raise ControllerError(f"{self.ADVANCED_LABELS[key]} skal være {low:g}..{high:g}")
+                self.data[key] = value
+        for key, low, high in self.ADVANCED_INTS:
+            if key in patch:
+                try:
+                    value = int(patch[key])
+                except (TypeError, ValueError) as error:
+                    raise ControllerError(f"{self.ADVANCED_LABELS[key]} skal være et heltal") from error
+                if not low <= value <= high:
+                    raise ControllerError(f"{self.ADVANCED_LABELS[key]} skal være {low}..{high}")
+                self.data[key] = value
+        if int(self.data["afterheat_room_min"]) > int(self.data["afterheat_room_max"]):
+            raise ControllerError("Laveste indblæsning skal være under højeste")
+        if float(self.data["fireplace_auto_off_temp"]) >= float(self.data["fireplace_auto_on_temp"]):
+            raise ControllerError("Pejs stop skal være lavere end pejs start")
+        for key, allow_fixed in (
+            ("afterheat_room_source", True), ("fireplace_auto_source", False),
+            ("outdoor_humidity_source", False),
+        ):
+            if key in patch:
+                try:
+                    self.data[key] = valid_source(patch[key], allow_fixed=allow_fixed)
+                except ValueError as error:
+                    raise ControllerError(f"{key}: ugyldig målekilde") from error
+        if "airflow_measured" in patch:
+            self.data["airflow_measured"] = self._clean_airflow(patch["airflow_measured"])
 
     def heartbeat(self, demand: str = "normal", *, requested_level: int | None = None, valid_for_s: int | None = None, reason: str | None = None) -> dict[str, object]:
         if demand not in VALID_DEMANDS:
@@ -619,6 +815,8 @@ class ControllerState:
             result["vacation_remaining_seconds"] = max(0, int(vacation_until - now)) if vacation_until else None
             level = result.get("effective_level")
             result["effective_profile"] = result["profiles"].get(int(level)) if level else None
+            result["airflow_plan"] = self.airflow_plan()
+            result["effective_normal_level"] = self.normal_level()
             return result
 
 
@@ -630,6 +828,12 @@ class ControllerEngine:
         self.hardware = hardware or HardwareAdapter()
         self.lock = threading.RLock()
         self.measurements: dict[str, float | bool | None] = {"rh": None, "co2": None, "outdoor": None, "room": None}
+        # Values from other sources (T3, HA rooms). Replaced as a whole on every
+        # refresh so a vanished HA value becomes None instead of sticking.
+        self.external: dict[str, float | None] = {}
+        self.afterheat_effective: int | None = None
+        self.afterheat_last_step_at: float | None = None
+        self.afterheat_room_state = "disabled"
         self.current_auto_level: int | None = None
         self.last_level_change = 0.0
         self.boost_until = 0.0
@@ -659,13 +863,45 @@ class ControllerEngine:
                     except (TypeError, ValueError):
                         pass
 
+    def set_external(self, values: dict[str, float | None]) -> None:
+        with self.lock:
+            self.external = dict(values)
+
+    def outdoor_absolute_humidity(self) -> float | None:
+        outdoor = self.measurements.get("outdoor")
+        return absolute_humidity(
+            outdoor if isinstance(outdoor, (int, float)) else None,
+            self.external.get("outdoor_rh"),
+        )
+
+    def indoor_absolute_humidity(self) -> float | None:
+        rh = self.measurements.get("rh")
+        temperature = self.external.get("extract_temp")
+        if temperature is None:
+            room = self.measurements.get("room")
+            temperature = room if isinstance(room, (int, float)) else None
+        return absolute_humidity(temperature, rh if isinstance(rh, (int, float)) else None)
+
+    def humidity_dries(self, indoor_ah: float | None) -> bool:
+        """False only when we know outdoor air would not dry this air."""
+        if not self.config.data.get("humidity_smart_enabled"):
+            return True
+        outdoor_ah = self.outdoor_absolute_humidity()
+        if indoor_ah is None or outdoor_ah is None:
+            return True
+        return indoor_ah - outdoor_ah >= float(self.config.data["humidity_margin_gm3"])
+
     def _local_auto_level(self, now: float) -> tuple[int, str]:
         d = self.config.data
-        normal = int(d["local_normal_level"])
+        normal = self.config.normal_level()
         wanted = normal
         reasons: list[str] = []
         rh = self.measurements.get("rh")
         co2 = self.measurements.get("co2")
+        if isinstance(rh, (int, float)) and not self.humidity_dries(self.indoor_absolute_humidity()):
+            if rh > float(d["rh_setpoint"]):
+                reasons.append(f"RH {rh:.1f}% ignoreret: udeluften tørrer ikke")
+            rh = None
         if isinstance(rh, (int, float)):
             delta = rh - float(d["rh_setpoint"])
             if delta > 0:
@@ -687,7 +923,7 @@ class ControllerEngine:
     def _stabilize_auto_level(self, wanted: int, now: float, *, allow_downshift: bool = True) -> tuple[int, str | None]:
         d = self.config.data
         wanted = min(6, max(1, int(wanted)))
-        current = self.current_auto_level if self.current_auto_level is not None else int(d["local_normal_level"])
+        current = self.current_auto_level if self.current_auto_level is not None else self.config.normal_level()
         held = None
         if wanted > current:
             current = wanted
@@ -825,6 +1061,24 @@ class ControllerEngine:
         else:
             self._stop_cooling(now_ts, "manual_mode")
 
+        flags["dry_protection_active"] = False
+        if d["mode"] != "manual" and not flags["cooling_active"] and self._dry_air(d):
+            limit = int(d["dry_max_level"])
+            if level > limit:
+                level = limit
+                flags["dry_protection_active"] = True
+                source = "dry_protection"
+                rh = self.measurements.get("rh")
+                reason = f"Tør luft ({rh:.0f}% RH): begrænset til trin {limit}"
+
+        flags["sizing_floor_active"] = False
+        if d.get("sizing_enabled") and d["mode"] != "manual":
+            floor = int(self.config.airflow_plan()["min_level"])
+            if level < floor:
+                level = floor
+                flags["sizing_floor_active"] = True
+                reason = f"{reason}; husets minimum trin {floor}"
+
         boost_until = d.get("quick_boost_until")
         if not d.get("fireplace") and boost_until and float(boost_until) > now_ts:
             flags["quick_boost_active"] = True
@@ -837,6 +1091,53 @@ class ControllerEngine:
             effective_bypass = "off"
         level = min(int(d["local_max_level"]), max(int(d["local_min_level"]), int(level)))
         return level, source, reason, effective_bypass, flags
+
+    def _dry_air(self, d: dict) -> bool:
+        """Dry-air protection: low indoor RH, drying outdoor air, CO2 fine."""
+        if not d.get("dry_protection_enabled"):
+            return False
+        rh = self.measurements.get("rh")
+        if not isinstance(rh, (int, float)) or rh >= float(d["dry_rh_limit"]):
+            return False
+        co2_limit = int(d["co2_setpoint"])
+        for co2 in (self.measurements.get("co2"), self.external.get("max_room_co2")):
+            if isinstance(co2, (int, float)) and co2 > co2_limit:
+                return False
+        outdoor_ah, indoor_ah = self.outdoor_absolute_humidity(), self.indoor_absolute_humidity()
+        return outdoor_ah is None or indoor_ah is None or outdoor_ah < indoor_ah
+
+    def _afterheat_setpoint(self, now: float) -> tuple[int, str]:
+        """Afterheat setpoint, moved one degree per interval toward the room target."""
+        d = self.config.data
+        base = int(d["afterheat_setpoint"])
+        if not d.get("afterheat_room_enabled"):
+            self.afterheat_effective, self.afterheat_last_step_at = None, None
+            self.afterheat_room_state = "disabled"
+            return base, "Fast setpunkt"
+        room = self.external.get("afterheat_room_temperature")
+        wanted = afterheat_room_target(d, room)
+        if wanted is None:
+            self.afterheat_effective, self.afterheat_last_step_at = None, None
+            self.afterheat_room_state = "no_room_temperature"
+            return base, "Ingen rumtemperatur: fast setpunkt"
+        low, high = int(d["afterheat_room_min"]), int(d["afterheat_room_max"])
+        current = self.afterheat_effective
+        if current is None:
+            current = min(high, max(low, base))
+        current = min(high, max(low, current))
+        interval = int(d["afterheat_room_step_minutes"]) * 60
+        if wanted != current and (
+            self.afterheat_last_step_at is None or now - self.afterheat_last_step_at >= interval
+        ):
+            current += 1 if wanted > current else -1
+            self.afterheat_last_step_at = now
+        self.afterheat_effective = current
+        if current == wanted:
+            self.afterheat_room_state = "holding"
+        else:
+            self.afterheat_room_state = "rising" if wanted > current else "falling"
+        target = float(d["afterheat_room_target"])
+        return current, f"Rum {room:.1f}°C / mål {target:.1f}°C → indblæsning {current}°C (mål {wanted}°C)"
 
     def resolve(self, now: float | None = None) -> dict[str, object]:
         now = now or time.time()
@@ -866,6 +1167,7 @@ class ControllerEngine:
                 source = "local_auto"
 
             level, source, reason, effective_bypass, flags = self._automation_overlay(level, source, reason, now)
+            afterheat_setpoint, afterheat_reason = self._afterheat_setpoint(now)
             d["effective_source"] = source
             d["effective_level"] = level
             d["effective_reason"] = reason
@@ -897,6 +1199,14 @@ class ControllerEngine:
                 "retry_limit": self.retry_limit,
                 "next_retry_at": min(self._retry_at.values(), default=None),
                 "controller_uptime_seconds": round(now - self.started_at, 1),
+                "afterheat_effective_setpoint": afterheat_setpoint,
+                "afterheat_room_state": self.afterheat_room_state,
+                "afterheat_room_reason": afterheat_reason,
+                "afterheat_room_temperature": self.external.get("afterheat_room_temperature"),
+                "indoor_absolute_humidity": _round(self.indoor_absolute_humidity()),
+                "outdoor_absolute_humidity": _round(self.outdoor_absolute_humidity()),
+                "outdoor_humidity": self.external.get("outdoor_rh"),
+                "humidity_drying": self.humidity_dries(self.indoor_absolute_humidity()),
             }
             return result
 
@@ -960,7 +1270,7 @@ class ControllerEngine:
             pair = (int(profile["extract"]), int(profile["supply"]))
             self._call("fan_pair", pair, self.hardware.write_fan_pair, *pair)
         enabled = bool(snapshot["afterheat_enabled"])
-        setpoint = int(snapshot["afterheat_setpoint"])
+        setpoint = int(snapshot.get("afterheat_effective_setpoint") or snapshot["afterheat_setpoint"])
         command = setpoint if enabled else None
         self._call(
             "afterheat_setpoint",

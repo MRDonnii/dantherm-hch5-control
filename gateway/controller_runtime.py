@@ -15,6 +15,7 @@ import time
 from collections import defaultdict, deque
 from pathlib import Path
 
+from advanced_control import absolute_humidity, source_room
 from controller_core import ControllerEngine, ControllerError, ControllerState, HardwareAdapter
 from master_arbitration import MasterArbitrator, RtuFrameStream
 from sensor_freshness import fresh_sensor_value, sensor_sample_age
@@ -63,6 +64,15 @@ class ControllerRuntime:
         self.smart_requested_level = int(self.config.data["local_normal_level"])
         self.smart_controlling_room: str | None = None
         self.smart_controlling_metric: str | None = None
+
+        # External fireplace switch (leased) and the automatic fireplace hold.
+        self.fireplace_signal: bool | None = None
+        self.fireplace_signal_until: float | None = None
+        self.fireplace_auto_active = False
+        self.fireplace_auto_by_temperature = False
+        self.fireplace_auto_started_at: float | None = None
+        self.fireplace_auto_blocked = False
+        self.fireplace_auto_reason = "disabled"
 
     @staticmethod
     def _first(state: dict[str, object], *keys: str):
@@ -133,6 +143,140 @@ class ControllerRuntime:
             outdoor=self._first(state, "outdoor_temp", "outdoor_temperature"),
             room=room,
         )
+        self.engine.set_external({
+            "extract_temp": self._safe_number(
+                self._first(state, "extract_temp", "extract_temperature"), -30, 60
+            ),
+            "outdoor_rh": self._source_value(self.config.data.get("outdoor_humidity_source"), "humidity"),
+            "afterheat_room_temperature": self._afterheat_room_temperature(room),
+            "stove_temperature": self._source_value(self.config.data.get("fireplace_auto_source"), "temperature"),
+            "max_room_co2": self._max_room_co2(),
+        })
+
+    def _fresh_ha_rooms(self) -> dict[str, dict[str, object]]:
+        return self.smart_rooms if self._smart_inputs_fresh() else {}
+
+    def _source_room_names(self) -> set[str]:
+        """HA rooms used as stove/outdoor sensors, never as indoor air quality."""
+        names = set()
+        for key in ("fireplace_auto_source", "outdoor_humidity_source"):
+            name = source_room(self.config.data.get(key))
+            if name:
+                names.add(name)
+        return names
+
+    def _source_value(self, source: object, kind: str) -> float | None:
+        name = source_room(source)
+        if not name:
+            return None
+        value = self._fresh_ha_rooms().get(name, {}).get(kind)
+        return float(value) if isinstance(value, (int, float)) else None
+
+    def _afterheat_room_temperature(self, t5: object) -> float | None:
+        source = str(self.config.data.get("afterheat_room_source") or "t5")
+        if source == "t5":
+            return self._safe_number(t5, -30, 60)
+        if source == "ha_average":
+            excluded = self._source_room_names()
+            values = [
+                float(values["temperature"])
+                for name, values in self._fresh_ha_rooms().items()
+                if name not in excluded and values.get("enabled", True)
+                and isinstance(values.get("temperature"), (int, float))
+            ]
+            return round(sum(values) / len(values), 2) if values else None
+        return self._source_value(source, "temperature")
+
+    def _max_room_co2(self) -> float | None:
+        excluded = self._source_room_names()
+        values = [
+            float(values["co2"])
+            for name, values in self._fresh_ha_rooms().items()
+            if name not in excluded and values.get("enabled", True) and values.get("control", True)
+            and isinstance(values.get("co2"), (int, float))
+        ]
+        return max(values) if values else None
+
+    def external_signals(self, payload: dict[str, object]) -> dict[str, object]:
+        """Leased external switches from Home Assistant (e.g. fireplace)."""
+        try:
+            valid_for = int(payload.get("valid_for_s", 300))
+        except (TypeError, ValueError) as error:
+            raise ControllerError("valid_for_s skal være et heltal") from error
+        if not 30 <= valid_for <= 900:
+            raise ControllerError("valid_for_s skal være 30..900 sekunder")
+        if "fireplace" in payload:
+            if not isinstance(payload["fireplace"], bool):
+                raise ControllerError("fireplace skal være boolean")
+            self.fireplace_signal = payload["fireplace"]
+            self.fireplace_signal_until = time.time() + valid_for
+        self._update_fireplace_auto()
+        if self.hardware_writes_allowed():
+            self.apply_once()
+        return self.snapshot()
+
+    def _fireplace_signal_active(self, now: float) -> bool:
+        if self.fireplace_signal_until is None or now > self.fireplace_signal_until:
+            self.fireplace_signal = None
+            self.fireplace_signal_until = None
+            return False
+        return self.fireplace_signal is True
+
+    def _update_fireplace_auto(self, now: float | None = None) -> None:
+        """Hold the unit's fireplace mode while the stove is hot or the switch is on."""
+        now = time.time() if now is None else now
+        d = self.config.data
+        if not d.get("fireplace_auto_enabled"):
+            if self.fireplace_auto_active:
+                self._release_fireplace_auto(now)
+            self.fireplace_auto_reason = "disabled"
+            self.fireplace_auto_blocked = False
+            self.fireplace_auto_by_temperature = False
+            return
+        stove = self.engine.external.get("stove_temperature")
+        if stove is None:
+            self.fireplace_auto_by_temperature = False
+        elif self.fireplace_auto_by_temperature:
+            self.fireplace_auto_by_temperature = stove > float(d["fireplace_auto_off_temp"])
+        else:
+            self.fireplace_auto_by_temperature = stove >= float(d["fireplace_auto_on_temp"])
+        signal = self._fireplace_signal_active(now)
+        demand = signal or self.fireplace_auto_by_temperature
+        if not demand:
+            if self.fireplace_auto_active:
+                self._release_fireplace_auto(now)
+            self.fireplace_auto_blocked = False
+            self.fireplace_auto_reason = "waiting" if stove is not None or d.get("fireplace_auto_source") == "" else "no_stove_temperature"
+            return
+        if self.fireplace_auto_blocked:
+            self.fireplace_auto_reason = "blocked_until_clear"
+            return
+        if not self.fireplace_auto_active:
+            self.fireplace_auto_active = True
+            self.fireplace_auto_started_at = now
+        if now - (self.fireplace_auto_started_at or now) >= int(d["fireplace_max_hours"]) * 3600:
+            self.fireplace_auto_blocked = True
+            self.fireplace_auto_active = False
+            self.fireplace_auto_reason = "max_duration"
+            return
+        afterrun = max(60, int(d["fireplace_afterrun_minutes"]) * 60)
+        with self.config.lock:
+            if d.get("bypass") == "on":
+                d["bypass"] = "off"
+            started = not d.get("fireplace")
+            d["fireplace"] = True
+            d["fireplace_until"] = now + afterrun
+            d["fireplace_duration_minutes"] = 15
+            d["quick_boost_until"] = None
+            d["quick_boost_minutes"] = 0
+            if started:
+                self.config.save()
+        self.fireplace_auto_reason = "switch" if signal else "stove_temperature"
+
+    def _release_fireplace_auto(self, now: float) -> None:
+        """Demand gone: the afterrun already set in fireplace_until runs out by itself."""
+        self.fireplace_auto_active = False
+        self.fireplace_auto_started_at = None
 
     @staticmethod
     def _safe_number(value, low: float, high: float):
@@ -332,12 +476,16 @@ class ControllerRuntime:
     ) -> tuple[int, str, str, str | None, str | None]:
         now = time.time() if now is None else now
         d = self.config.data
-        rooms = self._rooms_with_unit_sensors()
-        normal = int(d["local_normal_level"])
+        excluded = self._source_room_names()
+        rooms = {n: v for n, v in self._rooms_with_unit_sensors().items() if n not in excluded}
+        normal = self.config.normal_level()
         candidates: list[tuple[int, int, float, str, str, str]] = []
+        dry_rooms: set[str] = set()
         for name, values in rooms.items():
             if not values.get("enabled", True) or not values.get("control", True):
                 continue
+            if not self._room_air_dries(values):
+                dry_rooms.add(name)
             priority = str(values.get("priority", "auto"))
             bathroom = self._is_bathroom(name, values)
 
@@ -351,7 +499,7 @@ class ControllerRuntime:
                 candidates.append((adjusted, raw, float(co2), name, "co2", f"CO2 {name} {float(co2):.0f} ({priority})"))
 
             humidity = values.get("humidity")
-            if isinstance(humidity, (int, float)):
+            if isinstance(humidity, (int, float)) and name not in dry_rooms:
                 rh_setpoint = float(values.get("rh_setpoint") or (d["bathroom_rh_setpoint"] if bathroom else d["rh_setpoint"]))
                 rh_hysteresis = float(values.get("rh_hysteresis") or (d["bathroom_rh_hysteresis"] if bathroom else d["rh_hysteresis"]))
                 raw = self._metric_level(
@@ -364,7 +512,9 @@ class ControllerRuntime:
                 candidates.append((adjusted, raw, float(humidity), name, "humidity", f"{label} {name} {float(humidity):.1f}% / {rh_setpoint:.0f}% ({priority})"))
 
         for name, history in self._room_rh_history.items():
-            values = rooms.get(name, {})
+            if name not in rooms or name in dry_rooms:
+                continue
+            values = rooms[name]
             if not values.get("enabled", True) or not values.get("control", True):
                 continue
             fresh = [(ts, value) for ts, value in history if now - ts <= 600]
@@ -387,6 +537,16 @@ class ControllerRuntime:
         adjusted = min(int(d["local_max_level"]), max(int(d["local_min_level"]), adjusted))
         demand = "low" if adjusted <= 2 else "normal" if adjusted == 3 else "high" if adjusted <= 5 else "boost"
         return adjusted, demand, reason, room, metric
+
+    def _room_air_dries(self, values: dict[str, object]) -> bool:
+        temperature = values.get("temperature")
+        if not isinstance(temperature, (int, float)):
+            temperature = self.engine.external.get("extract_temp")
+        humidity = values.get("humidity")
+        return self.engine.humidity_dries(absolute_humidity(
+            temperature if isinstance(temperature, (int, float)) else None,
+            humidity if isinstance(humidity, (int, float)) else None,
+        ))
 
     def _derive_smart_demand(self, now: float | None = None) -> tuple[str, str]:
         """Compatibility helper for older callers."""
@@ -412,7 +572,8 @@ class ControllerRuntime:
         now = time.time()
         age = None if self.smart_inputs_received_at is None else max(0.0, now - self.smart_inputs_received_at)
         fresh = self._smart_inputs_fresh(now)
-        rooms = self._rooms_with_unit_sensors()
+        excluded = self._source_room_names()
+        rooms = {n: v for n, v in self._rooms_with_unit_sensors().items() if n not in excluded}
         max_co2 = max(
             ((v.get("co2"), n) for n, v in rooms.items()
              if v.get("enabled", True) and v.get("co2") is not None),
@@ -518,6 +679,11 @@ class ControllerRuntime:
             "afterheat_outdoor_cutoff": AFTERHEAT_OUTDOOR_CUTOFF_C,
             "rs485_healthy": self._bus_healthy(),
             "last_tick_at": self.last_tick_at,
+            "fireplace_auto_active": self.fireplace_auto_active,
+            "fireplace_auto_reason": self.fireplace_auto_reason,
+            "fireplace_signal": self.fireplace_signal if self._fireplace_signal_active(time.time()) else None,
+            "stove_temperature": self.engine.external.get("stove_temperature"),
+            "measurement_rooms": sorted(self.smart_rooms),
         })
         return result
 
@@ -526,6 +692,11 @@ class ControllerRuntime:
             raise ControllerError("Pi-controlleren kan ikke slås fra; HCP4 master-detektion styrer automatisk overtagelse")
         self.config.configure(patch)
         self.config.data["enabled"] = True
+        fireplace_off = patch.get("fireplace") is False or patch.get("fireplace_minutes") in (0, "0")
+        if fireplace_off and self.fireplace_auto_active:
+            self.fireplace_auto_active = False
+            self.fireplace_auto_blocked = True
+            self.fireplace_auto_reason = "blocked_until_clear"
         self._evaluate_master()
         # T3/T5 are stored locally and the coil type only changes the drawing.
         hardware_patch = set(patch) - {"t3_setpoint", "t5_setpoint", "afterheat_coil"}
@@ -545,6 +716,7 @@ class ControllerRuntime:
     def apply_once(self) -> dict[str, object]:
         with self.apply_lock:
             self.refresh_measurements()
+            self._update_fireplace_auto()
             self._expire_smart_lease()
             if self.config.data.get("mode") == "smart_auto" and self._smart_inputs_fresh():
                 self._recalculate_smart_demand()
@@ -559,6 +731,7 @@ class ControllerRuntime:
 
     def tick(self) -> None:
         self.refresh_measurements()
+        self._update_fireplace_auto()
         self._expire_smart_lease()
         if self.config.data.get("mode") == "smart_auto" and self._smart_inputs_fresh():
             self._recalculate_smart_demand()
