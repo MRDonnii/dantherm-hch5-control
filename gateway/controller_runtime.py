@@ -527,7 +527,8 @@ class ControllerRuntime:
         self.config.configure(patch)
         self.config.data["enabled"] = True
         self._evaluate_master()
-        hardware_patch = set(patch) - {"t3_setpoint", "t5_setpoint"}
+        # T3/T5 are stored locally and the coil type only changes the drawing.
+        hardware_patch = set(patch) - {"t3_setpoint", "t5_setpoint", "afterheat_coil"}
         if apply and hardware_patch and self.hardware_writes_allowed():
             self.apply_once()
         return self.snapshot()

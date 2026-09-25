@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0-beta.59
+
+- Add a water afterheat coil drawing, chosen under Indstillinger → Eftervarme (Elvarmeflade / Vandbåren varmeflade). The copper coil and its flow and return pipes are tinted by the measured water temperatures, and the water only moves while the afterheat is active. The choice is stored in the controller config as `afterheat_coil` and never triggers RS485 writes.
+- Move the HAC1 controller onto the RS485 line between the unit and the Raspberry Pi, clear of the coil, and reroute its frost and valve leads; with the water coil the valve sits on the return pipe.
+- Changes by Claude AI.
+
 ## 1.2.0-beta.58
 
 - Keep the admin service available when a saved CPU power profile is unsupported on another Raspberry Pi model.

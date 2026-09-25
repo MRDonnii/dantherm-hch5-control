@@ -37,6 +37,19 @@ class ControllerRuntimeTests(unittest.TestCase):
                 self.assertIs(snapshot["actual_afterheat_outdoor_lockout"], expected)
                 self.assertEqual(snapshot["afterheat_outdoor_cutoff"], 15.0)
 
+    def test_afterheat_coil_is_validated_and_never_applies_hardware(self):
+        runtime = self.make_runtime()
+        applied = []
+        runtime.hardware_writes_allowed = lambda: True
+        runtime.apply_once = lambda: applied.append("hardware")
+
+        self.assertEqual(runtime.snapshot()["afterheat_coil"], "electric")
+        self.assertEqual(runtime.configure({"afterheat_coil": "water"})["afterheat_coil"], "water")
+        self.assertEqual(applied, [])
+        with self.assertRaises(ControllerError):
+            runtime.configure({"afterheat_coil": "gas"})
+        self.assertEqual(runtime.snapshot()["afterheat_coil"], "water")
+
     def test_t3_t5_updates_are_local_and_do_not_apply_hardware(self):
         runtime = self.make_runtime()
         applied = []

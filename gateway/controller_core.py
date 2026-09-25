@@ -16,6 +16,7 @@ VALID_MODES = {"local_auto", "smart_auto", "manual"}
 VALID_DEMANDS = {"low", "normal", "high", "boost"}
 VALID_BYPASS = {"off", "on"}
 VALID_QUICK_BOOST_MINUTES = {0, 15, 30, 60}
+VALID_AFTERHEAT_COILS = {"electric", "water"}
 
 DEFAULT_PROFILES = {
     1: {"extract": 25, "supply": 13, "name": "Lav"},
@@ -167,6 +168,8 @@ class ControllerState:
         "fireplace_duration_minutes": 0,
         "afterheat_setpoint": 20,
         "afterheat_enabled": True,
+        # How the afterheater is drawn (electric element or water coil); no control effect.
+        "afterheat_coil": "electric",
         "t3_setpoint": None,
         "t5_setpoint": None,
         "schedule_enabled": False,
@@ -238,6 +241,8 @@ class ControllerState:
     def _sanitize(self) -> None:
         if self.data["mode"] not in VALID_MODES:
             self.data["mode"] = "local_auto"
+        if self.data.get("afterheat_coil") not in VALID_AFTERHEAT_COILS:
+            self.data["afterheat_coil"] = "electric"
         for key, default in (
             ("manual_level", 3), ("local_normal_level", 3),
             ("local_min_level", 1), ("local_max_level", 6),
@@ -371,7 +376,7 @@ class ControllerState:
                 "rh_setpoint", "rh_hysteresis", "co2_setpoint", "co2_hysteresis",
                 "auto_step_rh", "auto_step_co2", "downshift_delay_seconds",
                 "boost_hold_seconds", "ha_timeout_seconds", "bypass", "fireplace",
-                "fireplace_minutes", "afterheat_setpoint", "afterheat_enabled", "t3_setpoint", "t5_setpoint", "profiles", "schedule_enabled",
+                "fireplace_minutes", "afterheat_setpoint", "afterheat_enabled", "afterheat_coil", "t3_setpoint", "t5_setpoint", "profiles", "schedule_enabled",
                 "schedule", "night_enabled", "night_start", "night_end", "night_level",
                 "night_air_quality_max_level", "bathroom_rh_setpoint",
                 "bathroom_rh_hysteresis", "bathroom_max_level",
@@ -423,6 +428,10 @@ class ControllerState:
                     if not isinstance(patch[key], bool):
                         raise ControllerError(f"{key} skal være boolean")
                     self.data[key] = patch[key]
+            if "afterheat_coil" in patch:
+                if patch["afterheat_coil"] not in VALID_AFTERHEAT_COILS:
+                    raise ControllerError("afterheat_coil skal være electric eller water")
+                self.data["afterheat_coil"] = patch["afterheat_coil"]
             for key, label in (("night_start", "Nat start"), ("night_end", "Nat slut")):
                 if key in patch:
                     self.data[key] = _validate_time(patch[key], label)
