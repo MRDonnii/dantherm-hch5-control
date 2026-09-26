@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0-beta.77
+
+- Indstillinger → Følere lists all 1-Wire sensors, including the afterheat water flow and return. Those two show their temperature and a fixed role; the 1-Wire service keeps owning them and they cannot be given another role. A flow or return sensor that stops answering now also raises the missing-sensor alarm.
+- Changes by Claude AI.
+
 ## 1.2.0-beta.76
 
 - The T3 and T5 setpoints are removed from the overview. They were only stored locally and never sent to the unit. The controller still accepts the fields so older Home Assistant versions keep working.

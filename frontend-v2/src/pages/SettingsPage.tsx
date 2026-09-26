@@ -60,7 +60,7 @@ const SECTIONS: { id: SectionId; icon: LucideIcon; title: Text; lead: Text }[] =
   { id: "fireplace", icon: Flame, title: { da: "Pejs og brændeovn", en: "Fireplace and stove" }, lead: { da: "Overtryk mens der fyres", en: "Positive pressure while the stove burns" } },
   { id: "ui", icon: Monitor, title: { da: "Brugerflade", en: "Interface" }, lead: { da: "Sprog, tema og bevægelse", en: "Language, theme and motion" } },
   { id: "security", icon: ShieldCheck, title: { da: "Sikkerhed", en: "Security" }, lead: { da: "Login og hvem der styrer anlægget", en: "Login and who controls the unit" } },
-  { id: "sensors", icon: Activity, title: { da: "Følere", en: "Sensors" }, lead: { da: "Ekstra 1-Wire-følere: T2, loft og andre", en: "Extra 1-Wire sensors: T2, loft and others" } },
+  { id: "sensors", icon: Activity, title: { da: "Følere", en: "Sensors" }, lead: { da: "1-Wire-følere: eftervarme, T2, loft og andre", en: "1-Wire sensors: afterheat, T2, loft and others" } },
 ];
 
 function Card({ title, lead, icon: Icon, children }: { title: string; lead?: string; icon?: LucideIcon; children: ReactNode }) {
@@ -131,7 +131,7 @@ export function SettingsPage() {
   };
   const sizing = form.sizing_enabled === true;
 
-  type OneWireSensor = { id: string; temperature: number | null; role: string; name: string };
+  type OneWireSensor = { id: string; temperature: number | null; role: string; name: string; managed?: boolean };
   const onewire = (Array.isArray(controller.onewire_sensors) ? controller.onewire_sensors : []) as OneWireSensor[];
   const onewireRoles = (form.onewire_roles ?? {}) as Record<string, { role: string; name: string }>;
   const setOnewire = (id: string, patch: Partial<{ role: string; name: string }>) => {
@@ -147,18 +147,28 @@ export function SettingsPage() {
     attic: { da: "Loftrum", en: "Loft space" },
     other: { da: "Andet (eget navn)", en: "Other (own name)" },
   };
+  // Afterheat water flow/return: fixed by the 1-Wire service, listed but not editable.
+  const serviceRoleLabel: Record<string, Text> = {
+    water_flow: { da: "Eftervarme · frem", en: "Afterheat · flow" },
+    water_return: { da: "Eftervarme · retur", en: "Afterheat · return" },
+  };
   const sections: Record<SectionId, ReactNode> = {
     sensors: <Card title={t(SECTIONS[SECTIONS.length - 1].title)} lead={lang === "da" ? "DS18B20-følere på Pi'ens 1-Wire-bus (GPIO4)" : "DS18B20 sensors on the Pi's 1-Wire bus (GPIO4)"} icon={Activity}>
-      <p className="settings-help">{lang === "da" ? "Nye følere dukker op her af sig selv, når de er loddet på 1-Wire-bussen (3,3 V, GND og data parallelt med de eksisterende). Giv hver føler en rolle: T2 bruges i tegningen, genvindingen og som målt T2; Loftrum og egne navne vises her og i Home Assistant. Følerne til eftervarmevandets frem og retur styres af 1-Wire-tjenesten og vises ikke her." : "New sensors appear here by themselves once soldered onto the 1-Wire bus (3.3 V, GND and data in parallel with the existing ones). Give each a role: T2 is used in the drawing, the recovery and as measured T2; Loft space and own names show here and in Home Assistant. The afterheat water flow and return sensors belong to the 1-Wire service and are not listed."}</p>
+      <p className="settings-help">{lang === "da" ? "Nye følere dukker op her af sig selv, når de er loddet på 1-Wire-bussen (3,3 V, GND og data parallelt med de eksisterende). Giv hver føler en rolle: T2 bruges i tegningen, genvindingen og som målt T2; Loftrum og egne navne vises her og i Home Assistant. Eftervarmevandets frem og retur er faste og styres af 1-Wire-tjenesten; byt dem om i Home Assistant-integrationens indstillinger, hvis de er forvekslet." : "New sensors appear here by themselves once soldered onto the 1-Wire bus (3.3 V, GND and data in parallel with the existing ones). Give each a role: T2 is used in the drawing, the recovery and as measured T2; Loft space and own names show here and in Home Assistant. The afterheat water flow and return are fixed by the 1-Wire service; swap them in the Home Assistant integration options if they are mixed up."}</p>
       {onewire.length === 0
-        ? <p className="settings-warning">{lang === "da" ? "Ingen ekstra følere fundet endnu. Tjek lodningerne og at føleren er på samme bus som frem/retur." : "No extra sensors found yet. Check the soldering and that the sensor is on the same bus as flow/return."}</p>
+        ? <p className="settings-warning">{lang === "da" ? "Ingen følere fundet endnu. Tjek lodningerne og at føleren er på samme bus som frem/retur." : "No extra sensors found yet. Check the soldering and that the sensor is on the same bus as flow/return."}</p>
         : <div className="settings-table-wrap"><table className="settings-table"><thead><tr><th>{lang === "da" ? "Føler-id" : "Sensor id"}</th><th>{lang === "da" ? "Temperatur" : "Temperature"}</th><th>{lang === "da" ? "Rolle" : "Role"}</th><th>{lang === "da" ? "Navn" : "Name"}</th></tr></thead>
-          <tbody>{onewire.map(sensor => { const entry = onewireRoles[sensor.id] ?? { role: sensor.role ?? "none", name: "" }; return <tr key={sensor.id}>
+          <tbody>{onewire.map(sensor => sensor.managed ? <tr key={sensor.id} className="settings-table-fixed">
+            <td><code>{sensor.id}</code></td>
+            <td>{fmt(sensor.temperature, lang, 1, " °C")}</td>
+            <td>{t(serviceRoleLabel[sensor.role] ?? { da: sensor.name, en: sensor.name })}</td>
+            <td><span className="settings-table-note">{lang === "da" ? "Fast · 1-Wire-tjenesten" : "Fixed · 1-Wire service"}</span></td>
+          </tr> : (() => { const entry = onewireRoles[sensor.id] ?? { role: sensor.role ?? "none", name: "" }; return <tr key={sensor.id}>
             <td><code>{sensor.id}</code></td>
             <td>{fmt(sensor.temperature, lang, 1, " °C")}</td>
             <td><select aria-label={`${sensor.id} ${lang === "da" ? "rolle" : "role"}`} value={entry.role} onChange={e => setOnewire(sensor.id, { role: e.target.value })}>{Object.entries(roleLabel).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}</select></td>
             <td><input className="settings-table-name" aria-label={`${sensor.id} ${lang === "da" ? "navn" : "name"}`} maxLength={32} placeholder={entry.role === "none" ? "" : t(roleLabel[entry.role] ?? roleLabel.other)} value={entry.name} onChange={e => setOnewire(sensor.id, { name: e.target.value })}/></td>
-          </tr>; })}</tbody></table></div>}
+          </tr>; })())}</tbody></table></div>}
       <p className="settings-help">{lang === "da" ? "T2-føleren skal sidde i indblæsningskanalen mellem enheden og varmefladen, mindst 20–30 cm fra fladen. Loftføleren skal hænge i skygge væk fra tagpladerne." : "The T2 sensor belongs in the supply duct between the unit and the afterheat coil, at least 20–30 cm from the coil. Hang the loft sensor in shade away from the roof."}</p>
     </Card>,
     house: <>

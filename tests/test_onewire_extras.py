@@ -41,12 +41,20 @@ class OneWireExtrasTests(unittest.TestCase):
         self.assertIsNone(read_ds18b20("28-0000000a0003", self.bus))
         self.assertIsNone(read_ds18b20("28-missing", self.bus))
 
-    def test_leaves_the_water_sensors_alone_and_applies_roles(self):
-        roles = {"28-0000000a0001": {"role": "t2", "name": ""}, "28-0000000a0002": {"role": "attic", "name": "Loft"}}
+    def test_lists_the_water_sensors_as_fixed_and_applies_roles(self):
+        # A role saved for a water sensor is ignored: the 1-Wire service owns it.
+        roles = {"28-0000000a0001": {"role": "t2", "name": ""}, "28-0000000a0002": {"role": "attic", "name": "Loft"},
+                 "28-000000cc2944": {"role": "t2", "name": "wrong"}}
         extras = OneWireExtras(lambda: roles, devices=self.bus, service_url=None)
-        extras._water_sensor_ids = lambda: {"28-000000cb29ab", "28-000000cc2944"}
+        extras.water_roles = {"28-000000cb29ab": "water_return", "28-000000cc2944": "water_flow"}
+        extras._water_sensor_ids = lambda: set(extras.water_roles)
         extras.read_once(now=100.0)
-        sensors = extras.sensors(now=110.0)
+        everything = extras.sensors(now=110.0)
+        water = {s["id"]: s for s in everything if s.get("managed")}
+        self.assertEqual({k: (v["role"], v["temperature"]) for k, v in water.items()},
+                         {"28-000000cb29ab": ("water_return", 27.1), "28-000000cc2944": ("water_flow", 34.0)})
+        self.assertEqual(water["28-000000cc2944"]["name"], "Eftervarme · frem")
+        sensors = [s for s in everything if not s.get("managed")]
         self.assertEqual([s["id"] for s in sensors], ["28-0000000a0001", "28-0000000a0002", "28-0000000a0003"])
         self.assertEqual(sensors[0]["name"], "T2 · før eftervarme")
         self.assertEqual(sensors[1]["name"], "Loft")

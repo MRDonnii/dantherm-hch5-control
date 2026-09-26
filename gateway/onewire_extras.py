@@ -23,7 +23,10 @@ READ_INTERVAL_SECONDS = 15.0
 # A reading older than this is treated as missing.
 FRESH_SECONDS = 90.0
 ROLES = ("none", "t2", "attic", "other")
-ROLE_LABELS = {"t2": "T2 · før eftervarme", "attic": "Loftrum", "other": "Føler"}
+ROLE_LABELS = {"t2": "T2 · før eftervarme", "attic": "Loftrum", "other": "Føler",
+               "water_flow": "Eftervarme · frem", "water_return": "Eftervarme · retur"}
+# Roles owned by the 1-Wire service. Shown with the others, never chosen in the WebUI.
+SERVICE_ROLES = ("water_flow", "water_return")
 
 
 def read_ds18b20(sensor_id: str, devices: Path = W1_DEVICES) -> float | None:
@@ -83,11 +86,12 @@ class OneWireExtras:
         self.lock = threading.Lock()
         self.readings: dict[str, tuple[float | None, float]] = {}
         self.water_ids: set[str] = set()
+        self.water_roles: dict[str, str] = {}
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
     def _water_sensor_ids(self) -> set[str]:
-        """Flow/return sensors owned by the 1-Wire service; left alone here."""
+        """Flow/return sensors owned by the 1-Wire service; their roles stay fixed."""
         if not self.service_url:
             return set()
         try:
@@ -95,7 +99,12 @@ class OneWireExtras:
                 payload = json.loads(response.read().decode("utf-8"))
         except (OSError, ValueError):
             return self.water_ids
-        return {str(payload[key]).lower() for key in ("flow_sensor", "return_sensor") if payload.get(key)}
+        self.water_roles = {
+            str(payload[key]).lower(): role
+            for key, role in (("flow_sensor", "water_flow"), ("return_sensor", "water_return"))
+            if payload.get(key)
+        }
+        return set(self.water_roles)
 
     def discovered(self) -> list[str]:
         try:
@@ -106,8 +115,9 @@ class OneWireExtras:
     def read_once(self, now: float | None = None) -> None:
         self.water_ids = self._water_sensor_ids()
         now = time.monotonic() if now is None else now
+        # The water pair is read here too, only to list it with the others.
         values = {sensor_id: (read_ds18b20(sensor_id, self.devices), now)
-                  for sensor_id in self.discovered() if sensor_id not in self.water_ids}
+                  for sensor_id in set(self.discovered()) | self.water_ids}
         with self.lock:
             self.readings = values
 
@@ -137,9 +147,14 @@ class OneWireExtras:
             readings = dict(self.readings)
         result = []
         for sensor_id, (value, read_at) in sorted(readings.items()):
+            fresh = value if now - read_at <= FRESH_SECONDS else None
+            service_role = self.water_roles.get(sensor_id)
+            if service_role:
+                result.append({"id": sensor_id, "temperature": fresh, "role": service_role,
+                               "name": ROLE_LABELS[service_role], "managed": True})
+                continue
             entry = roles.get(sensor_id, {})
             role = entry.get("role", "none")
-            fresh = value if now - read_at <= FRESH_SECONDS else None
             result.append({
                 "id": sensor_id,
                 "temperature": fresh,
