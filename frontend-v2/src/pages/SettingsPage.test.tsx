@@ -18,7 +18,8 @@ describe("SettingsPage", () => {
     for (const label of ["Hus og luftmængde", "Luftkvalitet", "Fugt og tør luft", "Eftervarme", "Frikøling", "Pejs og brændeovn", "Brugerflade", "Sikkerhed"]) {
       expect(markup).toContain(label);
     }
-    expect(markup).toContain("Styr grundtrin efter husets størrelse");
+    expect(markup).toContain("Grundtrin");
+    expect(markup).toContain(">Manuel<");
     expect(markup).toContain('aria-current="page"');
   });
 
@@ -26,7 +27,7 @@ describe("SettingsPage", () => {
     localStorage.setItem("hch5-v2-lang", "en");
     const markup = renderToStaticMarkup(<SettingsPage/>);
     expect(markup).toContain("House and airflow");
-    expect(markup).toContain("Set the base level from the house size");
+    expect(markup).toContain(">Manual<");
     expect(markup).not.toContain("Hus og luftmængde");
   });
 });
