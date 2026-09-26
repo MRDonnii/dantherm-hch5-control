@@ -15,7 +15,7 @@ type AuthState = { csrf?: string | null };
 // +/- only move a local draft; one command is sent once the user has stopped
 // pressing, so each step does not wait for a save and RS485 round trip.
 const AFTERHEAT_SEND_DELAY_MS = 1200;
-const SENSOR_HISTORY: Record<string, { title: string; key: string; color: HistorySeries["color"] }> = {
+const SENSOR_HISTORY: Record<string, { title: string; key: string; color: HistorySeries["color"]; unit?: string }> = {
   outdoor: { title: "Udeluft · T1", key: "outdoor_temp", color: "blue" },
   extract: { title: "Udsugning · T3", key: "extract_temp", color: "orange" },
   exhaust: { title: "Afkast · T4", key: "exhaust_temp", color: "red" },
@@ -24,6 +24,7 @@ const SENSOR_HISTORY: Record<string, { title: string; key: string; color: Histor
   flowWater: { title: "Eftervarmevand · Frem", key: "flow_temperature", color: "orange" },
   returnWater: { title: "Eftervarmevand · Retur", key: "return_temperature", color: "blue" },
   waterDelta: { title: "Eftervarmevand · Afkøl", key: "water_delta", color: "green" },
+  recovery: { title: "Varmegenvinding", key: "heat_recovery_efficiency", color: "green", unit: "%" },
 };
 type HistorySample = Record<string, number | null>;
 
@@ -397,7 +398,7 @@ export function OverviewPage() {
       {activeSensor && SENSOR_HISTORY[activeSensor] && <div className="sensor-history-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setActiveSensor(null); }}>
         <section className="sensor-history-dialog surface" role="dialog" aria-modal="true" aria-labelledby="sensor-history-title">
           <div className="sensor-history-heading"><div><span className="eyebrow">SENESTE 24 TIMER</span><h2 id="sensor-history-title">{SENSOR_HISTORY[activeSensor].title}</h2></div><button ref={closeHistoryRef} type="button" aria-label="Luk temperaturgraf" onClick={() => setActiveSensor(null)}><X size={20}/></button></div>
-          {historyError ? <p className="sensor-history-message" role="alert">{historyError}</p> : historyLoading ? <div className="history-chart-empty" style={{ height: 230 }}>Henter historik…</div> : <HistoryChart height={230} unit="°C" samples={historySamples} series={[{ key: SENSOR_HISTORY[activeSensor].key, label: SENSOR_HISTORY[activeSensor].title, color: SENSOR_HISTORY[activeSensor].color }]}/>}
+          {historyError ? <p className="sensor-history-message" role="alert">{historyError}</p> : historyLoading ? <div className="history-chart-empty" style={{ height: 230 }}>Henter historik…</div> : <HistoryChart height={230} unit={SENSOR_HISTORY[activeSensor].unit ?? "°C"} samples={historySamples} series={[{ key: SENSOR_HISTORY[activeSensor].key, label: SENSOR_HISTORY[activeSensor].title, color: SENSOR_HISTORY[activeSensor].color }]}/>}
         </section>
       </div>}
     </section>
