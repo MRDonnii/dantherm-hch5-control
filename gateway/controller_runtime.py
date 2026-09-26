@@ -79,6 +79,8 @@ class ControllerRuntime:
         # Electrical draw of the unit from a power meter in HA (e.g. a Shelly), leased.
         self.unit_power_w: float | None = None
         self.unit_power_until: float | None = None
+        self.energy_signals: dict[str, float] = {}
+        self.energy_signals_until: float | None = None
         self.fireplace_auto_active = False
         self.fireplace_auto_by_temperature = False
         self.fireplace_auto_started_at: float | None = None
@@ -244,6 +246,21 @@ class ControllerRuntime:
                 raise ControllerError("unit_power_w skal være et tal mellem 0 og 5000")
             self.unit_power_w = round(power, 1)
             self.unit_power_until = time.time() + valid_for
+        energy_fields = {
+            "unit_energy_measured_today_kwh": (0, 10000),
+            "electricity_price_dkk_kwh": (0, 100),
+            "heat_price_dkk_kwh": (0, 100),
+        }
+        energy_update: dict[str, float] = {}
+        for field, (minimum, maximum) in energy_fields.items():
+            if field in payload:
+                value = self._safe_number(payload[field], minimum, maximum)
+                if value is None:
+                    raise ControllerError(f"{field} skal være et tal mellem {minimum} og {maximum}")
+                energy_update[field] = value
+        if energy_update:
+            self.energy_signals.update(energy_update)
+            self.energy_signals_until = time.time() + valid_for
         if "fireplace" not in payload:
             return self.snapshot()
         if not isinstance(payload["fireplace"], bool):
@@ -729,6 +746,9 @@ class ControllerRuntime:
         fresh_power = self.unit_power_until is not None and time.time() <= self.unit_power_until
         result["unit_power_w"] = self.unit_power_w if fresh_power else None
         result.update(self.diagnostics.result)
+        fresh_energy = self.energy_signals_until is not None and time.time() <= self.energy_signals_until
+        for field in ("unit_energy_measured_today_kwh", "electricity_price_dkk_kwh", "heat_price_dkk_kwh"):
+            result[field] = self.energy_signals.get(field) if fresh_energy else None
         result.update(supply_air_metrics(
             outdoor, extract, before_heater, after_heater, supply_m3h,
             self._first(self.gateway_state, "bypass_active") is True,

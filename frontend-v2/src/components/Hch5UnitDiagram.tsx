@@ -347,7 +347,7 @@ function AirWisps({ path, kind, speed }: { path: string; kind: "supply" | "extra
 // The afterheat coil hangs on the supply duct outside the unit.
 const COIL_AT: Point = [57, 365];
 // HAC1 is a loose box on the RS485 line between the unit and the Pi, set
-// apart from the coil so the water pipes have room beneath it.
+// apart from the coil and its direct water supply.
 const HAC1_BOX = { x: 108, y: 470, width: 140, height: 52 };
 // The water pipes end at the Frem and Retur rows of the "Eftervarmevand"
 // readings; HAC1's water valve sits on the return.
@@ -448,7 +448,7 @@ function WaterCoil({ heating, lockout, flowWater, returnWater }: { heating: bool
   const [sx, sy] = local(WATER_SUPPLY_TO), [rx, ry] = local(WATER_RETURN_TO), [vx, vy] = local(WATER_VALVE_AT);
   const colours = waterPath(flowWater, returnWater);
   const pipes = [
-    ["supply", `M${sx} ${sy} H-115 V145 H60 V68 H30`, colours.flow],
+    ["supply", `M${sx} ${sy} H60 V68 H30`, colours.flow],
     ["return", `M-30 68 V${ry} H${rx}`, colours.ret],
   ] as const;
   // Air moves right to left. Hot flow meets it on the right; the coil

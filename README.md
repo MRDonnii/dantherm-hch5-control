@@ -11,6 +11,7 @@ HCH5 Control turns a Raspberry Pi and a USB-RS485 adapter into a local controlle
 - Local HCH5 controller with automatic HCP4 master arbitration and fail-safe write blocking.
 - Responsive WebUI with live temperatures, fans, bypass, after-heater, diagnostics and history.
 - Animated airflow diagram: normal heat recovery uses the crossed exchanger routes; physical bypass readback switches the diagram to the straight-through routes.
+- Daily electricity, afterheat and recovered-heat figures, with optional Danish-krone estimates when Home Assistant supplies energy prices.
 - Local Auto and Smart Auto with six adjustable fan profiles.
 - Adjustable weekly schedule, night reduction and holiday mode.
 - Free-cooling automation using indoor/outdoor temperature, hysteresis and minimum temperature difference.
@@ -128,11 +129,23 @@ The physical bypass readback is separate and is what drives the WebUI airflow di
 
 ## Home Assistant
 
-Use the companion repository:
-
-`MRDonnii/dantherm-hch-passivelink`
+Install the [HCH PassiveLink integration](https://github.com/MRDonnii/dantherm-hch-passivelink) and the [HCH5 dashboard card](https://github.com/MRDonnii/ha-smart-home-cards/tree/main/src/cards/ha-hch5-live-card) through HACS. WebUI **Opdateringer** links directly to both HACS repositories. See [Danish setup, sensor forwarding and energy accounting](docs/energy-and-ha.da.md).
 
 The classic raw data connection remains compatible on TCP port `4196`. Controller commands and Smart Auto room data go through the authenticated HTTP controller API; Home Assistant does not write Modbus directly.
+
+The optional Home Assistant `utility_meter` can use a physical kWh meter for measured daily electricity. The Pi's afterheat and recovered-heat figures are estimates based on measured air temperatures and estimated airflow; they are not a water-side heat meter. Krone values use the supplied current kWh price and are approximate, not historical tariff-weighted bills. Recovered heat × heat price is a theoretical replacement value, not a measured cash saving.
+
+## WebUI preview
+
+Screenshots and GIF show the current interface with example sensor values; they do not represent a measurement from the reference installation.
+
+![HCH5 Control overview on desktop](docs/images/webui/overview-desktop.png)
+
+![Animated overview preview](docs/images/webui/overview-animation.gif)
+
+![HCH5 Control overview on mobile](docs/images/webui/overview-mobile.png)
+
+![WebUI update page with Home Assistant links](docs/images/webui/updates-home-assistant.png)
 
 ## Safety model
 

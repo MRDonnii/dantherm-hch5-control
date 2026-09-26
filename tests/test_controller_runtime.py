@@ -37,6 +37,24 @@ class ControllerRuntimeTests(unittest.TestCase):
                 self.assertIs(snapshot["actual_afterheat_outdoor_lockout"], expected)
                 self.assertEqual(snapshot["afterheat_outdoor_cutoff"], 15.0)
 
+    def test_energy_signals_are_read_only_and_expire(self):
+        runtime = self.make_runtime()
+        applied = []
+        runtime.apply_once = lambda: applied.append("hardware")
+        result = runtime.external_signals({
+            "unit_energy_measured_today_kwh": 1.37,
+            "electricity_price_dkk_kwh": 2.06,
+            "heat_price_dkk_kwh": 0.596,
+            "valid_for_s": 30,
+        })
+        self.assertEqual(result["unit_energy_measured_today_kwh"], 1.37)
+        self.assertEqual(result["heat_price_dkk_kwh"], 0.596)
+        self.assertEqual(applied, [])
+        runtime.energy_signals_until = time.time() - 1
+        self.assertIsNone(runtime.snapshot()["unit_energy_measured_today_kwh"])
+        with self.assertRaises(ControllerError):
+            runtime.external_signals({"electricity_price_dkk_kwh": -1})
+
     def test_afterheat_coil_is_validated_and_never_applies_hardware(self):
         runtime = self.make_runtime()
         applied = []

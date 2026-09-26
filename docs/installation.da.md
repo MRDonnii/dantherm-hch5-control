@@ -101,6 +101,8 @@ Første besøg kræver, at ejeren selv opretter brugernavn og adgangskode. Der f
 
 ## Home Assistant
 
+Se også [fuld opsætning af integration, kort, rumkilder, daglig strøm og kr-værdier](energy-and-ha.da.md).
+
 1. Installer [Dantherm HCH PassiveLink-integrationen](https://github.com/MRDonnii/dantherm-hch-passivelink) via HACS.
 2. Genstart Home Assistant.
 3. Åbn **Indstillinger → Enheder og tjenester → Tilføj integration**.

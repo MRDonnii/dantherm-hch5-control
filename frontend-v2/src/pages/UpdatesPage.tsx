@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2, RefreshCw, Rocket, ShieldCheck } from "lucide-react";
+import { CheckCircle2, ExternalLink, RefreshCw, Rocket, ShieldCheck } from "lucide-react";
 import { ApiError, postJson, requestJson } from "../lib/api";
 
 type Channel = "stable" | "beta";
@@ -53,7 +53,7 @@ export function UpdatesPage() {
   const [message, setMessage] = useState("Henter versionsstatus…");
   const mounted = useRef(true);
 
-  useEffect(() => () => { mounted.current = false; }, []);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   const action = useCallback(async (actionName: string, target?: string) => {
     return postJson<UpdateInfo>("/api/admin/action", { action: actionName, target }, csrf);
@@ -210,6 +210,15 @@ export function UpdatesPage() {
           </article>
         </aside>
       </div>
+      <article className="surface control-card-v2" style={{ marginTop: 20 }}>
+        <div className="section-head compact"><div><span className="eyebrow">HOME ASSISTANT</span><h2>Integration og dashboardkort</h2></div><ExternalLink size={22}/></div>
+        <p>Home Assistant opdaterer integrationen og kortet via HACS. Åbn dem på den enhed, hvor du er logget ind i Home Assistant.</p>
+        <div className="update-ha-links">
+          <a className="primary-action" href="https://my.home-assistant.io/redirect/hacs_repository/?owner=MRDonnii&repository=dantherm-hch-passivelink&category=integration" target="_blank" rel="noopener noreferrer">Åbn HA-integrationen i HACS <ExternalLink size={16}/></a>
+          <a className="primary-action" href="https://my.home-assistant.io/redirect/hacs_repository/?owner=MRDonnii&repository=ha-smart-home-cards&category=plugin" target="_blank" rel="noopener noreferrer">Åbn dashboardkort i HACS <ExternalLink size={16}/></a>
+          <a href="https://github.com/MRDonnii/dantherm-hch-passivelink-webui/blob/fix/afterheat-water-direction/docs/energy-and-ha.da.md" target="_blank" rel="noopener noreferrer">Opsætning og sensorer <ExternalLink size={16}/></a>
+        </div>
+      </article>
     </section>
   );
 }

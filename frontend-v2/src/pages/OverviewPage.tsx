@@ -51,6 +51,12 @@ function temp(value: number | null) {
 function whole(value: number | null) {
   return value === null ? "—" : Math.round(value).toLocaleString("da-DK");
 }
+function energy(value: number | null) {
+  return value === null ? "—" : value.toLocaleString("da-DK", { maximumFractionDigits: 2 });
+}
+function cost(energyKwh: number | null, price: number | null) {
+  return energyKwh === null || price === null ? "—" : `${(energyKwh * price).toLocaleString("da-DK", { maximumFractionDigits: 2 })} kr`;
+}
 function modeLabel(value: unknown) {
   return ({ local_auto: "Local Auto", smart_auto: "Smart Auto", manual: "Manuel" } as Record<string, string>)[String(value)] ?? text(value);
 }
@@ -362,8 +368,9 @@ export function OverviewPage() {
           <div className="climate-metrics">
             <div className="climate-metric cyan"><Snowflake size={21}/><span>Frost i veksler</span><strong>{({ ok: "OK", watch: "Hold øje", risk: "Risiko", unknown: "—" } as Record<string, string>)[String(controller.frost_state ?? "unknown")] ?? "—"}</strong><em>Afkast T4 {temp(exhaust)}</em><i style={{ width: controller.frost_state === "risk" ? "100%" : controller.frost_state === "watch" ? "50%" : "5%" }}/></div>
             <div className="climate-metric neutral"><Gauge size={21}/><span>Filter · strøm</span><strong>{number(controller.filter_power_ratio) === null ? "—" : `${Math.round((number(controller.filter_power_ratio)! - 1) * 100)} %`}</strong><em>{number(controller.specific_fan_power) === null ? "Kræver effektmåler" : `SFP ${whole(number(controller.specific_fan_power))} W/(m³/s) · over rent filter`}</em><i style={{ width: `${Math.min(100, Math.max(0, ((number(controller.filter_power_ratio) ?? 1) - 1) * 400))}%` }}/></div>
-            <div className="climate-metric green"><Leaf size={21}/><span>Genvundet i dag</span><strong>{number(controller.recovered_energy_today_kwh)?.toLocaleString("da-DK", { maximumFractionDigits: 2 }) ?? "—"} <small>kWh</small></strong><em>{number(controller.recovery_factor) === null ? "Varme hentet hjem" : `${number(controller.recovery_factor)!.toLocaleString("da-DK")} × anlæggets strøm`}</em><i style={{ width: `${Math.min(100, (number(controller.recovered_energy_today_kwh) ?? 0) * 5)}%` }}/></div>
-            <div className="climate-metric neutral"><Zap size={21}/><span>Strøm i dag</span><strong>{number(controller.unit_energy_today_kwh)?.toLocaleString("da-DK", { maximumFractionDigits: 2 }) ?? "—"} <small>kWh</small></strong><em>Eftervarme {number(controller.afterheat_energy_today_kwh)?.toLocaleString("da-DK", { maximumFractionDigits: 2 }) ?? "—"} kWh</em><i style={{ width: `${Math.min(100, (number(controller.unit_energy_today_kwh) ?? 0) * 50)}%` }}/></div>
+            <div className="climate-metric green"><Leaf size={21}/><span>Genvundet i dag</span><strong>{energy(number(controller.recovered_energy_today_kwh))} <small>kWh</small></strong><em>Teoretisk varmeværdi ca. {cost(number(controller.recovered_energy_today_kwh), number(controller.heat_price_dkk_kwh))}</em><i style={{ width: `${Math.min(100, (number(controller.recovered_energy_today_kwh) ?? 0) * 5)}%` }}/></div>
+            <div className="climate-metric neutral"><Zap size={21}/><span>Strøm i dag{number(controller.unit_energy_measured_today_kwh) !== null ? " · målt" : " · anslået"}</span><strong>{energy(number(controller.unit_energy_measured_today_kwh) ?? number(controller.unit_energy_today_kwh))} <small>kWh</small></strong><em>Ca. {cost(number(controller.unit_energy_measured_today_kwh) ?? number(controller.unit_energy_today_kwh), number(controller.electricity_price_dkk_kwh))} ved aktuel elpris</em><i style={{ width: `${Math.min(100, (number(controller.unit_energy_measured_today_kwh) ?? number(controller.unit_energy_today_kwh) ?? 0) * 50)}%` }}/></div>
+            <div className="climate-metric neutral"><Flame size={21}/><span>Eftervarme i dag · anslået</span><strong>{energy(number(controller.afterheat_energy_today_kwh))} <small>kWh</small></strong><em>Ca. {cost(number(controller.afterheat_energy_today_kwh), number(controller.heat_price_dkk_kwh))} ved aktuel varmepris</em><i style={{ width: `${Math.min(100, (number(controller.afterheat_energy_today_kwh) ?? 0) * 50)}%` }}/></div>
           </div>
         </article>
 

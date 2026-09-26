@@ -1,0 +1,42 @@
+import { chromium } from '../frontend-v2/node_modules/playwright-core/index.mjs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+const browser = await chromium.launch({executablePath:'/usr/bin/google-chrome', headless:true, args:['--no-sandbox']});
+const output = new URL('../docs/images/webui/', import.meta.url).pathname;
+mkdirSync(output,{recursive:true});
+const unit = {available:true,bus_traffic:true,outdoor_temp:8.4,extract_temp:21.7,exhaust_temp:11.2,heating_coil_after_temperature:20.9,heating_coil_frost_temperature:8.1,flow_temperature:34.2,return_temperature:28.1,fan_supply_rpm:1740,fan_extract_rpm:1790,fan_supply_percent:64,fan_extract_percent:66,humidity:46,co2:620,filter_life_percent:86,bypass_active:false,bypass_raw:0,bypass_request:'AUTO'};
+const controller = {active_master:'pi',rs485_healthy:true,mode:'local_auto',effective_level:3,unit_power_w:58,attic_temperature:18.2,actual_supply_air_temperature:20.9,actual_supply_before_heater_temperature:19.7,actual_afterheat_frost_temperature:8.1,actual_fan_supply_rpm:1740,actual_fan_extract_rpm:1790,actual_fan_supply_percent:64,actual_fan_extract_percent:66,actual_bypass:false,actual_bypass_raw:0,actual_bypass_request:'AUTO',actual_afterheat:true,afterheat_setpoint:21,afterheat_enabled:true,actual_afterheat_selection:21,afterheat_coil:'water',supply_airflow_estimate_m3h:145,supply_recovery_percent:76,recovered_heat_w:690,afterheat_lift:1.2,afterheat_power_w:58,diagnostics_status:'ok',diagnostics_alarm_count:0,frost_state:'ok',filter_power_ratio:1.04,specific_fan_power:390,recovered_energy_today_kwh:4.28,unit_energy_today_kwh:1.1,unit_energy_measured_today_kwh:1.37,afterheat_energy_today_kwh:0.36,electricity_price_dkk_kwh:2.06,heat_price_dkk_kwh:0.596};
+async function setup(width,height){
+ const page=await browser.newPage({viewport:{width,height},deviceScaleFactor:1});
+ await page.addInitScript(() => localStorage.setItem('hch5-weather-place', JSON.stringify({name:'Eksempel',latitude:56,longitude:10})));
+ await page.route('**/assets/brand-mark.svg',route=>route.fulfill({path:new URL('../gateway/webui/brand-mark.svg',import.meta.url).pathname,contentType:'image/svg+xml'}));
+ await page.route('**/state.json',route=>route.fulfill({json:unit}));
+ await page.route('**/api/controller/state',route=>route.fulfill({json:controller}));
+ await page.route('**/api/auth/status',route=>route.fulfill({json:{csrf:'demo'}}));
+ await page.route('**/api/admin/action',route=>route.fulfill({json:{current_version:'1.2.0-beta.82',available_version:'1.2.0-beta.82',current_build:'example',available_build:'example',channel:'beta',update_available:false}}));
+ await page.route('https://api.open-meteo.com/**',route=>route.fulfill({json:{current:{temperature_2m:9.2,weather_code:2,is_day:1,time:'2026-09-26T14:00'}}}));
+ await page.route('https://air-quality-api.open-meteo.com/**',route=>route.fulfill({json:{current:{european_aqi:24,pm2_5:5.2,pm10:9.1,time:'2026-09-26T14:00'}}}));
+ await page.goto('http://127.0.0.1:5173/assets/#/overview');
+ await page.waitForSelector('.hch-water-coil.active');
+ await page.waitForTimeout(600);
+ return page;
+}
+const desktop=await setup(1600,900);
+await desktop.screenshot({path:output+'overview-desktop.png',fullPage:true});
+const frames=mkdtempSync(join(tmpdir(),'hch5-gif-'));
+for(let i=0;i<20;i++){await desktop.locator('.pro-air-card').screenshot({path:join(frames,`frame-${String(i).padStart(2,'0')}.png`)});await desktop.waitForTimeout(110);}
+execFileSync('convert',['-delay','11','-loop','0',...Array.from({length:20},(_,i)=>join(frames,`frame-${String(i).padStart(2,'0')}.png`)),'-colors','128','-layers','Optimize',output+'overview-animation.gif']);
+rmSync(frames,{recursive:true,force:true});
+const mobile=await setup(390,844);
+await mobile.screenshot({path:output+'overview-mobile.png',fullPage:true});
+await desktop.goto('http://127.0.0.1:5173/assets/#/updates');
+await desktop.waitForSelector('.update-ha-links');
+await desktop.waitForTimeout(1000);
+await desktop.screenshot({path:output+'updates-home-assistant.png',fullPage:true});
+await desktop.goto('http://127.0.0.1:5173/assets/#/home-assistant');
+await desktop.waitForSelector('.panel-grid');
+await desktop.waitForTimeout(1000);
+await desktop.screenshot({path:output+'home-assistant.png',fullPage:true});
+await desktop.close();await mobile.close();await browser.close();
