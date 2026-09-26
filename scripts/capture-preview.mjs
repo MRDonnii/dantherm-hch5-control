@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 const browser = await chromium.launch({executablePath:'/usr/bin/google-chrome', headless:true, args:['--no-sandbox']});
-const output = new URL('../docs/images/webui/', import.meta.url).pathname;
+const output = new URL('../docs/images/1.2.0/', import.meta.url).pathname;
 const version = readFileSync(new URL('../VERSION', import.meta.url),'utf8').trim();
 mkdirSync(output,{recursive:true});
 const unit = {available:true,bus_traffic:true,outdoor_temp:8.4,extract_temp:21.7,exhaust_temp:11.2,heating_coil_after_temperature:20.9,heating_coil_frost_temperature:8.1,flow_temperature:34.2,return_temperature:28.1,fan_supply_rpm:1740,fan_extract_rpm:1790,fan_supply_percent:64,fan_extract_percent:66,humidity:46,co2:620,filter_life_percent:86,bypass_active:false,bypass_raw:0,bypass_request:'AUTO',bus_frame_rate:217,bus_last_frame_age:0.4,service_gateway_activestate:'active',service_admin_activestate:'active',service_onewire_activestate:'active',service_ssh_activestate:'active',system_hostname:'hch5-control',system_model:'Raspberry Pi 3 Model B Rev 1.2',pi_model:'Raspberry Pi 3 Model B Rev 1.2',system_os:'Raspberry Pi OS 12 (bookworm)',system_kernel:'6.6.51+rpt-rpi-v7',system_architecture:'armv7l',system_python_version:'3.11.2',system_boot_mode:'SD-kort',system_cpu_count:4,system_cpu_frequency_mhz:1200,system_cpu_temperature:47.2,pi_cpu_temperature:47.2,system_cpu_usage_percent:9,system_load_1m:0.31,system_load_5m:0.27,system_load_15m:0.25,system_memory_total_bytes:969000000,system_memory_used_bytes:312000000,system_memory_used_percent:32,system_root_used_gb:4.1,system_root_free_gb:24.6,system_root_used_percent:14,system_uptime_seconds:604800,pi_uptime_seconds:604800,system_boot_time:'2026-09-20T08:00:00',system_hch5_version:'1.2.0',network_interface:'eth0',network_ipv4:'192.168.1.50/24',network_gateway:'192.168.1.1',network_link_speed_mbps:100,network_rx_bytes:1830000000,network_tx_bytes:2410000000};
@@ -35,6 +35,11 @@ const frames=mkdtempSync(join(tmpdir(),'hch5-gif-'));
 for(let i=0;i<20;i++){await desktop.locator('.pro-air-card').screenshot({path:join(frames,`frame-${String(i).padStart(2,'0')}.png`)});await desktop.waitForTimeout(110);}
 execFileSync('convert',['-delay','11','-loop','0',...Array.from({length:20},(_,i)=>join(frames,`frame-${String(i).padStart(2,'0')}.png`)),'-colors','128','-layers','Optimize',output+'overview-animation.gif']);
 rmSync(frames,{recursive:true,force:true});
+// Whole front page in the dark theme, animated.
+const pageFrames=mkdtempSync(join(tmpdir(),'hch5-page-gif-'));
+for(let i=0;i<24;i++){await desktop.screenshot({path:join(pageFrames,`frame-${String(i).padStart(2,'0')}.png`),fullPage:true});await desktop.waitForTimeout(90);}
+execFileSync('convert',['-delay','12','-loop','0',...Array.from({length:24},(_,i)=>join(pageFrames,`frame-${String(i).padStart(2,'0')}.png`)),'-resize','1200x','-colors','160','-layers','Optimize',output+'overview-page-dark.gif']);
+rmSync(pageFrames,{recursive:true,force:true});
 const mobile=await setup(390,844);
 await mobile.screenshot({path:output+'overview-mobile.png',fullPage:true});
 const light=await setup(1600,900,'light');
