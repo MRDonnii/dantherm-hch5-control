@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0-beta.71
+
+- Fix the light theme. The dashboard layer used fixed dark colours, so in light theme the page background, top bar, cards, status pills, active buttons and several panels stayed dark while the text turned dark. Every page now takes its colours from the light theme tokens, and the unit drawing uses the same light palette as the Home Assistant card. The sidebar stays dark on purpose; the dark theme is unchanged.
+- Changes by Claude AI.
+
 ## 1.2.0-beta.70
 
 - Fix the unit's T2 staying frozen with the Pi as master. With the external HAC1 afterheater the HCH5 has no live T2 of its own: HCP4 read HAC1's T2AH and wrote it to the unit (register 146=3, then 147=T2AH) every ~3 s, and the unit reported that as T2. The Pi now does the same, only as master and only with a fresh T2AH, so T2 on the unit, in the HAC1 temperature block and in Home Assistant follows the real supply air again. Found in the 2026-09-23 bus captures: 402 of 415 writes were read back as the next T2.

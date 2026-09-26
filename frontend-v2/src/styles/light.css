@@ -1,0 +1,220 @@
+/* Light theme. The pro dashboard layer (pro-dashboard.css) was drawn for the
+   dark theme with fixed colours; these rules give every page a light look from
+   the theme tokens in tokens.css. The dark sidebar is kept on purpose. The
+   drawing rules below match the HA card's light palette (same class names). */
+:root[data-theme="light"] .app-shell { background: radial-gradient(circle at 55% -15%, rgb(76 147 209 / 10%), transparent 38%), linear-gradient(180deg, var(--page-top), var(--page)); }
+:root[data-theme="light"] .topbar-v2 { background: color-mix(in srgb, var(--page-top) 88%, transparent); border-bottom-color: var(--border); }
+:root[data-theme="light"] .status-chip { background: var(--surface); border-color: var(--border); color: var(--text); }
+:root[data-theme="light"] .surface { background: var(--surface); border-color: var(--border); box-shadow: var(--shadow-sm); color: var(--text); }
+:root[data-theme="light"] :is(.pro-segment, .unit-readback, .active-decision, .climate-metric, .mini-control, .status-action-card, .system-metric, .system-panel, .update-progress-panel, .quick-card, .settings-summary > span, .settings-nav, .room-card, .policy-strip > div) { background: var(--surface-soft); border-color: var(--border); color: var(--text); }
+:root[data-theme="light"] .settings-savebar { background: color-mix(in srgb, var(--surface) 94%, transparent); border-color: var(--border-strong); }
+:root[data-theme="light"] :is(.secondary-action, .pro-levels button, .pro-segment button, .mini-buttons button, .setpoint-stepper button, .fireplace-actions button) { background: var(--surface); border-color: var(--border-strong); color: var(--text); }
+:root[data-theme="light"] :is(.settings-grid input, .settings-grid select, .settings-table input) { background: var(--surface); border-color: var(--border-strong); color: var(--text); }
+
+/* Light theme: the drawing gets a light palette derived from the dark one (same hues,
+   inverted lightness); shadows stay dark. Set by the card when HA is in light mode. */
+:root[data-theme="light"] .hch-side-inset{stroke:#5a707c}
+:root[data-theme="light"] .hch-floor-shadow{fill:rgb(0 0 0 / 16%)}
+:root[data-theme="light"] .hch-cabinet,:root[data-theme="light"] .hch-top-panel,:root[data-theme="light"] .hch-side-panel{stroke:#627886}
+:root[data-theme="light"] .hch-top-fold{stroke:rgb(19 39 48 / 34%)}
+:root[data-theme="light"] .hch-side-seam{stroke:rgb(223 236 244 / 55%)}
+:root[data-theme="light"] .hch-opening-gasket{stroke:#deecf3}
+:root[data-theme="light"] .hch-cabinet-fastener circle{fill:#bbcdd6;stroke:#42545d}
+:root[data-theme="light"] .hch-cabinet-fastener path{stroke:#31434b}
+:root[data-theme="light"] .hch-cavity-rail{stroke:rgb(78 102 115 / 20%)}
+:root[data-theme="light"] .hch-inner{fill:#f0f6fa;stroke:#a5bcca}
+:root[data-theme="light"] .hch-filter rect{stroke:#4c5e68}
+:root[data-theme="light"] .hch-filter path{stroke:#5c6f79}
+:root[data-theme="light"] .hch-part-label,:root[data-theme="light"] .hch-channel-label,:root[data-theme="light"] .hch-core-port,:root[data-theme="light"] .hch-exchanger-title,:root[data-theme="light"] .hch-bus-label{stroke:#e4eff6}
+:root[data-theme="light"] .hch-part-label{fill:#30414a}
+:root[data-theme="light"] .hch-fan-ring{fill:#f0f6f9;stroke:#7a909d}
+:root[data-theme="light"] .hch-fan-shroud{stroke:#afc4d1}
+:root[data-theme="light"] .hch-fan-hub{fill:#f1f6f9;stroke:#778f9e}
+:root[data-theme="light"] .hch-fan-back{fill:#f0f6f9;stroke:#8da3b0}
+:root[data-theme="light"] .hch-fan-drum{stroke:#8da3b0}
+:root[data-theme="light"] .hch-fan-motor{fill:#b4c8d4;stroke:#667f8e}
+:root[data-theme="light"] .hch-fan-cap{stroke:#3a515e}
+:root[data-theme="light"] .hch-fan-cap-centre{fill:#f1f6f9;stroke:#577181}
+:root[data-theme="light"] .hch-fan-rotor path{fill:#2194db;stroke:#043453}
+:root[data-theme="light"] .hch-exchanger polygon{stroke:#4f5d64}
+:root[data-theme="light"] .hch-exchanger path{stroke:#2f383c}
+:root[data-theme="light"] .hch-exchanger .core-face-top{fill:#6b7a81}
+:root[data-theme="light"] .hch-exchanger .core-face-side{fill:#b1c2ca}
+:root[data-theme="light"] .hch-filter .filter-face-top{fill:#74868f;stroke:#4c5e68}
+:root[data-theme="light"] .hch-filter .filter-face-side{fill:#aec0c9;stroke:#4c5e68}
+:root[data-theme="light"] .hch-cavity-edge{stroke:#acc3d2}
+:root[data-theme="light"] .hch-exchanger-title{fill:#1a262b}
+:root[data-theme="light"] .hch-recovery{fill:#212121;text-shadow:0 2px 8px #f7f7f7}
+:root[data-theme="light"] .hch-bypass rect{fill:#f0f6fa;stroke:#8da8ba}
+:root[data-theme="light"] .hch-bypass text{fill:#374a54}
+:root[data-theme="light"] .bypass-blade{fill:#1798e5}
+:root[data-theme="light"] .hch-bypass.open .bypass-blade{fill:#31cb85}
+:root[data-theme="light"] .hch-bypass .damper-frame{fill:#f0f6fa;stroke:#70848e}
+:root[data-theme="light"] .hch-bypass .bypass-blade{fill:#1798e5}
+:root[data-theme="light"] .hch-bypass.open .bypass-blade{fill:#31cb85}
+:root[data-theme="light"] .hch-bypass .bypass-actuator{fill:#d67126;stroke:#f0780d}
+:root[data-theme="light"] .hch-bypass-channel{fill:#f0f6fa;stroke:#abc1ce}
+:root[data-theme="light"] .hch-bypass-channel-glow{fill:rgb(240 108 13 / 7%);stroke:#f06c0d}
+:root[data-theme="light"] to{fill:#f0720d;filter:drop-shadow(0 0 5px rgb(255 159 90 / 38%))}
+:root[data-theme="light"] .hch-bypass-progress .hch-exchanger-title{fill:#552c04}
+:root[data-theme="light"] .bypass-progress-track{stroke:rgb(238 245 250 / 82%)}
+:root[data-theme="light"] .bypass-progress-fill{stroke:#f0710d}
+:root[data-theme="light"] .hch-bypass-countdown{fill:#503e2a;stroke:#e4eff6}
+:root[data-theme="light"] .hch-lockout-badge rect{fill:rgb(251 246 239 / 90%);stroke:#d78b25}
+:root[data-theme="light"] .hch-lockout-badge text{fill:#f0950d}
+:root[data-theme="light"] .hch-channel-label{fill:#5b717e}
+:root[data-theme="light"] .hch-core-port{fill:#1e272b}
+:root[data-theme="light"] .hch-coil rect{fill:#f0f6f9;stroke:#819dad}
+:root[data-theme="light"] .coil-pipe{stroke:#b48e6e}
+:root[data-theme="light"] .hch-coil.active .coil-pipe{stroke:#f0740d}
+:root[data-theme="light"] .water-port{fill:#2b94d1}
+:root[data-theme="light"] .hch-service-box{fill:#f0f6fa;stroke:#9cb3c1}
+:root[data-theme="light"] .hch-port rect{stroke:#556872;filter:drop-shadow(0 5px 5px rgb(0 0 0 / 16%))}
+:root[data-theme="light"] .hch-port-outdoor path,:root[data-theme="light"] .hch-port-supply path{stroke:#31cb7f}
+:root[data-theme="light"] .hch-port-extract path,:root[data-theme="light"] .hch-port-exhaust path{stroke:#f0650d}
+:root[data-theme="light"] .hch-port-outdoor path{stroke:#0d97f0}
+:root[data-theme="light"] .hch-port-extract path{stroke:#f00d0d}
+:root[data-theme="light"] .hch-rear-duct-body{stroke:#70848e}
+:root[data-theme="light"] .hch-rear-duct-shine{stroke:rgb(23 37 43 / 42%)}
+:root[data-theme="light"] .hch-rear-duct-shade{stroke:rgb(247 247 247 / 32%)}
+:root[data-theme="light"] .hch-rear-duct-seam{stroke:rgb(56 74 83 / 38%)}
+:root[data-theme="light"] .hch-rear-duct-flange{stroke:#546772}
+:root[data-theme="light"] .hch-air-wisps.hch-fog-supply{color:#3bc2b4}
+:root[data-theme="light"] .hch-air-wisps.hch-fog-extract{color:#593005}
+:root[data-theme="light"] .hch-temp-port-plate{fill:rgb(240 246 250 / 90%);stroke:#92afc2;filter:drop-shadow(0 6px 14px rgb(0 0 0 / 18%))}
+:root[data-theme="light"] .hch-temp-port-title{fill:#2b3d46;stroke:#e4eff6}
+:root[data-theme="light"] .hch-temp-port-value{fill:#0d2635;stroke:#e4eff6}
+:root[data-theme="light"] .hch-temp-port.tone-cold .hch-temp-port-value{fill:#0d9cf0}
+:root[data-theme="light"] .hch-temp-port.tone-warm .hch-temp-port-value{fill:#f07b0d}
+:root[data-theme="light"] .hch-temp-port.tone-green .hch-temp-port-value{fill:#28d577}
+:root[data-theme="light"] .hch-sensor-pin circle{fill:#0d9ff0;stroke:#032e3f}
+:root[data-theme="light"] .hch-sensor-pin line{stroke:#6a8495}
+:root[data-theme="light"] .hch-sensor-pin rect{fill:#f0f6fa;stroke:#a8c5d5}
+:root[data-theme="light"] .hch-sensor-pin text{fill:#3b4f5a}
+:root[data-theme="light"] .hch-sensor-pin .pin-value{fill:#0a2a38}
+:root[data-theme="light"] .hch-water-callout rect{fill:#f0f6fa;stroke:#a6c6d7}
+:root[data-theme="light"] .hch-water-callout text{fill:#3b4f5a}
+:root[data-theme="light"] .hch-water-callout .water-value{fill:#082c3a}
+:root[data-theme="light"] .unit-readback{border:1px solid #b4cfe0;background:#f0f6fa}
+:root[data-theme="light"] .unit-readback small{color:#506673}
+:root[data-theme="light"] .unit-readback strong{color:#0c2a36}
+:root[data-theme="light"] .unit-readback em{color:#526876}
+:root[data-theme="light"] .readback-icon{background:#f0f6fa;border:1px solid #92b8cf}
+:root[data-theme="light"] .readback-icon.fan::before{color:#0d9af0}
+:root[data-theme="light"] .readback-icon.damper::before{color:#3f5562}
+:root[data-theme="light"] .readback-icon.damper.active::before{color:#33c97c}
+:root[data-theme="light"] .readback-icon.heater::before{color:#5e7685}
+:root[data-theme="light"] .readback-icon.heater.active::before{color:#f07f0d;text-shadow:0 0 10px #f0680d}
+:root[data-theme="light"] .control-label{color:#4b5f6a}
+:root[data-theme="light"] .pro-segment{border:1px solid #b3cddd;background:#f0f6f9}
+:root[data-theme="light"] .pro-segment button,:root[data-theme="light"] .pro-levels button,:root[data-theme="light"] .mini-buttons button,:root[data-theme="light"] .setpoint-stepper button,:root[data-theme="light"] .fireplace-actions button{border:1px solid #a9c3d4;background:#f0f6f9;color:#384a54}
+:root[data-theme="light"] .pro-segment button:hover,:root[data-theme="light"] .pro-levels button:hover,:root[data-theme="light"] .mini-buttons button:hover,:root[data-theme="light"] .setpoint-stepper button:hover,:root[data-theme="light"] .fireplace-actions button:hover{border-color:#4987ac;color:#032c3f;background:#f0f6fa}
+:root[data-theme="light"] .pro-segment button.active,:root[data-theme="light"] .pro-levels button.active,:root[data-theme="light"] .mini-buttons button.active{color:#212121;border-color:#0d92f0;background:linear-gradient(145deg,#1b5486,#1a65a7);box-shadow:inset 0 0 0 1px rgb(255 255 255 / 4%),0 0 14px rgb(44 165 255 / 13%)}
+:root[data-theme="light"] .active-decision{border:1px solid #b8d0df;background:#f0f6fa}
+:root[data-theme="light"] .active-decision span{color:#687e8c}
+:root[data-theme="light"] .active-decision small{color:#627885}
+:root[data-theme="light"] .mini-control-title{color:#122630}
+:root[data-theme="light"] .mini-control-title svg{color:#0d9bf0}
+:root[data-theme="light"] .control-footnote,:root[data-theme="light"] .text-action{color:#617785}
+:root[data-theme="light"] .text-action{color:#0d97f0}
+:root[data-theme="light"] .status-action-icon{background:#eef6fb;color:#0d9df0}
+:root[data-theme="light"] .status-action-icon.flame{background:#f9f4f1;color:#f0820d}
+:root[data-theme="light"] .status-action-card span{color:#627885}
+:root[data-theme="light"] .status-action-card small{color:#728997}
+:root[data-theme="light"] .status-action-card > button,:root[data-theme="light"] .fireplace-actions button{border:1px solid #aac5d5;background:#f0f6fa;color:#334954}
+:root[data-theme="light"] .afterheat-copy span{color:#526977}
+:root[data-theme="light"] .afterheat-copy small{color:#708694}
+:root[data-theme="light"] .setpoint-stepper{border:1px solid #aac6d6}
+:root[data-theme="light"] .setpoint-stepper strong{background:#f0f6fa}
+:root[data-theme="light"] .climate-metric{border:1px solid #b7d0df;background:#f0f6fa}
+:root[data-theme="light"] .climate-metric > svg,:root[data-theme="light"] .climate-metric > .metric-drop,:root[data-theme="light"] .climate-metric > .metric-filter,:root[data-theme="light"] .climate-metric > .metric-heat{color:#3ac378}
+:root[data-theme="light"] .climate-metric.blue > .metric-drop{color:#0d90f0}
+:root[data-theme="light"] .climate-metric.cyan > .metric-filter{color:#1bb6e1}
+:root[data-theme="light"] .climate-metric.neutral > .metric-heat{color:#344955}
+:root[data-theme="light"] .climate-metric > span:not(.metric-drop):not(.metric-filter):not(.metric-heat){color:#607684}
+:root[data-theme="light"] .climate-metric strong small{color:#627885}
+:root[data-theme="light"] .climate-metric em{color:#627886}
+:root[data-theme="light"] .climate-metric > i{background:linear-gradient(90deg,#33ca78,#0d99f0);box-shadow:0 0 12px rgb(82 220 145 / 9%)}
+:root[data-theme="light"] .climate-metric::after{background:#f1f6f8}
+:root[data-theme="light"] .hch-bus-cable{stroke:#b8c9d3}
+:root[data-theme="light"] .hch-bus-core{stroke:#d49228}
+:root[data-theme="light"] .hch-bus-joint{fill:#d49228}
+:root[data-theme="light"] .hch-cable-gland{fill:#f2f6f8;stroke:#70848e}
+:root[data-theme="light"] .hch-bus-label{fill:#bf913d}
+:root[data-theme="light"] .hch-signal-wire{stroke:#a0764b}
+:root[data-theme="light"] .hch-device .device-body{fill:#f0f6fa;stroke:#8daebf}
+:root[data-theme="light"] .hch-device text{fill:#17252b}
+:root[data-theme="light"] .hch-device .device-sub{fill:#3b4f5a}
+:root[data-theme="light"] .hch-pi .pi-board{fill:#f0f9f5;stroke:#44a773}
+:root[data-theme="light"] .hch-pi .pi-chip{fill:#f3f6f7;stroke:#7c94a0}
+:root[data-theme="light"] .hch-pi .pi-gpio{fill:#bf913d}
+:root[data-theme="light"] svg *[fill="#1a2d37" i]{fill:#c9dbe4}
+:root[data-theme="light"] svg stop[stop-color="#0a1a24" i]{stop-color:#dcebf4}
+:root[data-theme="light"] svg stop[stop-color="#0b1a23" i]{stop-color:#ddebf3}
+:root[data-theme="light"] svg stop[stop-color="#0c1a22" i]{stop-color:#deebf2}
+:root[data-theme="light"] svg stop[stop-color="#14242e" i]{stop-color:#d2e1ea}
+:root[data-theme="light"] svg stop[stop-color="#15242d" i]{stop-color:#d3e1e9}
+:root[data-theme="light"] svg stop[stop-color="#173041" i]{stop-color:#c0d7e6}
+:root[data-theme="light"] svg stop[stop-color="#1a2a33" i]{stop-color:#cddce4}
+:root[data-theme="light"] svg stop[stop-color="#1b3445" i]{stop-color:#bcd3e2}
+:root[data-theme="light"] svg stop[stop-color="#1d303b" i]{stop-color:#c5d7e0}
+:root[data-theme="light"] svg stop[stop-color="#223440" i]{stop-color:#c1d1db}
+:root[data-theme="light"] svg stop[stop-color="#25353e" i]{stop-color:#c2d1d9}
+:root[data-theme="light"] svg stop[stop-color="#263640" i]{stop-color:#c0cfd8}
+:root[data-theme="light"] svg stop[stop-color="#263843" i]{stop-color:#bdced8}
+:root[data-theme="light"] svg stop[stop-color="#2c4452" i]{stop-color:#afc4d1}
+:root[data-theme="light"] svg stop[stop-color="#3a4c57" i]{stop-color:#a9bac4}
+:root[data-theme="light"] svg stop[stop-color="#40515b" i]{stop-color:#a5b5be}
+:root[data-theme="light"] svg stop[stop-color="#455760" i]{stop-color:#a0b1b9}
+:root[data-theme="light"] svg stop[stop-color="#4a5d68" i]{stop-color:#99aab3}
+:root[data-theme="light"] svg stop[stop-color="#596b76" i]{stop-color:#8a9ba5}
+:root[data-theme="light"] svg stop[stop-color="#5f7a8a" i]{stop-color:#778f9e}
+:root[data-theme="light"] svg stop[stop-color="#68bcf0" i]{stop-color:#2194db}
+:root[data-theme="light"] svg stop[stop-color="#6b7d88" i]{stop-color:#788993}
+:root[data-theme="light"] svg stop[stop-color="#7b8991" i]{stop-color:#6f7c83}
+:root[data-theme="light"] svg stop[stop-color="#8a99a2" i]{stop-color:#5e6c74}
+:root[data-theme="light"] svg stop[stop-color="#8e9aa1" i]{stop-color:#5f6a70}
+:root[data-theme="light"] svg stop[stop-color="#a8ddff" i]{stop-color:#043453}
+:root[data-theme="light"] svg stop[stop-color="#c9d8e0" i]{stop-color:#202e35}
+:root[data-theme="light"] svg *[stroke="#aab9c1" i]{stroke:#3f4d54}
+/* Light theme air flow: the fog keeps its own colours (masks and flow gradients are not
+   remapped) and gets more cover so it reads on the light cabinet. */
+:root[data-theme="light"] .hch-fog-a { opacity: .5; }
+:root[data-theme="light"] .hch-fog-b { opacity: .36; }
+:root[data-theme="light"] .hch-fog[style*="0s"], :root[data-theme="light"] .hch-fog-a[style*="0s"] { opacity: .18; }
+:root[data-theme="light"] .hch-air-wisps.hch-fog-supply { color: #1f9e8f; }
+:root[data-theme="light"] .hch-air-wisps.hch-fog-extract { color: #e0762a; }
+:root[data-theme="light"] .hch-air-wisp-wide { opacity: .35; }
+:root[data-theme="light"] .hch-air-wisp-fine { opacity: .6; }
+:root[data-theme="light"] .hch-water-coil :is(.water-pipe-shell,.water-tube-shell) { stroke: #52697a; }
+:root[data-theme="light"] .hch-water-coil .valve-body { fill: #f0f6fa; stroke: #52697a; }
+:root[data-theme="light"] .hch-water-coil .valve-actuator { stroke: #52697a; }
+:root[data-theme="light"] .hch-control-panel .control-body{fill:rgb(240 246 250 / 92%);stroke:#92afc2;filter:drop-shadow(0 6px 14px rgb(0 0 0 / 18%))}
+:root[data-theme="light"] .hch-control-panel.tone-boost .control-body{stroke:#e0a060}
+:root[data-theme="light"] .hch-control-panel.tone-reduced .control-body{stroke:#5f9cc8}
+:root[data-theme="light"] .hch-control-eyebrow,:root[data-theme="light"] .hch-control-footer{color:#4f6b7c}
+:root[data-theme="light"] .hch-control-title{color:#0d2635}
+:root[data-theme="light"] .hch-control-title em{color:#1f9d57}
+:root[data-theme="light"] .hch-control-panel.tone-boost .hch-control-title em{color:#d06d0b}
+:root[data-theme="light"] .hch-control-panel.tone-reduced .hch-control-title em{color:#0d7fc4}
+:root[data-theme="light"] .hch-control-reason{color:#2b3d46}
+:root[data-theme="light"] .pro-levels button.is-normal { border-color: #1f7fc4; color: #0d2635; }
+:root[data-theme="light"] .hch-air-wisps.hch-fog-supply .hch-air-wisp { stroke: url(#supplyFlow); }
+:root[data-theme="light"] .hch-air-wisps.hch-fog-extract .hch-air-wisp { stroke: url(#extractFlow); }
+
+/* Remaining fixed dark pieces of the pro layer. */
+:root[data-theme="light"] .overview-status-pills > div { background: var(--surface); border-color: var(--border); box-shadow: var(--shadow-sm); }
+:root[data-theme="light"] .overview-status-pills small { color: var(--muted); }
+:root[data-theme="light"] .overview-status-pills strong { color: var(--text); }
+:root[data-theme="light"] .topbar-clock strong { color: var(--text); }
+:root[data-theme="light"] .topbar-clock span { color: var(--muted); }
+:root[data-theme="light"] .topbar-title { color: var(--text); }
+:root[data-theme="light"] :is(.pro-levels button, .pro-segment button, .mini-buttons button, .fireplace-actions button).active,
+:root[data-theme="light"] :is(.pro-levels, .pro-segment, .mini-buttons) button[aria-pressed="true"] { background: var(--blue); border-color: var(--blue); color: #fff; box-shadow: 0 4px 12px rgb(76 147 209 / 28%); }
+:root[data-theme="light"] .pro-levels button.is-normal { border-color: var(--blue); border-style: dashed; color: var(--text); }
+:root[data-theme="light"] .settings-segment { background: var(--surface-soft); border-color: var(--border-strong); }
+:root[data-theme="light"] .settings-segment button { color: var(--text); }
+:root[data-theme="light"] .settings-segment button.is-active { background: var(--blue); border-color: var(--blue); color: #fff; }
+:root[data-theme="light"] .afterheat-lockout { background: var(--orange-soft); border-color: var(--orange); color: #8a4d0f; }
+:root[data-theme="light"] .system-online.ok { color: var(--green); }
+:root[data-theme="light"] .update-progress-track { background: var(--surface-strong); border-color: var(--border-strong); }
