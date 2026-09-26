@@ -76,6 +76,10 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                 if parsed.path == "/api/controller/state" and self._machine_auth():
                     self._json(dashboard.controller_runtime.snapshot())
                     return
+                if parsed.path == "/api/onewire/water" and self.client_address[0] in ("127.0.0.1", "::1"):
+                    # Read by the local 1-Wire service so its flow/return follow the WebUI.
+                    self._json(dashboard.controller_runtime.onewire.water_assignment())
+                    return
                 if parsed.path == "/api/auth/status":
                     session = self._session()
                     self._json({

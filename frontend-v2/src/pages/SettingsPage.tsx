@@ -131,39 +131,34 @@ export function SettingsPage() {
   };
   const sizing = form.sizing_enabled === true;
 
-  type OneWireSensor = { id: string; temperature: number | null; role: string; name: string; managed?: boolean };
+  type OneWireSensor = { id: string; temperature: number | null; role: string; name: string };
   const onewire = (Array.isArray(controller.onewire_sensors) ? controller.onewire_sensors : []) as OneWireSensor[];
   const onewireRoles = (form.onewire_roles ?? {}) as Record<string, { role: string; name: string }>;
   const setOnewire = (id: string, patch: Partial<{ role: string; name: string }>) => {
-    const current = onewireRoles[id] ?? { role: "none", name: "" };
+    const current = onewireRoles[id] ?? { role: onewire.find(sensor => sensor.id === id)?.role ?? "none", name: "" };
     const next = { ...onewireRoles, [id]: { ...current, ...patch } };
     // Only one sensor can be T2; picking a new one frees the old.
-    if (patch.role === "t2") for (const other of Object.keys(next)) if (other !== id && next[other].role === "t2") next[other] = { ...next[other], role: "none" };
+    // T2, flow and return belong to one sensor each; taking one frees it elsewhere.
+    if (patch.role && ["t2", "water_flow", "water_return"].includes(patch.role)) {
+      for (const sensor of onewire) if (sensor.id !== id && (next[sensor.id]?.role ?? sensor.role) === patch.role) next[sensor.id] = { name: next[sensor.id]?.name ?? "", role: "none" };
+    }
     set("onewire_roles", next);
   };
   const roleLabel: Record<string, Text> = {
     none: { da: "Ikke i brug", en: "Not used" },
     t2: { da: "T2 · før eftervarme", en: "T2 · before afterheat" },
     attic: { da: "Loftrum", en: "Loft space" },
-    other: { da: "Andet (eget navn)", en: "Other (own name)" },
-  };
-  // Afterheat water flow/return: fixed by the 1-Wire service, listed but not editable.
-  const serviceRoleLabel: Record<string, Text> = {
     water_flow: { da: "Eftervarme · frem", en: "Afterheat · flow" },
     water_return: { da: "Eftervarme · retur", en: "Afterheat · return" },
+    other: { da: "Andet (eget navn)", en: "Other (own name)" },
   };
   const sections: Record<SectionId, ReactNode> = {
     sensors: <Card title={t(SECTIONS[SECTIONS.length - 1].title)} lead={lang === "da" ? "DS18B20-følere på Pi'ens 1-Wire-bus (GPIO4)" : "DS18B20 sensors on the Pi's 1-Wire bus (GPIO4)"} icon={Activity}>
-      <p className="settings-help">{lang === "da" ? "Nye følere dukker op her af sig selv, når de er loddet på 1-Wire-bussen (3,3 V, GND og data parallelt med de eksisterende). Giv hver føler en rolle: T2 bruges i tegningen, genvindingen og som målt T2; Loftrum og egne navne vises her og i Home Assistant. Eftervarmevandets frem og retur er faste og styres af 1-Wire-tjenesten; byt dem om i Home Assistant-integrationens indstillinger, hvis de er forvekslet." : "New sensors appear here by themselves once soldered onto the 1-Wire bus (3.3 V, GND and data in parallel with the existing ones). Give each a role: T2 is used in the drawing, the recovery and as measured T2; Loft space and own names show here and in Home Assistant. The afterheat water flow and return are fixed by the 1-Wire service; swap them in the Home Assistant integration options if they are mixed up."}</p>
+      <p className="settings-help">{lang === "da" ? "Nye følere dukker op her af sig selv, når de er loddet på 1-Wire-bussen (3,3 V, GND og data parallelt med de eksisterende). Giv hver føler en rolle: T2 bruges i tegningen, genvindingen og som målt T2; Loftrum og egne navne vises her og i Home Assistant. Eftervarme frem/retur bestemmer, hvilke følere 1-Wire-tjenesten sender til Home Assistant som vandets frem- og returtemperatur. Er de forvekslet, så byt rollerne her." : "New sensors appear here by themselves once soldered onto the 1-Wire bus (3.3 V, GND and data in parallel with the existing ones). Give each a role: T2 is used in the drawing, the recovery and as measured T2; Loft space and own names show here and in Home Assistant. Afterheat flow/return decide which sensors the 1-Wire service reports to Home Assistant as the water flow and return. Swap the roles here if they are mixed up."}</p>
       {onewire.length === 0
         ? <p className="settings-warning">{lang === "da" ? "Ingen følere fundet endnu. Tjek lodningerne og at føleren er på samme bus som frem/retur." : "No extra sensors found yet. Check the soldering and that the sensor is on the same bus as flow/return."}</p>
         : <div className="settings-table-wrap"><table className="settings-table"><thead><tr><th>{lang === "da" ? "Føler-id" : "Sensor id"}</th><th>{lang === "da" ? "Temperatur" : "Temperature"}</th><th>{lang === "da" ? "Rolle" : "Role"}</th><th>{lang === "da" ? "Navn" : "Name"}</th></tr></thead>
-          <tbody>{onewire.map(sensor => sensor.managed ? <tr key={sensor.id} className="settings-table-fixed">
-            <td><code>{sensor.id}</code></td>
-            <td>{fmt(sensor.temperature, lang, 1, " °C")}</td>
-            <td>{t(serviceRoleLabel[sensor.role] ?? { da: sensor.name, en: sensor.name })}</td>
-            <td><span className="settings-table-note">{lang === "da" ? "Fast · 1-Wire-tjenesten" : "Fixed · 1-Wire service"}</span></td>
-          </tr> : (() => { const entry = onewireRoles[sensor.id] ?? { role: sensor.role ?? "none", name: "" }; return <tr key={sensor.id}>
+          <tbody>{onewire.map(sensor => (() => { const entry = onewireRoles[sensor.id] ?? { role: sensor.role ?? "none", name: "" }; return <tr key={sensor.id}>
             <td><code>{sensor.id}</code></td>
             <td>{fmt(sensor.temperature, lang, 1, " °C")}</td>
             <td><select aria-label={`${sensor.id} ${lang === "da" ? "rolle" : "role"}`} value={entry.role} onChange={e => setOnewire(sensor.id, { role: e.target.value })}>{Object.entries(roleLabel).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}</select></td>

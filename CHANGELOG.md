@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0-beta.78
+
+- The afterheat water flow and return are chosen under Indstillinger → Følere like the other sensors ("Eftervarme · frem" and "Eftervarme · retur", one sensor each). Until a choice is saved the 1-Wire service's own pairing is shown. The choice is published on `/api/onewire/water`, answered only on the Pi itself, and the 1-Wire service follows it (and saves it) when it runs alongside; without the WebUI the service works as before.
+- Changes by Claude AI.
+
 ## 1.2.0-beta.77
 
 - Indstillinger → Følere lists all 1-Wire sensors, including the afterheat water flow and return. Those two show their temperature and a fixed role; the 1-Wire service keeps owning them and they cannot be given another role. A flow or return sensor that stops answering now also raises the missing-sensor alarm.

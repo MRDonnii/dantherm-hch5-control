@@ -22,11 +22,15 @@ ONEWIRE_SERVICE_URL = "http://127.0.0.1:4197/temperatures"
 READ_INTERVAL_SECONDS = 15.0
 # A reading older than this is treated as missing.
 FRESH_SECONDS = 90.0
-ROLES = ("none", "t2", "attic", "other")
+ROLES = ("none", "t2", "attic", "water_flow", "water_return", "other")
+# Roles only one sensor can have at a time.
+UNIQUE_ROLES = ("t2", "water_flow", "water_return")
 ROLE_LABELS = {"t2": "T2 · før eftervarme", "attic": "Loftrum", "other": "Føler",
                "water_flow": "Eftervarme · frem", "water_return": "Eftervarme · retur"}
-# Roles owned by the 1-Wire service. Shown with the others, never chosen in the WebUI.
-SERVICE_ROLES = ("water_flow", "water_return")
+# The afterheat water pair. The 1-Wire service reads them for Home Assistant and
+# follows the choice made here (see water_assignment); until one is made it
+# keeps its own automatic pairing, which is shown as the starting point.
+WATER_ROLES = ("water_flow", "water_return")
 
 
 def read_ds18b20(sensor_id: str, devices: Path = W1_DEVICES) -> float | None:
@@ -57,7 +61,7 @@ def clean_roles(value: object) -> dict[str, dict[str, str]]:
     if not isinstance(value, dict) or len(value) > 16:
         raise ValueError("onewire_roles skal være et objekt med højst 16 følere")
     cleaned: dict[str, dict[str, str]] = {}
-    t2_seen = False
+    seen: set[str] = set()
     for raw_id, entry in value.items():
         sensor_id = str(raw_id).strip().lower()
         if not sensor_id.startswith("28-") or not 6 <= len(sensor_id) <= 20 or not all(c in "0123456789abcdef-" for c in sensor_id):
@@ -67,10 +71,10 @@ def clean_roles(value: object) -> dict[str, dict[str, str]]:
         role = str(entry.get("role", "none"))
         if role not in ROLES:
             raise ValueError(f"Ugyldig rolle for {sensor_id}")
-        if role == "t2":
-            if t2_seen:
-                raise ValueError("Kun én føler kan være T2")
-            t2_seen = True
+        if role in UNIQUE_ROLES:
+            if role in seen:
+                raise ValueError(f"Kun én føler kan være {ROLE_LABELS[role]}")
+            seen.add(role)
         name = str(entry.get("name") or "").strip()[:32]
         cleaned[sensor_id] = {"role": role, "name": name}
     return cleaned
@@ -148,13 +152,9 @@ class OneWireExtras:
         result = []
         for sensor_id, (value, read_at) in sorted(readings.items()):
             fresh = value if now - read_at <= FRESH_SECONDS else None
-            service_role = self.water_roles.get(sensor_id)
-            if service_role:
-                result.append({"id": sensor_id, "temperature": fresh, "role": service_role,
-                               "name": ROLE_LABELS[service_role], "managed": True})
-                continue
             entry = roles.get(sensor_id, {})
-            role = entry.get("role", "none")
+            # Without a saved choice the service's own pairing is the starting role.
+            role = entry.get("role") or self.water_roles.get(sensor_id, "none")
             result.append({
                 "id": sensor_id,
                 "temperature": fresh,
@@ -162,6 +162,11 @@ class OneWireExtras:
                 "name": entry.get("name") or ROLE_LABELS.get(role) or sensor_id,
             })
         return result
+
+    def water_assignment(self) -> dict[str, str | None]:
+        """Flow/return chosen in the WebUI, for the 1-Wire service; None where not chosen."""
+        chosen = {entry.get("role"): sensor_id for sensor_id, entry in (self._roles() or {}).items()}
+        return {"flow_sensor": chosen.get("water_flow"), "return_sensor": chosen.get("water_return")}
 
     def by_role(self, role: str, now: float | None = None) -> float | None:
         for sensor in self.sensors(now):
