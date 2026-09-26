@@ -8,14 +8,14 @@ describe("SettingsPage", () => {
 
   it("saves every advanced controller feature", () => {
     for (const key of ["sizing_enabled", "house_area_m2", "ceiling_height_m", "airflow_measured", "afterheat_room_enabled",
-      "fireplace_auto_enabled", "fireplace_auto_source", "humidity_smart_enabled", "dry_protection_enabled", "cooling_min_on_seconds"]) {
+      "fireplace_auto_enabled", "fireplace_auto_source", "humidity_smart_enabled", "dry_protection_enabled", "cooling_min_on_seconds", "onewire_roles"]) {
       expect(CONTROLLER_KEYS).toContain(key);
     }
   });
 
   it("groups settings into named sections with Danish help by default", () => {
     const markup = renderToStaticMarkup(<SettingsPage/>);
-    for (const label of ["Hus og luftmængde", "Luftkvalitet", "Fugt og tør luft", "Eftervarme", "Frikøling", "Pejs og brændeovn", "Brugerflade", "Sikkerhed"]) {
+    for (const label of ["Følere", "Hus og luftmængde", "Luftkvalitet", "Fugt og tør luft", "Eftervarme", "Frikøling", "Pejs og brændeovn", "Brugerflade", "Sikkerhed"]) {
       expect(markup).toContain(label);
     }
     expect(markup).toContain("Grundtrin");

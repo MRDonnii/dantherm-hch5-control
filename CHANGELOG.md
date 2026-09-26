@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0-beta.72
+
+- Extra 1-Wire sensors: any DS18B20 soldered onto the Pi's 1-Wire bus beyond the afterheat water flow/return pair appears under Indstillinger → Følere, where it gets a role and a name. "T2 · før eftervarme" becomes the measured T2 in the supply duct before the coil; "Loftrum" and own names are reported to Home Assistant through the controller state. The water flow/return sensors stay with the 1-Wire service.
+- The drawing labels T2 on the duct between the unit and the afterheat coil: "T2 · målt" from the sensor, otherwise "T2 · beregnet" from T1, T3 and the recovery.
+- "Luft før varmeflade" no longer shows the unit's T2 register, which only repeats T2AH; it is empty until a T2 sensor is fitted, and the estimate is reported separately.
+- Changes by Claude AI.
+
 ## 1.2.0-beta.71
 
 - Fix the light theme. The dashboard layer used fixed dark colours, so in light theme the page background, top bar, cards, status pills, active buttons and several panels stayed dark while the text turned dark. Every page now takes its colours from the light theme tokens, and the unit drawing uses the same light palette as the Home Assistant card. The sidebar stays dark on purpose; the dark theme is unchanged.

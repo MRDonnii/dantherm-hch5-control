@@ -10,3 +10,4 @@
 .settings-segment button:focus-visible { outline: 2px solid var(--accent, #58b9ff); outline-offset: 2px; }
 .settings-inline { display: inline-flex; align-items: center; gap: 8px; }
 .settings-inline input { width: 72px; }
+.settings-table select{min-width:170px;min-height:30px;padding:4px 7px;border:1px solid var(--border);border-radius:7px;background:var(--surface-soft);color:var(--text)}.settings-table input.settings-table-name{width:100%;min-width:160px}.settings-table code{font-size:9px;color:var(--muted)}

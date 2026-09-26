@@ -10,10 +10,12 @@ export interface Hch5UnitDiagramProps {
   extract: Num;
   exhaust: Num;
   afterHeater: Num;
-  /** T2 after the core, before the afterheat coil. Not passed while the unit's
-   *  T2 register is frozen with the Pi as master (unchanged since 2026-09-23);
-   *  the drawing then uses T2AH, or the recovery estimate while heating. */
+  /** T2 after the core, before the afterheat coil, measured by a 1-Wire sensor
+   *  in the duct. The unit's own T2 register only repeats T2AH, so it is never
+   *  passed here. */
   beforeHeater?: Num;
+  /** Estimated T2 (T1, T3 and the recovery share), shown when not measured. */
+  beforeHeaterEstimate?: Num;
   frost: Num;
   flowWater: Num;
   returnWater: Num;
@@ -464,7 +466,7 @@ function WaterCoil({ heating, lockout, flowWater, returnWater }: { heating: bool
 }
 
 export function Hch5UnitDiagram(props:Hch5UnitDiagramProps) {
-  const {outdoor,extract,exhaust,afterHeater,beforeHeater=null,frost,flowWater,returnWater,supplyRpm,extractRpm,supplyPercent,extractPercent,bypassActual,bypassRequest,heating,recovery,busActive=false,bypassRaw=null,bypassTravelDirection=null,bypassTravelSeconds=null,bypassTravelTotal=null,afterheatLockout=false,afterheatCoil="electric",control=null,onTemperatureClick}=props;
+  const {outdoor,extract,exhaust,afterHeater,beforeHeater=null,beforeHeaterEstimate=null,frost,flowWater,returnWater,supplyRpm,extractRpm,supplyPercent,extractPercent,bypassActual,bypassRequest,heating,recovery,busActive=false,bypassRaw=null,bypassTravelDirection=null,bypassTravelSeconds=null,bypassTravelTotal=null,afterheatLockout=false,afterheatCoil="electric",control=null,onTemperatureClick}=props;
   const water = afterheatCoil === "water";
   const waterDelta = flowWater === null || returnWater === null ? null : flowWater - returnWater;
   // The unit reports only closed/opening/closing/open and needs about three
@@ -616,6 +618,8 @@ export function Hch5UnitDiagram(props:Hch5UnitDiagramProps) {
       <TempPort cx={-150} cy={205} title="Udsugning · T3" value={fmt(extract)} tone="warm" sensor="extract" onClick={onTemperatureClick}/>
       <TempPort cx={-150} cy={365} title="Indblæsning · T2AH" value={fmt(afterHeater)} tone="green" sensor="afterHeater" onClick={onTemperatureClick}/>
       <SensorPin x={57} y={292} label="Frost" value={fmt(frost,"°")} sensor="frost" onClick={onTemperatureClick}/>
+      {/* T2 on the supply duct between the unit and the afterheat coil. */}
+      {(beforeHeater !== null || beforeHeaterEstimate !== null) && <SensorPin x={150} y={331} lift={38} width={92} label={beforeHeater !== null ? "T2 · målt" : "T2 · beregnet"} value={fmt(beforeHeater ?? beforeHeaterEstimate,"°")} sensor="beforeHeater" onClick={onTemperatureClick}/>}
       {control && <ControlPanel control={control}/>}
       <g className="hch-water-callout" transform="translate(-236 414)"><rect width="196" height="110" rx="12"/><text className="water-title" x="14" y="24">{water ? "Vandvarmeflade" : "Eftervarmevand"}</text>
         <g className="hch-water-reading" role="button" tabIndex={0} aria-label={`Frem: ${fmt(flowWater)}, vis 24 timers graf`} onClick={() => onTemperatureClick?.("flowWater")} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onTemperatureClick?.("flowWater"); } }}><rect x="8" y="31" width="180" height="23" rx="5"/><text className="water-value" x="14" y="48">Frem <tspan x="184" textAnchor="end">{fmt(flowWater)}</tspan></text></g>

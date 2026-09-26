@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
+from onewire_extras import clean_roles
 from advanced_control import (
     HCH5_MAX_AIRFLOW_M3H,
     absolute_humidity,
@@ -243,6 +244,8 @@ class ControllerState:
         "dry_protection_enabled": False,
         "dry_rh_limit": 30.0,
         "dry_max_level": 2,
+        # Extra DS18B20 sensors on the Pi's 1-Wire bus: {sensor_id: {"role", "name"}}.
+        "onewire_roles": {},
         "effective_source": "local_auto",
         "effective_level": 3,
         "effective_reason": "Controller starting",
@@ -431,6 +434,10 @@ class ControllerState:
             self.data["airflow_measured"] = self._clean_airflow(self.data.get("airflow_measured"))
         except ControllerError:
             self.data["airflow_measured"] = {}
+        try:
+            self.data["onewire_roles"] = clean_roles(self.data.get("onewire_roles"))
+        except ValueError:
+            self.data["onewire_roles"] = {}
 
     ADVANCED_FLOATS = (
         ("house_area_m2", 20.0, 1000.0), ("ceiling_height_m", 1.8, 6.0),
@@ -685,6 +692,7 @@ class ControllerState:
         "fireplace_auto_on_temp", "fireplace_auto_off_temp", "fireplace_afterrun_minutes",
         "fireplace_max_hours", "humidity_smart_enabled", "outdoor_humidity_source",
         "humidity_margin_gm3", "dry_protection_enabled", "dry_rh_limit", "dry_max_level",
+        "onewire_roles",
     )
     ADVANCED_LABELS = {
         "house_area_m2": "Boligareal", "ceiling_height_m": "Loftshøjde",
@@ -739,6 +747,11 @@ class ControllerState:
                     raise ControllerError(f"{key}: ugyldig målekilde") from error
         if "airflow_measured" in patch:
             self.data["airflow_measured"] = self._clean_airflow(patch["airflow_measured"])
+        if "onewire_roles" in patch:
+            try:
+                self.data["onewire_roles"] = clean_roles(patch["onewire_roles"])
+            except ValueError as error:
+                raise ControllerError(str(error)) from error
 
     def heartbeat(self, demand: str = "normal", *, requested_level: int | None = None, valid_for_s: int | None = None, reason: str | None = None) -> dict[str, object]:
         if demand not in VALID_DEMANDS:

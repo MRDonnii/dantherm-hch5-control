@@ -295,7 +295,7 @@ export function OverviewPage() {
           </div>
           <Hch5UnitDiagram
             onTemperatureClick={setActiveSensor}
-            outdoor={outdoor} extract={extract} exhaust={exhaust} afterHeater={afterHeater}
+            outdoor={outdoor} extract={extract} exhaust={exhaust} afterHeater={afterHeater} beforeHeater={number(controller.actual_supply_before_heater_temperature)} beforeHeaterEstimate={number(controller.actual_supply_before_heater_estimate)}
             frost={frost} flowWater={flowWater} returnWater={returnWater}
             supplyRpm={supplyRpm} extractRpm={extractRpm} supplyPercent={supplyPercent} extractPercent={extractPercent}
             bypassActual={bypassActual} bypassRequest={bypassRequest} heating={heating} recovery={recovery}

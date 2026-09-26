@@ -15,7 +15,8 @@ import time
 from collections import defaultdict, deque
 from pathlib import Path
 
-from advanced_control import absolute_humidity, source_room
+from advanced_control import absolute_humidity, source_room, supply_after_core
+from onewire_extras import OneWireExtras
 from controller_core import ControllerEngine, ControllerError, ControllerState, HardwareAdapter
 from master_arbitration import MasterArbitrator, RtuFrameStream
 from sensor_freshness import fresh_sensor_value, sensor_sample_age
@@ -31,6 +32,10 @@ AFTERHEAT_OUTDOOR_CUTOFF_C = 15.0
 # The HCH5 runs its bypass damper for about three minutes either way
 # (180 s measured on the live unit 2026-09-23) and reports no position.
 BYPASS_TRAVEL_SECONDS = 180
+
+
+def _round1(value):
+    return None if value is None else round(value, 1)
 
 
 class ControllerRuntime:
@@ -74,6 +79,8 @@ class ControllerRuntime:
         self.fireplace_auto_blocked = False
         self.fireplace_auto_reason = "disabled"
         self.afterheat_room_source_used: str | None = None
+        # Extra 1-Wire sensors (T2 before the coil, loft, ...), read in the background.
+        self.onewire = OneWireExtras(lambda: self.config.data.get("onewire_roles") or {})
 
     @staticmethod
     def _first(state: dict[str, object], *keys: str):
@@ -639,21 +646,13 @@ class ControllerRuntime:
         result["co2_raw"] = self.gateway_state.get("co2_raw")
         result["co2_measured"] = self.gateway_state.get("co2")
         writes_allowed = self.master.writes_allowed()
-        sample_age = sensor_sample_age(self.gateway_state, "supply_temperature")
-        before_heater = self._first(
-            {
-                "supply_temperature": fresh_sensor_value(self.gateway_state, "supply_temperature"),
-                "supply_temp": fresh_sensor_value(self.gateway_state, "supply_temp"),
-            },
-            "supply_temperature",
-            "supply_temp",
-        )
-        before_source = (
-            str(self.gateway_state.get("temperature_source") or "canonical_t2")
-            if before_heater is not None and self.gateway_state.get("supply_temperature") is not None
-            else "unit_t2_legacy" if before_heater is not None
-            else None
-        )
+        # T2 before the afterheat coil is only a real measurement from a 1-Wire
+        # sensor with the "t2" role. The unit's own T2 register just repeats
+        # T2AH (fed like HCP4 did), so it is not reported as before-coil air.
+        onewire_sensors = self.onewire.sensors()
+        before_heater = self.onewire.by_role("t2")
+        before_source = "onewire_t2" if before_heater is not None else None
+        sample_age = None
         after_heater = fresh_sensor_value(self.gateway_state, "heating_coil_after_temperature")
         frost_temperature = fresh_sensor_value(self.gateway_state, "heating_coil_frost_temperature")
         outdoor = self._safe_number(
@@ -690,6 +689,9 @@ class ControllerRuntime:
             "actual_afterheat_setpoint": self._first(self.gateway_state, "afterheat_setpoint"),
             "actual_afterheat_selection": self._first(self.gateway_state, "afterheat_selection"),
             "actual_supply_before_heater_temperature": before_heater,
+            "actual_supply_before_heater_estimate": self._before_heater_estimate(),
+            "onewire_sensors": onewire_sensors,
+            "attic_temperature": self.onewire.by_role("attic"),
             "actual_supply_before_heater_temperature_source": before_source,
             "actual_supply_before_heater_age_seconds": round(sample_age, 1) if sample_age is not None else None,
             "actual_supply_air_temperature": after_heater,
@@ -709,6 +711,18 @@ class ControllerRuntime:
             "afterheat_room_source_used": self.afterheat_room_source_used,
         })
         return result
+
+    def _before_heater_estimate(self) -> float | None:
+        """T2 estimate from T1, T3 and the recovery measured on the extract side."""
+        t1 = self._safe_number(self._first(self.gateway_state, "outdoor_temp", "outdoor_temperature"), -50, 60)
+        t3 = self._safe_number(self._first(self.gateway_state, "extract_temp", "extract_temperature"), -30, 60)
+        t4 = self._safe_number(self._first(self.gateway_state, "exhaust_temp", "exhaust_temperature"), -50, 60)
+        bypass = self._first(self.gateway_state, "bypass_active") is True
+        recovery = None
+        if t1 is not None and t3 is not None and t4 is not None and abs(t3 - t1) >= 0.5 and not bypass:
+            share = (t3 - t4) / (t3 - t1) * 100
+            recovery = share if 0 <= share <= 105 else None
+        return _round1(supply_after_core(t1, t3, recovery, bypass))
 
     def configure(self, patch: dict[str, object], *, apply: bool = True) -> dict[str, object]:
         if "enabled" in patch:
@@ -781,6 +795,7 @@ class ControllerRuntime:
         self.stop_event.clear()
         self.thread = threading.Thread(target=self._run, name="hch-controller", daemon=True)
         self.thread.start()
+        self.onewire.start()
 
     def stop(self) -> None:
         self.stop_event.set()

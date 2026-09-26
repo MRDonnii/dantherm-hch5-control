@@ -118,6 +118,15 @@ def airflow_plan(data: dict, profiles: dict) -> dict[str, object]:
     }
 
 
+def supply_after_core(outdoor: float | None, extract: float | None, recovery: float | None, bypass_open: bool) -> float | None:
+    """Estimated supply air leaving the core (T2 before the afterheat coil)."""
+    if outdoor is None:
+        return None
+    if bypass_open or extract is None or recovery is None:
+        return outdoor
+    return outdoor + min(100.0, max(0.0, recovery)) / 100.0 * (extract - outdoor)
+
+
 def afterheat_room_target(data: dict, room_temperature: float | None) -> int | None:
     """Supply setpoint wanted for the current room temperature, or None."""
     if room_temperature is None:
