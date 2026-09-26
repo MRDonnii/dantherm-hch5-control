@@ -636,6 +636,8 @@ class ControllerRuntime:
         result["enabled"] = True  # compatibility only; not configurable
         result.update(self.master.snapshot())
         result.update(self._smart_input_snapshot())
+        result["co2_raw"] = self.gateway_state.get("co2_raw")
+        result["co2_measured"] = self.gateway_state.get("co2")
         writes_allowed = self.master.writes_allowed()
         sample_age = sensor_sample_age(self.gateway_state, "supply_temperature")
         before_heater = self._first(

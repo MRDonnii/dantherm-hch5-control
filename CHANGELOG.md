@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0-beta.65
+
+- CO₂ calibration: a new setting under Indstillinger → Air quality adds a fixed offset (−1000 to +1000 ppm) to the unit's own CO₂ sensor, so it can be matched to trusted room sensors. Smart Auto and Local Auto control on the corrected value, and the WebUI, MQTT and Home Assistant show it. The raw reading stays available as `co2_raw`, and the setting shows raw and corrected values side by side.
+- Changes by Claude AI.
+
 ## 1.2.0-beta.64
 
 - Afterheat room control defaults to Automatic: the average of the Home Assistant rooms that have a temperature, leaving out bathrooms and rooms used as stove or outdoor sensors, and T3 extract air only when no such room exists. Every installation adds its own rooms in the HCH PassiveLink integration; the WebUI explains where and shows which source is used right now.

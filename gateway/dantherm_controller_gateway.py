@@ -63,8 +63,34 @@ class Gateway(BaseGateway):
         if self.active_reads_enabled:
             LOG.info("Adaptive RS485 active reads enabled; HCP4 bus activity suppresses polling")
 
+    def _co2_offset(self) -> int:
+        try:
+            return int(self.controller.config.data.get("co2_offset") or 0)
+        except (AttributeError, TypeError, ValueError):
+            return 0
+
+    def publish(self, key: str, value: object, *, source: str | None = None):
+        """Publish the unit's CO2 with the user's calibration offset applied.
+
+        The raw sensor value is kept as ``co2_raw`` so the WebUI can show both.
+        Control, MQTT/Home Assistant and the WebUI all see the corrected value.
+        """
+        if key == "co2" and isinstance(value, (int, float)) and not isinstance(value, bool):
+            self.state["co2_raw"] = value
+            offset = self._co2_offset()
+            self._co2_offset_applied = offset
+            value = max(0, value + offset)
+        super().publish(key, value, source=source)
+
+    def _refresh_co2_offset(self) -> None:
+        """Re-publish CO2 right away when the calibration offset is changed."""
+        raw = self.state.get("co2_raw")
+        if isinstance(raw, (int, float)) and self._co2_offset() != getattr(self, "_co2_offset_applied", None):
+            self.publish("co2", raw)
+
     def serial_read(self, ser: serial.Serial, size: int) -> bytes:
         data = super().serial_read(ser, size)
+        self._refresh_co2_offset()
         # Feed every received frame into arbitration, including traffic seen
         # while a control sequence is in progress. This lets HCP4 pre-empt Pi
         # between individual writes.

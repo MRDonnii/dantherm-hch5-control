@@ -164,6 +164,9 @@ class ControllerState:
         "rh_hysteresis": 3.0,
         "co2_setpoint": 800,
         "co2_hysteresis": 100,
+        # Fixed correction added to the unit's own CO2 sensor (ppm), so it can be
+        # matched to trusted room sensors. Applied before control and display.
+        "co2_offset": 0,
         "auto_step_rh": 5.0,
         "auto_step_co2": 200,
         "downshift_delay_seconds": 300,
@@ -503,7 +506,7 @@ class ControllerState:
         with self.lock:
             allowed = {
                 "mode", "manual_level", "local_normal_level", "local_min_level", "local_max_level",
-                "rh_setpoint", "rh_hysteresis", "co2_setpoint", "co2_hysteresis",
+                "rh_setpoint", "rh_hysteresis", "co2_setpoint", "co2_hysteresis", "co2_offset",
                 "auto_step_rh", "auto_step_co2", "downshift_delay_seconds",
                 "boost_hold_seconds", "ha_timeout_seconds", "bypass", "fireplace",
                 "fireplace_minutes", "afterheat_setpoint", "afterheat_enabled", "afterheat_coil", "t3_setpoint", "t5_setpoint", "profiles", "schedule_enabled",
@@ -543,7 +546,7 @@ class ControllerState:
                         raise ControllerError(f"{key} udenfor gyldigt område")
                     self.data[key] = value
             for key, low, high in (
-                ("co2_setpoint", 500, 2000), ("co2_hysteresis", 25, 500),
+                ("co2_setpoint", 500, 2000), ("co2_hysteresis", 25, 500), ("co2_offset", -1000, 1000),
                 ("auto_step_co2", 50, 1000), ("ha_timeout_seconds", 60, 3600),
                 ("downshift_delay_seconds", 30, 3600), ("boost_hold_seconds", 60, 3600),
                 ("cooling_start_delay_seconds", 0, 1800), ("cooling_min_on_seconds", 0, 3600),

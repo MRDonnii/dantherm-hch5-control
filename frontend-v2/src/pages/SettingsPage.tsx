@@ -21,7 +21,7 @@ function fmt(v: unknown, lang: Lang, digits = 1, unit = "") {
 
 /** Every controller field this page edits. UI-only preferences stay in localStorage. */
 export const CONTROLLER_KEYS = [
-  "local_normal_level", "rh_setpoint", "rh_hysteresis", "co2_setpoint", "co2_hysteresis", "ha_timeout_seconds",
+  "local_normal_level", "rh_setpoint", "rh_hysteresis", "co2_setpoint", "co2_hysteresis", "co2_offset", "ha_timeout_seconds",
   "bathroom_rh_setpoint", "bathroom_rh_hysteresis", "bathroom_max_level",
   "night_enabled", "night_start", "night_end", "night_level", "night_air_quality_max_level",
   "afterheat_setpoint", "afterheat_coil", "afterheat_room_enabled", "afterheat_room_source", "afterheat_room_target",
@@ -172,6 +172,7 @@ export function SettingsPage() {
           <label>{lang === "da" ? "Fugt hysterese" : "Humidity hysteresis"}<input type="number" min="1" max="10" value={n(form.rh_hysteresis, 3)} onChange={num("rh_hysteresis")}/><span>%</span><Help>{lang === "da" ? "Hvor langt under grænsen fugten skal ned, før der skrues ned igen. Forhindrer at trinnet hopper frem og tilbage." : "How far below the limit humidity must fall before stepping down again. Stops the level from flapping."}</Help></label>
           <label>{lang === "da" ? "CO₂ grænse" : "CO₂ limit"}<input type="number" min="500" max="2000" step="50" value={n(form.co2_setpoint, 800)} onChange={num("co2_setpoint")}/><span>ppm</span><Help>{lang === "da" ? "Over denne CO₂ skrues der op. Udeluft er ca. 420 ppm, og over 1000 ppm føles luften tung." : "Above this CO₂ the fans step up. Outdoor air is about 420 ppm; above 1000 ppm the air feels stuffy."}</Help></label>
           <label>{lang === "da" ? "CO₂ hysterese" : "CO₂ hysteresis"}<input type="number" min="25" max="500" step="25" value={n(form.co2_hysteresis, 100)} onChange={num("co2_hysteresis")}/><span>ppm</span><Help>{lang === "da" ? "Hvor langt under grænsen CO₂ skal ned, før der skrues ned igen." : "How far below the limit CO₂ must fall before stepping down."}</Help></label>
+          <label>{lang === "da" ? "CO₂ kalibrering" : "CO₂ calibration"}<input type="number" min="-1000" max="1000" step="10" value={n(form.co2_offset, 0)} onChange={num("co2_offset")}/><span>ppm</span><Help>{lang === "da" ? `Lægges til anlæggets egen CO₂-måler, før der styres og vises. Måler den fx 200 for højt i forhold til dine rumfølere, så sæt −200. Lige nu: rå ${fmt(controller.co2_raw, lang, 0, " ppm")}, korrigeret ${fmt(controller.co2_measured, lang, 0, " ppm")}.` : `Added to the unit's own CO₂ sensor before it is used for control and shown. If it reads 200 too high compared with your room sensors, set −200. Now: raw ${fmt(controller.co2_raw, lang, 0, " ppm")}, corrected ${fmt(controller.co2_measured, lang, 0, " ppm")}.`}</Help></label>
           <label>{lang === "da" ? "Timeout for HA-rumdata" : "HA room data timeout"}<input type="number" min="60" max="3600" step="30" value={n(form.ha_timeout_seconds, 300)} onChange={num("ha_timeout_seconds")}/><span>s</span><Help>{lang === "da" ? "Hører controlleren ikke fra Home Assistant så længe, falder Smart Auto tilbage til anlæggets egne følere." : "If the controller hears nothing from Home Assistant for this long, Smart Auto falls back to the unit's own sensors."}</Help></label>
         </div>
       </Card>
