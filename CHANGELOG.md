@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0-beta.68
+
+- Water coil colours follow the water temperature from flow to return: the coil tube no longer sits on a fixed brown outline that made it look hot regardless of the readings, and the colour scale is finer between 15 and 35 °C where the coil normally runs. Equal flow and return temperatures give the same colour all the way round.
+- Changes by Claude AI.
+
 ## 1.2.0-beta.67
 
 - House and airflow: the base level is chosen with an Auto/Manuel switch instead of a checkbox. Auto uses the level calculated from the house size (shown next to the switch); Manuel shows the Normal level field right there so you can set it yourself.
