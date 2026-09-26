@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0-beta.73
+
+- With a measured T2 before the afterheat coil the controller now computes: recovery on the supply side, (T2 − T1) / (T3 − T1), which is where the heat ends up; the heat the exchanger hands to the supply air in W; the afterheat lift T2AH − T2; and the heat the afterheat coil adds to the air in W. Watts use the supply airflow of the running fan level (measured if entered under sizing, otherwise from the fan profile), which is reported as well. Without a T2 sensor these stay empty.
+- The overview shows the four values under "Beregnet fra målt T2", and the loft temperature as a status pill when a sensor has the "Loftrum" role.
+- Changes by Claude AI.
+
 ## 1.2.0-beta.72
 
 - Extra 1-Wire sensors: any DS18B20 soldered onto the Pi's 1-Wire bus beyond the afterheat water flow/return pair appears under Indstillinger → Følere, where it gets a role and a name. "T2 · før eftervarme" becomes the measured T2 in the supply duct before the coil; "Loftrum" and own names are reported to Home Assistant through the controller state. The water flow/return sensors stay with the 1-Wire service.

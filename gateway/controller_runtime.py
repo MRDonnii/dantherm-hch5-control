@@ -15,7 +15,7 @@ import time
 from collections import defaultdict, deque
 from pathlib import Path
 
-from advanced_control import absolute_humidity, source_room, supply_after_core
+from advanced_control import absolute_humidity, source_room, supply_after_core, supply_air_metrics
 from onewire_extras import OneWireExtras
 from controller_core import ControllerEngine, ControllerError, ControllerState, HardwareAdapter
 from master_arbitration import MasterArbitrator, RtuFrameStream
@@ -710,7 +710,21 @@ class ControllerRuntime:
             "measurement_rooms": sorted(self.smart_rooms),
             "afterheat_room_source_used": self.afterheat_room_source_used,
         })
+        extract = self._safe_number(self._first(self.gateway_state, "extract_temp", "extract_temperature"), -30, 60)
+        supply_m3h = self._supply_airflow(result.get("effective_level"))
+        result["supply_airflow_estimate_m3h"] = supply_m3h
+        result.update(supply_air_metrics(
+            outdoor, extract, before_heater, after_heater, supply_m3h,
+            self._first(self.gateway_state, "bypass_active") is True,
+        ))
         return result
+
+    def _supply_airflow(self, level: object) -> float | None:
+        """Supply airflow for the running level: measured if entered, else from the fan profile."""
+        try:
+            return float(self.config.airflow_plan()["levels"][int(level)]["supply_m3h"])
+        except (KeyError, TypeError, ValueError):
+            return None
 
     def _before_heater_estimate(self) -> float | None:
         """T2 estimate from T1, T3 and the recovery measured on the extract side."""

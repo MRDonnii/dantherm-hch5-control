@@ -147,3 +147,48 @@ __all__ = [
     "source_room",
     "valid_source",
 ]
+
+
+# Volumetric heat capacity of air, J/(m3*K): 1.2 kg/m3 x 1005 J/(kg*K).
+AIR_HEAT_CAPACITY = 1206.0
+
+
+def supply_air_metrics(
+    outdoor: float | None,
+    extract: float | None,
+    before_heater: float | None,
+    after_heater: float | None,
+    supply_m3h: float | None,
+    bypass_open: bool,
+) -> dict[str, float | None]:
+    """What a measured T2 (before the afterheat coil) makes computable.
+
+    - supply_recovery_percent: recovery seen on the supply side, (T2-T1)/(T3-T1).
+      Needs at least 3 K between extract and outdoor air, else it is noise.
+    - recovered_heat_w: heat the exchanger hands to the supply air.
+    - afterheat_lift: temperature rise across the afterheat coil, T2AH-T2.
+    - afterheat_power_w: heat the coil adds to the air (0 when it adds none).
+    Airflow is the estimate for the running fan level, so the watts are too.
+    """
+    result: dict[str, float | None] = {
+        "supply_recovery_percent": None,
+        "recovered_heat_w": None,
+        "afterheat_lift": None,
+        "afterheat_power_w": None,
+    }
+    if before_heater is None:
+        return result
+    flow = supply_m3h / 3600.0 * AIR_HEAT_CAPACITY if supply_m3h else None
+    if outdoor is not None and not bypass_open:
+        if extract is not None and extract - outdoor >= 3:
+            share = (before_heater - outdoor) / (extract - outdoor) * 100
+            if -5 <= share <= 110:
+                result["supply_recovery_percent"] = round(min(100.0, max(0.0, share)), 1)
+        if flow is not None:
+            result["recovered_heat_w"] = round(max(0.0, before_heater - outdoor) * flow)
+    if after_heater is not None:
+        lift = after_heater - before_heater
+        result["afterheat_lift"] = round(lift, 2)
+        if flow is not None:
+            result["afterheat_power_w"] = round(max(0.0, lift) * flow)
+    return result

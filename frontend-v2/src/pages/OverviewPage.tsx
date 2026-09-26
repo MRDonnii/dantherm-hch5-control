@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, Flame, Gauge, Leaf, Snowflake, Wind, X } from "lucide-react";
+import { ArrowRight, Flame, Gauge, House, Leaf, Snowflake, Wind, X } from "lucide-react";
 import { Hch5UnitDiagram } from "../components/Hch5UnitDiagram";
 import { describeControl } from "../lib/control";
 import { HistoryChart, type HistorySeries } from "../components/HistoryChart";
@@ -284,6 +284,7 @@ export function OverviewPage() {
           <div><span className="status-led"/><small>Master</small><strong>{masterLabel(controller.active_master)}</strong></div>
           <div><span className={`status-led ${busHealthy ? "" : "warn"}`}/><small>Bus</small><strong>{busHealthy ? "Sund" : "Afventer"}</strong></div>
           <div><Leaf size={18}/><small>Driftstilstand</small><strong>{modeLabel(controller.mode)}</strong></div>
+          {number(controller.attic_temperature) !== null && <div><House size={18}/><small>Loftrum</small><strong>{temp(number(controller.attic_temperature))}</strong></div>}
         </div>
       </header>
 
@@ -364,6 +365,16 @@ export function OverviewPage() {
             <div className="climate-metric cyan"><span className="metric-filter">▧</span><span>Filter</span><strong>{whole(filterLife)} <small>%</small></strong><em>{filterLife === null ? "Ukendt" : filterLife > 40 ? "OK" : filterLife > 15 ? "Snart skift" : "Skift filter"}</em><i style={{ width: `${Math.max(0, Math.min(100, filterLife ?? 0))}%` }}/></div>
             <div className="climate-metric neutral"><span className="metric-heat">≋</span><span>Eftervarme setpunkt</span><strong>{shownAfterheat === "off" ? "OFF" : temp(shownAfterheat)}</strong><em>{afterheatStatus}</em><i style={{ width: `${shownAfterheat === "off" ? 0 : ((shownAfterheat - 10) / 25) * 100}%` }}/></div>
           </div>
+          {/* Only with a measured T2 before the afterheat coil (1-Wire role "t2"). */}
+          {number(controller.actual_supply_before_heater_temperature) !== null && <>
+            <div className="pro-card-head compact air-calc-head"><div><h2>Beregnet fra målt T2</h2><p>Luftmængde anslået for aktuelt trin{number(controller.supply_airflow_estimate_m3h) === null ? "" : ` · ${whole(number(controller.supply_airflow_estimate_m3h))} m³/h`}</p></div></div>
+            <div className="climate-metrics">
+              <div className="climate-metric green"><Leaf size={21}/><span>Genvinding · indblæsning</span><strong>{whole(number(controller.supply_recovery_percent))} <small>%</small></strong><em>(T2 − T1) / (T3 − T1)</em><i style={{ width: `${Math.max(0, Math.min(100, number(controller.supply_recovery_percent) ?? 0))}%` }}/></div>
+              <div className="climate-metric cyan"><Wind size={21}/><span>Genvundet varme</span><strong>{whole(number(controller.recovered_heat_w))} <small>W</small></strong><em>Veksler → indblæsning</em><i style={{ width: `${Math.min(100, (number(controller.recovered_heat_w) ?? 0) / 30)}%` }}/></div>
+              <div className="climate-metric neutral"><span className="metric-heat">≋</span><span>Eftervarme løft</span><strong>{temp(number(controller.afterheat_lift))}</strong><em>T2AH − T2</em><i style={{ width: `${Math.max(0, Math.min(100, (number(controller.afterheat_lift) ?? 0) * 10))}%` }}/></div>
+              <div className="climate-metric neutral"><Flame size={21}/><span>Eftervarme effekt</span><strong>{whole(number(controller.afterheat_power_w))} <small>W</small></strong><em>Varme tilført luften</em><i style={{ width: `${Math.min(100, (number(controller.afterheat_power_w) ?? 0) / 20)}%` }}/></div>
+            </div>
+          </>}
         </article>
 
         <article className="surface afterheat-setpoint-card">
