@@ -69,16 +69,7 @@ curl -fsSL https://raw.githubusercontent.com/MRDonnii/dantherm-hch-passivelink-w
 
 Udelad `--enable-onewire`, hvis der ikke bruges DS18B20-følere. Portene kan ændres med `--gateway-port` og `--web-port`.
 
-### Beta 1.1.0
-
-Brug den eksplicitte betakanal; den henter aldrig seneste stable ved en fejl:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/MRDonnii/dantherm-hch-passivelink-webui/test/hcp4-replacement-controller/install.sh \
-  | sudo bash -s -- \
-      --beta \
-      --device /dev/serial/by-id/usb-DIN_ADAPTER
-```
+Kommandoen henter seneste stabile release. Tilføj `--beta` for seneste beta-release.
 
 Installationsscriptet:
 
@@ -101,7 +92,7 @@ Første besøg kræver, at ejeren selv opretter brugernavn og adgangskode. Der f
 
 ## Home Assistant
 
-Se også [fuld opsætning af integration, kort, rumkilder, daglig strøm og kr-værdier](energy-and-ha.da.md).
+Den komplette gennemgang – også controller-API, Smart Auto-rum, dashboardkort og kr-værdier – står i [Kom godt i gang](kom-godt-i-gang.da.md#5-home-assistant-se-anlægget).
 
 1. Installer [Dantherm HCH PassiveLink-integrationen](https://github.com/MRDonnii/dantherm-hch-passivelink) via HACS.
 2. Genstart Home Assistant.
@@ -111,7 +102,7 @@ Se også [fuld opsætning af integration, kort, rumkilder, daglig strøm og kr-v
 
 [Åbn repositoryet direkte i HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=MRDonnii&repository=dantherm-hch-passivelink&category=integration)
 
-Den klassiske PassiveLink TCP-forbindelse er read-only. Controllerfunktionerne bruger separat HTTP API med bearer-token; kun Pi-controlleren oversætter intent til de allerede verificerede RS485-writes. Bypass er fortsat read-only i betaen.
+Den klassiske PassiveLink TCP-forbindelse er read-only. Controllerfunktionerne bruger separat HTTP API med bearer-token; kun Pi-controlleren oversætter intent til de allerede verificerede RS485-writes.
 
 ## Kontrol efter installation
 
@@ -139,7 +130,7 @@ Kør den samme installationskommando igen. Eksisterende gatewaykonfiguration gen
 Tillad kun det betroede LAN og Home Assistant. Eksempel med UFW:
 
 ```bash
-sudo ufw allow from 10.0.0.0/24 to any port 8080 proto tcp
+sudo ufw allow from 192.168.1.0/24 to any port 8080 proto tcp
 sudo ufw allow from HOME_ASSISTANT_IP to any port 4196 proto tcp
 ```
 

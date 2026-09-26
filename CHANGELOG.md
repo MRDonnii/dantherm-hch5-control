@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.2.0
+
+First stable release of the controller line. Compared with 1.0.1 (passive data bridge), HCH5 Control is now a local controller:
+
+- The Raspberry Pi can become Modbus master with automatic HCP4 arbitration; unknown or unhealthy bus state blocks all writes.
+- New WebUI: animated airflow drawing with bypass and afterheat water, dark and light theme, mobile layout, live weather, history, technique, diagnostics, system and settings pages.
+- Local Auto, Smart Auto (Home Assistant rooms) and Manual with six fan profiles; weekly schedule, night reduction, holiday mode, free cooling, fireplace mode and bathroom humidity policy.
+- Afterheat thermostat, summer stop, T2 before the coil and afterheat water flow/return via 1-Wire.
+- Energy today: measured electricity from Home Assistant or the Pi's estimate, estimated afterheat and recovered heat, with approximate kr values.
+- Home Assistant sends rooms, power, daily energy and prices through the authenticated controller API (HCH PassiveLink 0.8.0).
+- New README with screenshots and GIF, and a Danish getting-started guide (`docs/kom-godt-i-gang.da.md`).
+- Changes by Claude AI.
+
 ## 1.2.0-beta.83
 
 - Home Assistant can now send the unit's measured kWh today and the current electricity and heat prices through the integration's controller options (HCH PassiveLink 0.8.0-beta.3); no YAML automation is needed. The overview then shows **Strøm i dag · målt** and approximate kr values.

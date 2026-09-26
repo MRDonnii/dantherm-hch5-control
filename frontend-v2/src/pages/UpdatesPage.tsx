@@ -216,7 +216,7 @@ export function UpdatesPage() {
         <div className="update-ha-links">
           <a className="primary-action" href="https://my.home-assistant.io/redirect/hacs_repository/?owner=MRDonnii&repository=dantherm-hch-passivelink&category=integration" target="_blank" rel="noopener noreferrer">Åbn HA-integrationen i HACS <ExternalLink size={16}/></a>
           <a className="primary-action" href="https://my.home-assistant.io/redirect/hacs_repository/?owner=MRDonnii&repository=ha-smart-home-cards&category=plugin" target="_blank" rel="noopener noreferrer">Åbn dashboardkort i HACS <ExternalLink size={16}/></a>
-          <a href="https://github.com/MRDonnii/dantherm-hch-passivelink-webui/blob/feature/advanced-control/docs/energy-and-ha.da.md" target="_blank" rel="noopener noreferrer">Opsætning og sensorer <ExternalLink size={16}/></a>
+          <a href="https://github.com/MRDonnii/dantherm-hch-passivelink-webui/blob/main/docs/kom-godt-i-gang.da.md" target="_blank" rel="noopener noreferrer">Guide: kom godt i gang <ExternalLink size={16}/></a>
         </div>
       </article>
     </section>

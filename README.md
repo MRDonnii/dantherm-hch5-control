@@ -1,173 +1,249 @@
 # HCH5 Control
 
-**Modern local ventilation control for Dantherm HCH5 MK1 / HAC1.**
+**Modern local ventilation control for Dantherm HCH5 MK1 / HAC1 — with a live WebUI and Home Assistant integration.**
 
-HCH5 Control turns a Raspberry Pi and a USB-RS485 adapter into a local controller, WebUI and Home Assistant bridge for older HCH5 installations. It keeps the proven PassiveLink decoder for compatibility, but the product is no longer a passive-only project: the Pi can take over as Modbus master, run local automation and issue only the RS485 writes that have been physically verified on the reference installation.
+HCH5 Control turns a Raspberry Pi and a USB-RS485 adapter into a local controller for older HCH5 installations. The Pi reads the unit, runs the ventilation logic itself and shows everything in a responsive WebUI. Home Assistant is optional: it can follow along, send room sensors into Smart Auto and show the unit on a dashboard — but the Pi keeps running on its own when Home Assistant is offline.
 
-> **Unofficial community project.** HCH5 Control is not developed, approved, certified or supported by Dantherm Group. Installation changes the control path of the ventilation system and is performed entirely at your own risk. Keep the original controller available so the installation can be returned to its original configuration.
+> **Unofficial community project.** HCH5 Control is not developed, approved, certified or supported by Dantherm Group. Installation changes the control path of the ventilation system and is performed entirely at your own risk. Keep the original HCP4 controller so the installation can be returned to its original configuration.
 
-## What is included
+![Animated overview of HCH5 Control](docs/images/webui/overview-animation.gif)
 
-- Local HCH5 controller with automatic HCP4 master arbitration and fail-safe write blocking.
-- Responsive WebUI with live temperatures, fans, bypass, after-heater, diagnostics and history.
-- Animated airflow diagram: normal heat recovery uses the crossed exchanger routes; physical bypass readback switches the diagram to the straight-through routes.
-- Daily electricity, afterheat and recovered-heat figures, with optional Danish-krone estimates when Home Assistant supplies energy prices.
-- Local Auto and Smart Auto with six adjustable fan profiles.
-- Adjustable weekly schedule, night reduction and holiday mode.
-- Free-cooling automation using indoor/outdoor temperature, hysteresis and minimum temperature difference.
-- Manual bypass request plus separate physical bypass feedback.
-- Fireplace mode and after-heater setpoint support from the verified controller layer.
-- Home Assistant API plus raw TCP mirror on port `4196`.
-- Stable/Beta update channels in the WebUI. Beta is opt-in.
-- First-user login, CSRF protection, system diagnostics and safe backups before updates.
-- System page with CPU, memory, temperature, service status, power profiles and Wi-Fi setup. Wi-Fi setup uses NetworkManager on Raspberry Pi OS Bookworm and works with both SD-card and network boot; an SD-card installation does not require TFTP or Unraid.
-- The current NFS netboot Pi uses `scripts/netboot/hch-nm-netboot-prepare.sh` with its systemd unit to work around 32-bit NetworkManager file-stat errors on the NFS export. SD-card installations use NetworkManager's normal persistent directories.
+*All screenshots use example values, not measurements from a real installation.*
 
-## Important: original HCP4 controller
+**Danish step-by-step guide for new users:** [Kom godt i gang](docs/kom-godt-i-gang.da.md)
 
-For **normal active HCH5 Control operation**, disconnect the original HCP4 controller from the RS485 control path so the Raspberry Pi can become the active master.
+## Contents
 
-The arbitration layer is still intentionally fail-safe: if an HCP4 is connected again and verified foreign control writes are observed, the Pi immediately stops transmitting and yields mastership. In `UNKNOWN`, unhealthy-bus or HCP4-master state, controller writes are blocked.
+- [What you get](#what-you-get)
+- [How the pieces fit together](#how-the-pieces-fit-together)
+- [Hardware](#hardware)
+- [Quick start](#quick-start)
+- [A tour of the WebUI](#a-tour-of-the-webui)
+- [Bringing Home Assistant into the control](#bringing-home-assistant-into-the-control)
+- [Energy and kr values](#energy-and-kr-values)
+- [Updating](#updating)
+- [Safety model](#safety-model)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
 
-Do not connect two independent masters and assume they can control the unit at the same time.
+## What you get
+
+- **Local controller** for the HCH5 with automatic HCP4 master arbitration and fail-safe write blocking.
+- **Live WebUI** on desktop, tablet and mobile, in dark and light theme: animated airflow through the exchanger, temperatures T1–T5, fans, bypass, afterheat and filter.
+- **Three operating modes:** *Local Auto* (the Pi's own CO₂/humidity logic), *Smart Auto* (the same, plus room sensors from Home Assistant) and *Manual* (fixed level 1–6).
+- **Afterheat thermostat** with a drag-to-set dial, summer stop and live readings before/after the coil.
+- **Automation:** weekly schedule, night reduction, holiday mode, free cooling via bypass, fireplace/stove mode, bathroom humidity policy.
+- **Six adjustable fan profiles** (supply/extract % per level).
+- **Energy today:** measured or estimated electricity, estimated afterheat and recovered heat, with approximate kr values when Home Assistant supplies prices.
+- **History** for temperatures, water, fans, CO₂ and heat recovery, plus Raspberry Pi health.
+- **Optional 1-Wire (DS18B20) sensors:** T2 before the afterheat coil, afterheat water flow/return, loft and others.
+- **Home Assistant:** integration via HACS, raw TCP data on port `4196`, authenticated controller API on port `8080`, and a matching dashboard card.
+- **Secure by default:** first-user owner login, salted password hashes, sessions, CSRF protection, login rate limiting.
+- **Safe updates** from the WebUI with Stable/Beta channels, backups and automatic health checks.
+
+## How the pieces fit together
+
+```text
+                    ┌──────────────── Raspberry Pi ────────────────┐
+HCH5 / HAC1 ──RS485─┤ HCH5 Control: gateway + controller + WebUI   │── WebUI  http://PI:8080
+                    │   ├─ raw data mirror (read-only)   TCP 4196  │── Home Assistant integration (data)
+                    │   └─ controller API (token)        TCP 8080  │── Home Assistant integration (control, rooms, energy)
+                    └──────────────────────────────────────────────┘
+```
+
+- The **Pi is the source of truth.** Modes, levels, schedules, rooms and setpoints live on the Pi and are shown both in the WebUI and in Home Assistant.
+- **Home Assistant never writes Modbus.** It sends *intent* (mode, level, setpoint) and *observations* (room CO₂/humidity/temperature, power, energy, prices) to the controller API. The Pi decides and performs only verified RS485 writes.
+- Everything Home Assistant sends is **leased**: if Home Assistant stops, its room data expires and the Pi falls back to Local Auto.
 
 ## Hardware
 
-Reference setup:
-
 - Dantherm HCH5 MK1 with HAC1;
-- Raspberry Pi 2B or newer;
-- Linux-supported USB-RS485 adapter;
-- RS485: `19200 8E1`;
-- optional DS18B20 sensors for water temperatures.
+- Raspberry Pi 2B or newer with Raspberry Pi OS Bookworm, Debian 12 or Ubuntu 22.04/24.04;
+- a Linux-supported USB-RS485 adapter (preferably galvanically isolated), bus settings `19200 8E1`;
+- optional DS18B20 1-Wire sensors on the Pi's GPIO4 (T2, afterheat water, loft);
+- optional power meter on the unit's supply (for example a Shelly) in Home Assistant.
 
-Turn off the ventilation unit and adapter before changing RS485 wiring. Use a stable `/dev/serial/by-id/...` device path and do not add termination blindly.
+Turn off the ventilation unit and the adapter before changing RS485 wiring. Connect A to A and B to B, do not add termination blindly and never use an M-Bus adapter. The [Danish installation guide](docs/installation.da.md) has the full wiring notes.
 
-## Install the current beta
+For **active control**, disconnect the original HCP4 from the RS485 control path so the Pi can become master. If an HCP4 is connected and writes to the bus, the Pi yields immediately and blocks its own writes.
 
-Find the adapter first:
+## Quick start
 
-```bash
-ls -l /dev/serial/by-id/
-```
+1. **Find the adapter's stable path** on the Pi:
 
-Then install:
+   ```bash
+   ls -l /dev/serial/by-id/
+   ```
 
-```bash
-beta_tag=$(curl -fsSL https://github.com/MRDonnii/dantherm-hch-passivelink-webui/releases.atom \
-  | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+' | sort -V | tail -1)
-curl -fsSL "https://raw.githubusercontent.com/MRDonnii/dantherm-hch-passivelink-webui/${beta_tag}/install-hch5-control.sh" \
-  | sudo bash -s -- \
-      --device /dev/serial/by-id/usb-YOUR_ADAPTER \
-      --enable-onewire
-```
+2. **Install** (replace the adapter path; omit `--enable-onewire` without DS18B20 sensors):
 
-Omit `--enable-onewire` if DS18B20 sensors are not used.
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/MRDonnii/dantherm-hch-passivelink-webui/main/install.sh \
+     | sudo bash -s -- \
+         --device /dev/serial/by-id/usb-YOUR_ADAPTER \
+         --enable-onewire
+   ```
 
-The installer preserves existing controller state, WebUI login, tokens and YAML configuration when upgrading an existing installation. Backups are written before program files are replaced.
+   This installs the latest stable release. Add `--beta` to install the newest beta instead. Re-running the command on an existing installation updates it and keeps login, tokens and settings.
 
-After installation open:
+3. **Open** `http://RASPBERRY-PI-IP:8080/` and create the owner account. There is no default password.
 
-```text
-http://RASPBERRY-PI-IP:8080/
-```
+   <img src="docs/images/webui/first-user-setup.png" alt="First-user setup" width="300">
 
-There is no default password. The first browser session creates the owner account.
+4. **Check the bus:** the overview should show *Bus: Sund* and live temperatures within a few seconds.
+5. **Choose a mode** under *Drift og styring* and adjust the house and air-quality settings under **Indstillinger**.
+6. Optional: [connect Home Assistant](#bringing-home-assistant-into-the-control).
 
-## Updating from the WebUI
+## A tour of the WebUI
 
-Open **Opdateringer**.
+### Overblik
 
-- **Stable** is the default channel.
-- Enable **Brug beta-kanal** only when you want prerelease functionality.
-- **Søg efter opdatering** compares the installed version with the selected channel.
-- **Installer opdatering** downloads a fixed repository ref, backs up application code, replaces only program files and restarts the required services.
+The overview shows the unit as an animated drawing: supply air (T1 → T2 → T2AH) and extract air (T3 → T4) through the exchanger, the afterheat coil with water flow/return, fans, bypass and who is in control. Next to it are the daily controls, the afterheat thermostat, indoor climate, diagnostics and today's energy.
 
-Persistent configuration under `/etc/dantherm-passivelink-webui/` and controller state under `/var/lib/dantherm-hch5-ha/` are not reset by the in-place updater.
+![Overview, desktop](docs/images/webui/overview-desktop.png)
 
-## Modern automation
+<p>
+  <img src="docs/images/webui/overview-mobile.png" alt="Overview on mobile" width="300">
+</p>
 
-The Raspberry Pi is the source of truth for controller settings.
+![Overview in light theme](docs/images/webui/overview-light.png)
 
-### Weekly schedule
+Click any temperature in the drawing to see its last 24 hours.
 
-Weekday/weekend start/end times and ventilation level are adjustable in the WebUI. Schedule is an automation layer on top of Local/Smart Auto rather than a separate Modbus implementation.
+### Historik
 
-### Night reduction
+Temperatures, afterheat water, fans, CO₂ and heat recovery over 1 hour to 30 days.
 
-Night start/end and target fan level are adjustable. Normal air-quality demand can override the reduced level when CO₂/RH becomes elevated.
+![History](docs/images/webui/history.png)
 
-### Holiday mode
+### Teknik and Diagnostik
 
-Holiday mode forces the selected low ventilation level and pauses automatic free cooling until holiday mode is disabled.
+*Teknik* shows master arbitration, hardware writes, the active decision, Smart Auto input and the raw readbacks from the bus. *Diagnostik* collects bus health and services, runs a safe system test and downloads a debug report with secrets masked.
 
-### Free cooling
+![Technique](docs/images/webui/technique.png)
 
-Free cooling can be enabled with adjustable:
+![Diagnostics](docs/images/webui/diagnostics.png)
 
-- indoor target temperature;
-- minimum outdoor temperature;
-- minimum indoor/outdoor temperature difference;
-- minimum ventilation level;
-- hysteresis.
+### Indstillinger
 
-When conditions are useful for cooling, the controller requests bypass and raises ventilation to at least the configured cooling level. The requested bypass state and the **physical** bypass state remain separate. A slow damper actuator is therefore not treated as an immediate failure.
+Every setting explains what it does. Sections: house and airflow, air quality, moisture, night, afterheat, free cooling, fireplace, user interface, security and 1-Wire sensors.
 
-## Bypass
+![Air-quality settings](docs/images/webui/settings-air-quality.png)
 
-The verified request binding used by this beta is:
+![Afterheat settings](docs/images/webui/settings-afterheat.png)
 
-```text
-Slave:    0x01
-Function: FC06
-Register: 0x0044 / 68
-AUTO:     0x0000
-ON:       0x00FF
-```
+![1-Wire sensors](docs/images/webui/settings-sensors.png)
 
-The physical bypass readback is separate and is what drives the WebUI airflow diagram. `AUTO` can legitimately coexist with a physically open bypass when the HCH5's own conditions call for it.
+### System and Opdateringer
 
-## Home Assistant
+*System* shows the Pi's CPU, temperature, memory, disk, services and network, power profile and Wi-Fi setup. *Opdateringer* installs new versions and links straight to the Home Assistant integration and dashboard card in HACS.
 
-Install the [HCH PassiveLink integration](https://github.com/MRDonnii/dantherm-hch-passivelink) and the [HCH5 dashboard card](https://github.com/MRDonnii/ha-smart-home-cards/tree/main/src/cards/ha-hch5-live-card) through HACS. WebUI **Opdateringer** links directly to both HACS repositories. See [Danish setup, sensor forwarding and energy accounting](docs/energy-and-ha.da.md).
+![System](docs/images/webui/system.png)
 
-The classic raw data connection remains compatible on TCP port `4196`. Controller commands and Smart Auto room data go through the authenticated HTTP controller API; Home Assistant does not write Modbus directly.
+![Updates with Home Assistant links](docs/images/webui/updates-home-assistant.png)
 
-In the integration's controller options you can choose the unit's power meter, today's measured kWh (for example a daily Utility Meter) and the current electricity and heat prices in kr/kWh. Home Assistant renews them on the Pi every minute for display only; they never change ventilation control.
+## Bringing Home Assistant into the control
 
-The optional Home Assistant `utility_meter` can use a physical kWh meter for measured daily electricity. The Pi's afterheat and recovered-heat figures are estimates based on measured air temperatures and estimated airflow; they are not a water-side heat meter. Krone values use the supplied current kWh price and are approximate, not historical tariff-weighted bills. Recovered heat × heat price is a theoretical replacement value, not a measured cash saving.
+Three parts work together. The first is enough to see the unit in Home Assistant; the second lets Home Assistant take part in the control; the third is the dashboard.
 
-## WebUI preview
+### 1. Install the integration and read data
 
-Screenshots and GIF show the current interface with example sensor values; they do not represent a measurement from the reference installation.
+[![Open the integration in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=MRDonnii&repository=dantherm-hch-passivelink&category=integration)
 
-![HCH5 Control overview on desktop](docs/images/webui/overview-desktop.png)
+1. Install **Dantherm HCH PassiveLink** from HACS and restart Home Assistant.
+2. **Settings → Devices & services → Add integration → Dantherm HCH PassiveLink.**
+3. Choose **RS485 over TCP**, enter the Pi's IP address and port **4196**.
 
-![Animated overview preview](docs/images/webui/overview-animation.gif)
+Home Assistant now has temperatures, fans, CO₂, humidity, bypass, filter and alarms. This data path is read-only.
 
-![HCH5 Control overview on mobile](docs/images/webui/overview-mobile.png)
+### 2. Connect the controller API
 
-![WebUI update page with Home Assistant links](docs/images/webui/updates-home-assistant.png)
+1. On the Pi, show the controller token that the installer generated:
+
+   ```bash
+   sudo sed -n 's/^DANTHERM_CONTROLLER_TOKEN=//p' /etc/dantherm-passivelink-webui/gateway.env
+   ```
+
+   Keep it secret: store it only in Home Assistant, never in dashboard YAML or Git.
+2. In Home Assistant open the integration → **Configure**, keep **Connect to the Raspberry Pi controller API** on and continue.
+3. Enter the Pi's address, port **8080** and the token. Optional fields in the same step:
+   - **Use Home Assistant sensors in Smart Auto** — turn on to send room sensors;
+   - **Power meter on the unit** — live W, used for SFP and the filter power check;
+   - **Unit energy today**, **Electricity price**, **Heat price** — see [Energy and kr values](#energy-and-kr-values).
+4. In the menu that follows:
+   - **Drift, Smart Auto og eftervarme** — mode, levels, CO₂/RH setpoints, afterheat;
+   - **Ventilationsprofiler 1–6** — supply/extract % per level;
+   - **Smart Auto-rum** — add rooms: name, *active*, *use for control*, priority (`auto`, `low`, `normal`, `high`, `critical`) and optional temperature, humidity and CO₂ sensors;
+   - **Gem integrationsindstillinger** — saves everything.
+5. Set the mode to **Smart Auto** (in the WebUI or Home Assistant).
+
+The Pi now combines its own CO₂/humidity with the Home Assistant rooms and ventilates for the worst relevant room. Rooms named with *bad*, *bath* or *brus* get the bathroom humidity policy. Rooms with *use for control* off are shown but do not steer. The **Home Assistant** page in the WebUI shows each room's values and whether the input is fresh:
+
+![Home Assistant page in the WebUI](docs/images/webui/home-assistant.png)
+
+If Home Assistant stops, the room data expires after the configured validity (default 180 s) and the Pi continues in Local Auto. Changes made in the WebUI appear in Home Assistant on the next poll, and vice versa.
+
+### 3. Add the dashboard card
+
+[![Open Smart Home Cards in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=MRDonnii&repository=ha-smart-home-cards&category=plugin)
+
+Install **Smart Home Cards** from HACS and add the **HCH5 Live Card** (`custom:ha-hch5-live-card`). It shows the same drawing, controls, afterheat thermostat and energy tiles as the WebUI. The entity options are listed in the [card's README](https://github.com/MRDonnii/ha-smart-home-cards/tree/main/src/cards/ha-hch5-live-card).
+
+## Energy and kr values
+
+| Figure | Source | Measured or estimated |
+| --- | --- | --- |
+| Electricity today | A daily **Utility Meter** in Home Assistant on the unit's kWh meter, sent via the integration | Measured |
+| Electricity today (fallback) | The Pi integrates the live power in W while it is online | Estimated |
+| Afterheat today | Airflow × air heat capacity × temperature rise over the coil | Estimated |
+| Recovered heat today | The same, over the heat exchanger | Estimated |
+| kr | kWh × the current electricity or heat price from Home Assistant | Approximate |
+
+Recovered heat × heat price is a **theoretical** value of reused heat, not a saving on the bill. Afterheat is air-side: without a water-flow meter it is not the district-heating consumption. Prices must be in kr/kWh; øre/kWh and DKK/MWh sensors are converted by the integration. The [Danish energy guide](docs/energy-and-ha.da.md) explains the setup, including an optional YAML alternative for other systems.
+
+## Updating
+
+Open **Opdateringer** in the WebUI.
+
+- **Stable** is the default channel; enable **Brug beta-kanal** only for prerelease features.
+- **Søg efter opdatering** compares the installed version with the channel; **Installer opdatering** backs up, replaces program files, restarts and runs a live health check.
+- Settings in `/etc/dantherm-passivelink-webui/` and controller state in `/var/lib/dantherm-hch5-ha/` are kept.
+- The Home Assistant integration and card are updated in HACS; the page links to both.
 
 ## Safety model
 
 1. HCP4 has priority whenever foreign control writes are observed.
-2. `UNKNOWN` or unhealthy bus state means **zero Pi control writes**.
-3. Only the central controller hardware boundary may transmit verified control frames.
-4. No unverified T3/T5 write sequence is enabled.
-5. Fireplace mode prevents automatic bypass request.
-6. Existing configuration is preserved during updates and rollback backups are created.
+2. `UNKNOWN` or an unhealthy bus means **zero Pi control writes**.
+3. Only the central controller boundary transmits, and only physically verified frames.
+4. Home Assistant sends intent and observations over an authenticated API; it never writes Modbus.
+5. Data from Home Assistant is leased and expires; the Pi falls back to Local Auto.
+6. Fireplace mode prevents automatic bypass requests.
+7. Updates keep configuration and create rollback backups.
 
-This software cannot make an altered HVAC installation risk-free. Check frost protection, after-heater behaviour, airflow and physical bypass operation on the actual installation after changes. If behaviour is unexpected, disconnect the Pi controller and restore the original HCP4 setup.
+This software cannot make an altered HVAC installation risk-free. Check frost protection, afterheat, airflow and bypass on the actual installation after changes. If behaviour is unexpected, stop the Pi controller and restore the original HCP4.
+
+The verified bypass request is FC06 to slave `0x01`, register `0x0044` (68): `0x0000` = AUTO, `0x00FF` = ON. The physical bypass readback is separate and drives the drawing; AUTO can coexist with an open bypass when the HCH5 itself calls for it.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| *Bus* not healthy, no temperatures | `19200 8E1`, A/B swapped (power off, swap only A/B), correct `/dev/serial/by-id/...` path, no other process on the port |
+| Pi never becomes master | HCP4 still connected and writing (see **Teknik → Master-arbitrering**) |
+| Smart inputs *stale* | Home Assistant controller API not configured, wrong token, or room sensors unavailable |
+| Energy tiles show `—` | No power meter/energy sensor selected in the integration, or price sensors not in kr/kWh |
+| WebUI unreachable | `systemctl status dantherm-webui-gateway.service dantherm-webui-admin.service` and `ss -ltn | grep -E ':(4196|8080) '` |
+
+**Diagnostik → Download rapport** creates a single text file with state, service logs and Pi health; secrets are masked, but review it before sharing because it contains local host names and addresses.
 
 ## Development
 
 ```bash
 python3 -m py_compile gateway/*.py
 pytest -q
-node --check gateway/webui/dashboard.js
-node --check gateway/webui/smartcontrol.js
+cd frontend-v2 && npm ci && npm test && npm run build
 bash -n install.sh install-hch5-control.sh update.sh uninstall.sh
+node scripts/capture-preview.mjs   # README screenshots with example data
 ```
 
 ## License
