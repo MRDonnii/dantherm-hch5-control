@@ -11,6 +11,18 @@
 .topbar-clock span { color:#6f8795; font-size:8px; text-transform:capitalize; }
 .pro-topbar { flex-wrap: nowrap; }
 .pro-topbar .topbar-actions { min-width: 0; margin-left: auto; }
+.topbar-weather { position: relative; }
+.topbar-weather-button { display: flex; align-items: center; gap: 7px; min-height: 34px; padding: 5px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); cursor: pointer; white-space: nowrap; font-size: 10px; font-weight: 750; }
+.topbar-weather-button svg { color: #73c7ec; }
+.topbar-weather-button small { color: var(--muted); font-size: 9px; }
+.topbar-weather-picker { position: absolute; top: calc(100% + 9px); right: 0; z-index: 30; width: 260px; display: grid; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); box-shadow: var(--shadow-md); }
+.topbar-weather-picker label { font-size: 10px; font-weight: 750; }
+.topbar-weather-picker > div { display: flex; align-items: center; gap: 5px; }
+.topbar-weather-picker input { width: 100%; min-width: 0; padding: 7px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-soft); color: var(--text); }
+.topbar-weather-picker button { padding: 7px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-soft); color: var(--text); cursor: pointer; }
+.topbar-weather-picker small { color: var(--muted); font-size: 9px; }
+@media (max-width: 920px) { .topbar-weather-button small { display: none; } }
+@media (max-width: 680px) { .topbar-weather-button span { display: none; } .topbar-weather-button { padding-inline: 8px; } }
 .topbar-update-tab { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 7px 11px; border: 1px solid #a56433; border-radius: 9px; background: #302018; color: #ffd1a3; font-size: 10px; font-weight: 800; text-decoration: none; white-space: nowrap; }
 .topbar-update-tab small { color: #ffb979; font-size: 9px; font-weight: 700; }
 .topbar-update-tab:hover,.topbar-update-tab.active { background: #49301e; border-color: #e7a062; color: #fff0d9; }

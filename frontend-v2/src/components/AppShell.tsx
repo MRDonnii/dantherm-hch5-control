@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { postJson, requestJson } from "../lib/api";
 import { TopbarNoticeContext } from "../lib/topbar-notice";
+import { TopbarWeather } from "./TopbarWeather";
 
 const navigation = [
   ["/overview", "Overblik", Home],
@@ -167,6 +168,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span>{subtitle}</span>
           </div>
           <div className="topbar-actions">
+            <TopbarWeather />
             {availableUpdate && <NavLink className="topbar-update-tab" to="/updates" title={availableUpdate}><RefreshCw size={15}/><span>{availableUpdate === "Installerer opdatering" ? availableUpdate : "Opdatering klar"}</span>{availableUpdate !== "Installerer opdatering" && <small>{availableUpdate}</small>}</NavLink>}
             <div className="topbar-clock"><strong>{now.toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" })}</strong><span>{now.toLocaleDateString("da-DK", { day: "2-digit", month: "short", year: "numeric" })}</span></div>
             {notice && <div className={`topbar-control-notice${notice.startsWith("Kunne") ? " error" : ""}`} role="status" title={notice}><strong>Seneste ændring</strong><span>{notice}</span></div>}
