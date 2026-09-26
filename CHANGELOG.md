@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0-beta.79
+
+- The afterheat card is now a thermostat: a round 10–35 °C scale you can drag or tap, − / + and an on/off button that remembers the last setpoint. The arc glows orange while HAC1 heats, turns amber during the summer stop (with the reason), blue when ready and grey when off. Beside it: air before and after the coil, the lift, and what HAC1 has registered. One command is still sent once you let go.
+- Changes by Claude AI.
+
 ## 1.2.0-beta.78
 
 - The afterheat water flow and return are chosen under Indstillinger → Følere like the other sensors ("Eftervarme · frem" and "Eftervarme · retur", one sensor each). Until a choice is saved the 1-Wire service's own pairing is shown. The choice is published on `/api/onewire/water`, answered only on the Pi itself, and the 1-Wire service follows it (and saves it) when it runs alongside; without the WebUI the service works as before.

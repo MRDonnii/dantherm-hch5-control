@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Flame, Gauge, House, Leaf, Snowflake, Wind, X, Zap } from "lucide-react";
 import { Hch5UnitDiagram } from "../components/Hch5UnitDiagram";
+import { AfterheatThermostat } from "../components/AfterheatThermostat";
 import { describeControl } from "../lib/control";
 import { HistoryChart, type HistorySeries } from "../components/HistoryChart";
 import { postJson, requestJson } from "../lib/api";
@@ -85,6 +86,8 @@ export function OverviewPage() {
   const afterheatTimer = useRef<number | null>(null);
   const afterheatPending = useRef<{ target: AfterheatValue; seq: number } | null>(null);
   const afterheatSeq = useRef(0);
+  // Setpoint to return to when the power button turns the afterheat back on.
+  const lastAfterheatOn = useRef(20);
   const [activeSensor, setActiveSensor] = useState<string | null>(null);
   const [historySamples, setHistorySamples] = useState<HistorySample[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -220,6 +223,7 @@ export function OverviewPage() {
   const afterheatSetpoint = number(controller.afterheat_setpoint) ?? 20;
   const afterheatEnabled = controller.afterheat_enabled !== false;
   const shownAfterheat: AfterheatValue = afterheatDraft ?? (afterheatEnabled ? afterheatSetpoint : "off");
+  if (typeof afterheatSetpoint === "number") lastAfterheatOn.current = afterheatSetpoint;
   const actualAfterheatSelectionNumber = number(controller.actual_afterheat_selection);
   const actualAfterheatSelection = controller.actual_afterheat_selection === "off"
     ? "OFF"
@@ -237,10 +241,8 @@ export function OverviewPage() {
 
   const levelPatch = mode === "manual" ? "manual_level" : "local_normal_level";
   // Remote-style range: OFF - 10 - 11 ... 35. Minus below 10 selects OFF.
-  const stepAfterheat = (direction: 1 | -1) => {
-    const next: AfterheatValue = direction > 0
-      ? shownAfterheat === "off" ? 10 : Math.min(35, shownAfterheat + 1)
-      : shownAfterheat === "off" || shownAfterheat <= 10 ? "off" : shownAfterheat - 1;
+  const setAfterheatTarget = (next: AfterheatValue) => {
+    if (next !== "off") lastAfterheatOn.current = next;
     const seq = ++afterheatSeq.current;
     setAfterheatDraft(next);
     afterheatPending.current = { target: next, seq };
@@ -366,17 +368,9 @@ export function OverviewPage() {
         </article>
 
         <article className="surface afterheat-setpoint-card">
-          <div className="afterheat-row">
-            <div className="afterheat-copy"><span>Eftervarme setpunkt</span>{afterheatLockout
-              // The summer stop replaces the HAC1 details so the card stays compact.
-              ? <div className="afterheat-lockout">Spærret af HAC1: udetemperaturen er {temp(outdoor)}. Eftervarmen tænder først, når det er under {whole(afterheatCutoff)}{"\u00a0"}°C ude.</div>
-              : <><strong>I HAC1: {actualAfterheatSelection}</strong><small>Varmekald: {afterheatStatus}</small></>}</div>
-            <div className="setpoint-stepper">
-              <button disabled={shownAfterheat === "off"} onClick={() => stepAfterheat(-1)}>−</button>
-              <strong>{shownAfterheat === "off" ? "OFF" : `${whole(shownAfterheat)} °C`}</strong>
-              <button disabled={shownAfterheat === 35} onClick={() => stepAfterheat(1)}>+</button>
-            </div>
-          </div>
+          <AfterheatThermostat value={shownAfterheat} onChange={setAfterheatTarget} heating={heating} lockout={afterheatLockout}
+            cutoff={afterheatCutoff} outdoor={outdoor} airBefore={number(controller.actual_supply_before_heater_temperature)} airAfter={afterHeater}
+            registered={actualAfterheatSelection} lastOn={lastAfterheatOn.current}/>
         </article>
       </div>
       {activeSensor && SENSOR_HISTORY[activeSensor] && <div className="sensor-history-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setActiveSensor(null); }}>
