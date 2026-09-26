@@ -407,10 +407,11 @@ function ElectricCoil({ heating, lockout }: { heating: boolean; lockout: boolean
 }
 
 // Water afterheat coil: a copper serpentine through aluminium fins. Flow water
-// enters the left pass and leaves the right one, so the tube is tinted from
+// enters the right pass at the incoming-air side and leaves the left pass
+// toward the house, so the tube is tinted from
 // the flow to the return temperature; the pipes run to those readings, and
 // the water only moves while the afterheat is active.
-const WATER_TUBE = "M-30 68 V-52 A6 6 0 0 1 -18 -52 V52 A6 6 0 0 0 -6 52 V-52 A6 6 0 0 1 6 -52 V52 A6 6 0 0 0 18 52 V-52 A6 6 0 0 1 30 -52 V68";
+const WATER_TUBE = "M30 68 V-52 A6 6 0 0 0 18 -52 V52 A6 6 0 0 1 6 52 V-52 A6 6 0 0 0 -6 -52 V52 A6 6 0 0 1 -18 52 V-52 A6 6 0 0 0 -30 -52 V68";
 const WATER_FINS = [-42, -34, -26, -18, -10, -2, 6, 14, 22, 30, 38];
 // Water-heating colours: blue when cold, orange when warm, red when hot.
 const WATER_SCALE: readonly (readonly [number, number, number, number])[] = [[15, 74, 163, 255], [28, 255, 154, 61], [45, 255, 78, 58]];
@@ -447,14 +448,14 @@ function WaterCoil({ heating, lockout, flowWater, returnWater }: { heating: bool
   const [sx, sy] = local(WATER_SUPPLY_TO), [rx, ry] = local(WATER_RETURN_TO), [vx, vy] = local(WATER_VALVE_AT);
   const colours = waterPath(flowWater, returnWater);
   const pipes = [
-    ["supply", `M${sx} ${sy} H-38 Q-30 ${sy} -30 ${sy - 8} V68`, colours.flow],
-    ["return", `M30 68 V${ry - 8} Q30 ${ry} 22 ${ry} H${rx}`, colours.ret],
+    ["supply", `M${sx} ${sy} H-115 V145 H60 V68 H30`, colours.flow],
+    ["return", `M-30 68 V${ry} H${rx}`, colours.ret],
   ] as const;
-  // The flow enters the left pass and leaves the right one, so the coil
-  // fades left to right from the flow colour through the middle to the return.
+  // Air moves right to left. Hot flow meets it on the right; the coil
+  // fades right to left from flow through the middle to cooled return.
   return <g className={`hch-external-coil hch-water-coil${heating ? " active" : ""}`} transform={`translate(${COIL_AT[0]} ${COIL_AT[1]})`}>
     <defs>
-      <linearGradient id="waterCoilTint" gradientUnits="userSpaceOnUse" x1="-30" y1="0" x2="30" y2="0"><stop offset="0" stopColor={colours.flow}/><stop offset=".5" stopColor={colours.mid}/><stop offset="1" stopColor={colours.ret}/></linearGradient>
+      <linearGradient id="waterCoilTint" gradientUnits="userSpaceOnUse" x1="30" y1="0" x2="-30" y2="0"><stop offset="0" stopColor={colours.flow}/><stop offset=".5" stopColor={colours.mid}/><stop offset="1" stopColor={colours.ret}/></linearGradient>
     </defs>
     {pipes.map(([kind, d, colour]) => <g key={kind} className={`water-pipe ${kind}`}><path className="water-pipe-shell" d={d}/><path className="water-pipe-core" d={d} style={{ stroke: colour }}/><WaterCurrent d={d}/></g>)}
     <g className="water-valve" transform={`translate(${vx} ${vy})`}><path className="valve-body" d="M-8 -6 L8 6 V-6 L-8 6 Z"/><rect className="valve-actuator" x="-5" y="7" width="10" height="7" rx="2"/></g>
