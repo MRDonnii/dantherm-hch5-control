@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0-beta.75
+
+- Diagnostics and protection. The controller now watches the unit and raises alarms once a condition has lasted a while, and clears them on its own: frost risk in the exchanger (exhaust T4 near 0 °C), low heat recovery, supply- and extract-side recovery disagreeing, the bypass not closing, the afterheat calling without warming the air, a 1-Wire sensor with a role not answering, no healthy RS485 bus, and the fans drawing more power than with a clean filter. The overview shows active alarms at the top.
+- Fan power and filter: with a power meter on the unit (from Home Assistant) the controller computes the specific fan power, W per m³/s, and learns the clean-filter value per fan level; a filter reset starts it over. The overview shows how much more power the fans use than with a clean filter.
+- Energy: recovered heat, afterheat and the unit's own consumption are counted as kWh totals that survive restarts, plus today's values and how many times its own power the unit recovers. Stored in `diagnostics.json` next to the controller state.
+- Changes by Claude AI.
+
 ## 1.2.0-beta.74
 
 - The unit's electrical draw from a power meter in Home Assistant (e.g. a Shelly on the unit's supply) is shown in the overview as "Forbrug". Home Assistant sends it on `/api/controller/signals` as `unit_power_w`, leased like the fireplace signal, so a stale value disappears on its own. Sending only the power leaves the fireplace signal untouched.

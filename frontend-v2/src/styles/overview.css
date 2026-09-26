@@ -68,3 +68,10 @@ button:disabled{opacity:.42!important;cursor:not-allowed!important;transform:non
 .sensor-history-message{padding:22px 0;color:var(--orange)}
 @media(max-width:680px){.sensor-history-dialog{padding:15px}.sensor-history-heading h2{font-size:18px}}
 .air-calc-head { margin-top: 14px; }
+.diagnostics-alarms { display: grid; gap: 6px; margin: 0 0 12px; }
+.diagnostics-alarm { display: flex; gap: 10px; align-items: baseline; padding: 9px 13px; border: 1px solid #5a4a22; border-radius: 10px; background: rgb(255 173 85 / 10%); color: var(--text, #dff6ff); font-size: 12px; }
+.diagnostics-alarm strong { color: var(--orange, #ffad55); }
+.diagnostics-alarm.critical { border-color: #6b2a2a; background: rgb(255 90 90 / 12%); }
+.diagnostics-alarm.critical strong { color: #ff7a7a; }
+.diagnostics-alarm.info { border-color: #1f3948; background: rgb(112 204 255 / 8%); }
+.diagnostics-alarm.info strong { color: #70ccff; }

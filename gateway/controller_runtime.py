@@ -17,6 +17,7 @@ from pathlib import Path
 
 from advanced_control import absolute_humidity, source_room, supply_after_core, supply_air_metrics
 from onewire_extras import OneWireExtras
+from diagnostics import Diagnostics
 from controller_core import ControllerEngine, ControllerError, ControllerState, HardwareAdapter
 from master_arbitration import MasterArbitrator, RtuFrameStream
 from sensor_freshness import fresh_sensor_value, sensor_sample_age
@@ -44,6 +45,8 @@ class ControllerRuntime:
                  master_config: dict | None = None) -> None:
         self.gateway_state = gateway_state
         self.config = ControllerState(state_path)
+        self.diagnostics = Diagnostics(self.config.path.parent / "diagnostics.json")
+        self.diagnostics_at = 0.0
         # Controller enable is no longer a user option. The Pi is always ready
         # to take over when HCP4 is absent and the bus is healthy.
         if not self.config.data.get("enabled"):
@@ -725,6 +728,7 @@ class ControllerRuntime:
         result["supply_airflow_estimate_m3h"] = supply_m3h
         fresh_power = self.unit_power_until is not None and time.time() <= self.unit_power_until
         result["unit_power_w"] = self.unit_power_w if fresh_power else None
+        result.update(self.diagnostics.result)
         result.update(supply_air_metrics(
             outdoor, extract, before_heater, after_heater, supply_m3h,
             self._first(self.gateway_state, "bypass_active") is True,
@@ -813,7 +817,27 @@ class ControllerRuntime:
         LOG.info("Local HCH controller runtime started (automatic master=%s)", self.master.master)
         while not self.stop_event.is_set():
             self.tick()
+            if time.time() - self.diagnostics_at >= 10:
+                self.update_diagnostics()
             self.stop_event.wait(self.tick_seconds)
+        self.diagnostics.save()
+
+    def update_diagnostics(self, now: float | None = None) -> dict[str, object]:
+        """Feed the diagnostics with the current snapshot and the raw unit temperatures."""
+        self.diagnostics_at = time.time() if now is None else now
+        try:
+            feed = self.snapshot()
+            state = self.gateway_state
+            feed.update({
+                "outdoor_temperature": self._safe_number(self._first(state, "outdoor_temp", "outdoor_temperature"), -50, 60),
+                "extract_temperature": self._safe_number(self._first(state, "extract_temp", "extract_temperature"), -30, 60),
+                "exhaust_temperature": self._safe_number(self._first(state, "exhaust_temp", "exhaust_temperature"), -50, 60),
+                "filter_life_percent": state.get("filter_life_percent"),
+            })
+            return self.diagnostics.update(feed, now)
+        except Exception as error:  # diagnostics must never stop the controller
+            LOG.warning("Diagnostics update failed: %s", error)
+            return {}
 
     def start(self) -> None:
         if self.thread and self.thread.is_alive():

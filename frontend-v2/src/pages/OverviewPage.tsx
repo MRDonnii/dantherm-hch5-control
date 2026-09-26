@@ -289,6 +289,10 @@ export function OverviewPage() {
         </div>
       </header>
 
+      {Array.isArray(controller.diagnostics_alarms) && controller.diagnostics_alarms.length > 0 && <div className="diagnostics-alarms" role="alert">
+        {(controller.diagnostics_alarms as { code: string; severity: string; text: string }[]).map(alarm => <div key={alarm.code} className={`diagnostics-alarm ${alarm.severity}`}><strong>{alarm.severity === "critical" ? "Fejl" : alarm.severity === "warning" ? "Advarsel" : "Bemærk"}</strong><span>{alarm.text}</span></div>)}
+      </div>}
+
       <div className="dashboard-main-grid">
         <article className="surface pro-air-card">
           <div className="pro-card-head">
@@ -376,6 +380,13 @@ export function OverviewPage() {
               <div className="climate-metric neutral"><Flame size={21}/><span>Eftervarme effekt</span><strong>{whole(number(controller.afterheat_power_w))} <small>W</small></strong><em>Varme tilført luften</em><i style={{ width: `${Math.min(100, (number(controller.afterheat_power_w) ?? 0) / 20)}%` }}/></div>
             </div>
           </>}
+          <div className="pro-card-head compact air-calc-head"><div><h2>Diagnose og energi i dag</h2><p>{controller.diagnostics_status === "ok" || !controller.diagnostics_status ? "Ingen advarsler" : `${controller.diagnostics_alarm_count} advarsel${controller.diagnostics_alarm_count === 1 ? "" : "er"}`}</p></div></div>
+          <div className="climate-metrics">
+            <div className="climate-metric cyan"><Snowflake size={21}/><span>Frost i veksler</span><strong>{({ ok: "OK", watch: "Hold øje", risk: "Risiko", unknown: "—" } as Record<string, string>)[String(controller.frost_state ?? "unknown")] ?? "—"}</strong><em>Afkast T4 {temp(exhaust)}</em><i style={{ width: controller.frost_state === "risk" ? "100%" : controller.frost_state === "watch" ? "50%" : "5%" }}/></div>
+            <div className="climate-metric neutral"><Gauge size={21}/><span>Filter · strøm</span><strong>{number(controller.filter_power_ratio) === null ? "—" : `${Math.round((number(controller.filter_power_ratio)! - 1) * 100)} %`}</strong><em>{number(controller.specific_fan_power) === null ? "Kræver effektmåler" : `SFP ${whole(number(controller.specific_fan_power))} W/(m³/s) · over rent filter`}</em><i style={{ width: `${Math.min(100, Math.max(0, ((number(controller.filter_power_ratio) ?? 1) - 1) * 400))}%` }}/></div>
+            <div className="climate-metric green"><Leaf size={21}/><span>Genvundet i dag</span><strong>{number(controller.recovered_energy_today_kwh)?.toLocaleString("da-DK", { maximumFractionDigits: 2 }) ?? "—"} <small>kWh</small></strong><em>{number(controller.recovery_factor) === null ? "Varme hentet hjem" : `${number(controller.recovery_factor)!.toLocaleString("da-DK")} × anlæggets strøm`}</em><i style={{ width: `${Math.min(100, (number(controller.recovered_energy_today_kwh) ?? 0) * 5)}%` }}/></div>
+            <div className="climate-metric neutral"><Zap size={21}/><span>Strøm i dag</span><strong>{number(controller.unit_energy_today_kwh)?.toLocaleString("da-DK", { maximumFractionDigits: 2 }) ?? "—"} <small>kWh</small></strong><em>Eftervarme {number(controller.afterheat_energy_today_kwh)?.toLocaleString("da-DK", { maximumFractionDigits: 2 }) ?? "—"} kWh</em><i style={{ width: `${Math.min(100, (number(controller.unit_energy_today_kwh) ?? 0) * 50)}%` }}/></div>
+          </div>
         </article>
 
         <article className="surface afterheat-setpoint-card">
