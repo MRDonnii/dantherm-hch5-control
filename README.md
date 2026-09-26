@@ -133,6 +133,8 @@ Install the [HCH PassiveLink integration](https://github.com/MRDonnii/dantherm-h
 
 The classic raw data connection remains compatible on TCP port `4196`. Controller commands and Smart Auto room data go through the authenticated HTTP controller API; Home Assistant does not write Modbus directly.
 
+In the integration's controller options you can choose the unit's power meter, today's measured kWh (for example a daily Utility Meter) and the current electricity and heat prices in kr/kWh. Home Assistant renews them on the Pi every minute for display only; they never change ventilation control.
+
 The optional Home Assistant `utility_meter` can use a physical kWh meter for measured daily electricity. The Pi's afterheat and recovered-heat figures are estimates based on measured air temperatures and estimated airflow; they are not a water-side heat meter. Krone values use the supplied current kWh price and are approximate, not historical tariff-weighted bills. Recovered heat × heat price is a theoretical replacement value, not a measured cash saving.
 
 ## WebUI preview

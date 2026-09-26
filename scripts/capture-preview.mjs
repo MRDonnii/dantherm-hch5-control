@@ -15,7 +15,7 @@ async function setup(width,height){
  await page.route('**/state.json',route=>route.fulfill({json:unit}));
  await page.route('**/api/controller/state',route=>route.fulfill({json:controller}));
  await page.route('**/api/auth/status',route=>route.fulfill({json:{csrf:'demo'}}));
- await page.route('**/api/admin/action',route=>route.fulfill({json:{current_version:'1.2.0-beta.82',available_version:'1.2.0-beta.82',current_build:'example',available_build:'example',channel:'beta',update_available:false}}));
+ await page.route('**/api/admin/action',route=>route.fulfill({json:{current_version:'1.2.0-beta.83',available_version:'1.2.0-beta.83',current_build:'example',available_build:'example',channel:'beta',update_available:false}}));
  await page.route('https://api.open-meteo.com/**',route=>route.fulfill({json:{current:{temperature_2m:9.2,weather_code:2,is_day:1,time:'2026-09-26T14:00'}}}));
  await page.route('https://air-quality-api.open-meteo.com/**',route=>route.fulfill({json:{current:{european_aqi:24,pm2_5:5.2,pm10:9.1,time:'2026-09-26T14:00'}}}));
  await page.goto('http://127.0.0.1:5173/assets/#/overview');

@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.2.0-beta.83
+
+- Home Assistant can now send the unit's measured kWh today and the current electricity and heat prices through the integration's controller options (HCH PassiveLink 0.8.0-beta.3); no YAML automation is needed. The overview then shows **Strøm i dag · målt** and approximate kr values.
+- "Diagnose og energi i dag" shows all five tiles in one row on desktop.
+- "Beregnet fra målt T2" moved into the afterheat card beside the indoor climate panel, as a compact 2 × 2 grid, so the overview is lower. The thermostat readings no longer run past the card edge in the narrow right column.
+- The documentation link on **Opdateringer** points at the maintained branch.
+- Changes by Claude AI.
+
+## 1.2.0-beta.82
+
+- Daily electricity (measured when HA supplies it, otherwise estimated), afterheat and recovered heat with approximate kr values from the current electricity and heat prices. Recovered heat × heat price is shown as a theoretical value, not a saving on the bill.
+- **Opdateringer** links to the HA integration and the dashboard card in HACS and to the new setup guide `docs/energy-and-ha.da.md`.
+- The afterheat water flow goes straight up into the afterheat coil instead of running under the HAC1 unit.
+- New README screenshots and an animated GIF of the overview.
+
+## 1.2.0-beta.81
+
+- The content security policy allows the weather APIs used by the top bar.
+
+## 1.2.0-beta.80
+
+- Live weather and outdoor air status in the top bar.
+- The afterheat water flow follows the incoming air.
+
 ## 1.2.0-beta.79
 
 - The afterheat card is now a thermostat: a round 10–35 °C scale you can drag or tap, − / + and an on/off button that remembers the last setpoint. The arc glows orange while HAC1 heats, turns amber during the summer stop (with the reason), blue when ready and grey when off. Beside it: air before and after the coil, the lift, and what HAC1 has registered. One command is still sent once you let go.

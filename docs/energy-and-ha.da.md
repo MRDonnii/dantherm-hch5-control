@@ -10,7 +10,16 @@
 
 ## HA-sensorer til Pi
 
-Under integrationens controllerindstillinger kan du vælge en effektsensor for selve anlægget (W). Den sendes til Pi som et tidsbegrænset, læsbart signal. Rumkilder kan tilføjes med temperatur, fugt og CO₂; for hver kilde vælges, om den må styre Smart Auto (`control: true`) eller kun vises (`control: false`). Brug kun styring for rum, der faktisk skal påvirke ventilationsniveauet. Pi'en udløber gamle HA-data og fortsætter lokal drift, når HA ikke svarer.
+Under integrationens controllerindstillinger (**Indstillinger → Enheder og tjenester → Dantherm HCH PassiveLink → Konfigurér**, trinnet *Raspberry Pi-controller og Smart Auto*) kan du vælge fire valgfrie sensorer, som Pi'en kun viser i WebUI:
+
+| Felt i integrationen | Vælg | Bruges i WebUI til |
+| --- | --- | --- |
+| Effektmåler på anlægget | Aktuel effekt i W/kW, fx en Shelly på anlæggets forsyning | Effekt, SFP og filtertjek via strømforbrug |
+| Dantherms elforbrug i dag | Daglig kWh, fx en Utility Meter (se nedenfor) | **Strøm i dag · målt** i stedet for Pi'ens anslag |
+| Elpris | Aktuel elpris i kr/kWh (øre/kWh og DKK/MWh omregnes) | Ca. kr for dagens strøm |
+| Varmepris | Aktuel fjernvarme-/varmepris i kr/kWh | Ca. kr for eftervarme og teoretisk værdi af genvundet varme |
+
+Værdierne sendes til Pi'en ved opstart og derefter hvert minut som tidsbegrænsede, læsbare signaler (gyldige i fem minutter). Stopper HA, forsvinder de fra WebUI af sig selv. Ingen af dem ændrer ventilationsstyringen. Rumkilder kan tilføjes med temperatur, fugt og CO₂; for hver kilde vælges, om den må styre Smart Auto (`control: true`) eller kun vises (`control: false`). Brug kun styring for rum, der faktisk skal påvirke ventilationsniveauet. Pi'en udløber gamle HA-data og fortsætter lokal drift, når HA ikke svarer.
 
 Udendørs vejr og luftkvalitet i WebUI kommer fra Open-Meteo i browseren og kræver ikke HA. Google Air Quality i HA kan vises i HA-kortets udendørs luftkvalitetsfelt; det er ikke en vejrudsigt og styrer ikke automatisk ventilatoren.
 
@@ -28,9 +37,9 @@ Disse tal er **ikke** målt vandbåret varmeforbrug: fremløbs- og returtemperat
 
 Hvis prissensorerne er tomme eller utilgængelige, vises `—` i stedet for et opdigtet kronebeløb. Når en aktuel elpris bruges for hele dagens kWh, mærkes beløbet **ca.**; for en præcis daglig elregning kræves timeopdelt pris ganget med forbrug i samme timer.
 
-## Valgfri energidata fra HA til WebUI
+## Valgfri energidata fra HA til WebUI uden integrationen
 
-WebUI/controller-API'en kan modtage disse ekstra, tidsbegrænsede værdier i `POST /api/controller/signals`:
+Bruger du integrationens felter ovenfor, er dette afsnit ikke nødvendigt. Andre systemer kan sende de samme værdier direkte: WebUI/controller-API'en kan modtage disse ekstra, tidsbegrænsede værdier i `POST /api/controller/signals`:
 
 ```json
 {
@@ -57,7 +66,7 @@ Kontrollér sensorernes enheder, navnlig at priserne er **kr/kWh** og ikke øre/
 
 ### Eksempel: send dagstal og priser én gang i minuttet
 
-Dette er valgfrit; HA-kortet læser allerede HA-sensorerne direkte. Brug dine egne entity-id'er og Pi-adresse. Gem hele `Bearer <token>` som `hch5_controller_authorization` i HA's private `secrets.yaml`.
+Kun nødvendigt, hvis du ikke bruger integrationens felter; HA-kortet læser allerede HA-sensorerne direkte. Brug dine egne entity-id'er og Pi-adresse. Gem hele `Bearer <token>` som `hch5_controller_authorization` i HA's private `secrets.yaml`.
 
 ```yaml
 # configuration.yaml eller en HA-package
