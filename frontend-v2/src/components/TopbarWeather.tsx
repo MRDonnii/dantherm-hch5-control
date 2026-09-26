@@ -3,13 +3,16 @@ import { Cloud, CloudRain, CloudSnow, CloudSun, MapPin, Sun } from "lucide-react
 
 type Place = { name: string; latitude: number; longitude: number };
 type Current = { temperature_2m: number; weather_code: number; is_day: number; time: string };
+type AirQuality = { european_aqi: number; pm2_5: number; pm10: number; time: string };
 const KEY = "hch5-weather-place";
+// Langaa is the existing HA forecast location; the chooser can override it.
+const DEFAULT_PLACE: Place = { name: "Langå", latitude: 56.39026, longitude: 9.89486 };
 
 function savedPlace(): Place | null {
   try {
     const value = JSON.parse(localStorage.getItem(KEY) || "null") as Place | null;
-    return value && typeof value.name === "string" && Number.isFinite(value.latitude) && Number.isFinite(value.longitude) ? value : null;
-  } catch { return null; }
+    return value && typeof value.name === "string" && Number.isFinite(value.latitude) && Number.isFinite(value.longitude) ? value : DEFAULT_PLACE;
+  } catch { return DEFAULT_PLACE; }
 }
 
 function description(code: number) {
@@ -23,6 +26,7 @@ function description(code: number) {
 export function TopbarWeather() {
   const [place, setPlace] = useState<Place | null>(savedPlace);
   const [current, setCurrent] = useState<Current | null>(null);
+  const [air, setAir] = useState<AirQuality | null>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
@@ -39,6 +43,14 @@ export function TopbarWeather() {
         if (!data.current || !Number.isFinite(data.current.temperature_2m)) throw new Error("Vejrdata mangler");
         if (alive) { setCurrent(data.current); setError(""); }
       } catch { if (alive) { setCurrent(null); setError("Vejrdata utilgængelige"); } }
+      try {
+        const params = new URLSearchParams({ latitude: String(place.latitude), longitude: String(place.longitude), current: "european_aqi,pm2_5,pm10", forecast_days: "1" });
+        const response = await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?${params}`);
+        if (!response.ok) throw new Error("Air quality unavailable");
+        const data = await response.json() as { current?: AirQuality };
+        if (!data.current || !Number.isFinite(data.current.european_aqi)) throw new Error("Air quality missing");
+        if (alive) setAir(data.current);
+      } catch { if (alive) setAir(null); }
     };
     void update();
     const timer = window.setInterval(() => void update(), 10 * 60 * 1000);
@@ -57,6 +69,7 @@ export function TopbarWeather() {
       if (!next) { setError("Stedet blev ikke fundet"); return; }
       localStorage.setItem(KEY, JSON.stringify(next));
       setCurrent(null);
+      setAir(null);
       setPlace(next);
       setOpen(false);
       setError("");
@@ -65,14 +78,14 @@ export function TopbarWeather() {
 
   const icon = current?.weather_code === 0 ? <Sun size={17}/> : current && current.weather_code >= 71 && current.weather_code <= 86 ? <CloudSnow size={17}/> : current && (current.weather_code >= 51 || current.weather_code >= 95) ? <CloudRain size={17}/> : current ? <CloudSun size={17}/> : <Cloud size={17}/>;
   return <div className="topbar-weather">
-    <button type="button" className="topbar-weather-button" onClick={() => setOpen(value => !value)} aria-label="Vælg sted for live vejr" title={place ? `Open-Meteo · ${place.name} · ${current?.time ?? "afventer"}` : "Vælg sted for live vejr"}>
-      {icon}<span>{place ? current ? `${Math.round(current.temperature_2m)} °C · ${description(current.weather_code)}` : error || "Henter vejr…" : "Vælg vejrsted"}</span><small>{place?.name}</small>
+    <button type="button" className="topbar-weather-button" onClick={() => setOpen(value => !value)} aria-label="Vælg sted for live vejr" title={`${place?.name ?? "Sted"} · ${current ? `${Math.round(current.temperature_2m)} °C, ${description(current.weather_code)}` : error || "Henter vejr"}${air ? ` · EU luftindeks ${Math.round(air.european_aqi)}, PM2.5 ${air.pm2_5} µg/m³, PM10 ${air.pm10} µg/m³` : ""} · Open-Meteo / CAMS`}>
+      {icon}<span>{current ? `${Math.round(current.temperature_2m)} °C · ${description(current.weather_code)}` : error || "Henter vejr…"}</span>{air && <small className="topbar-weather-aqi">EU {Math.round(air.european_aqi)}</small>}<small>{place?.name}</small>
     </button>
     {open && <form className="topbar-weather-picker" onSubmit={choose}>
       <label htmlFor="weather-place">Vejr for</label>
       <div><MapPin size={15}/><input id="weather-place" value={query} onChange={event => setQuery(event.target.value)} placeholder="By eller postnummer" autoFocus/><button type="submit">Vælg</button></div>
       {error && <small role="status">{error}</small>}
-      <small>Vejrprognose fra Open-Meteo</small>
+      <small>Vejr: Open-Meteo · Luft: CAMS via Open-Meteo</small>
     </form>}
   </div>;
 }

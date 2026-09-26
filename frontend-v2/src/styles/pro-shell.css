@@ -15,6 +15,7 @@
 .topbar-weather-button { display: flex; align-items: center; gap: 7px; min-height: 34px; padding: 5px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); cursor: pointer; white-space: nowrap; font-size: 10px; font-weight: 750; }
 .topbar-weather-button svg { color: #73c7ec; }
 .topbar-weather-button small { color: var(--muted); font-size: 9px; }
+.topbar-weather-button .topbar-weather-aqi { color: #8ed7b2; padding-left: 7px; border-left: 1px solid var(--border); }
 .topbar-weather-picker { position: absolute; top: calc(100% + 9px); right: 0; z-index: 30; width: 260px; display: grid; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); box-shadow: var(--shadow-md); }
 .topbar-weather-picker label { font-size: 10px; font-weight: 750; }
 .topbar-weather-picker > div { display: flex; align-items: center; gap: 5px; }
