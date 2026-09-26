@@ -34,7 +34,7 @@ import yaml
 from controller_core import HardwareAdapter
 from controller_dashboard_server import ControllerDashboardHttpServer
 from controller_runtime import ControllerRuntime
-from sensor_freshness import SENSOR_SAMPLE_TIMESTAMPS
+from sensor_freshness import SENSOR_SAMPLE_TIMESTAMPS, fresh_sensor_value
 
 LOG = logging.getLogger("dantherm_gateway")
 
@@ -662,6 +662,7 @@ class Gateway:
         self.last_control_verify = 0.0
         self.last_afterheat_poll = 0.0
         self.last_afterheat_temperature_refresh = 0.0
+        self.last_unit_supply_feed = 0.0
         self.last_afterheat_block_at: float | None = None
         self.last_hrc2_t5_poll = 0.0
         self.last_temperature_snapshot_poll = 0.0
@@ -1683,6 +1684,36 @@ class Gateway:
             return False
         return True
 
+    def feed_unit_supply_temperature_if_due(
+        self, ser: serial.Serial, *, now: float | None = None
+    ) -> bool:
+        """Give the unit its supply temperature the way HCP4 did.
+
+        With the external HAC1 afterheater the HCH5 has no live T2 of its own:
+        HCP4 read HAC1's T2AH (register 205) and every ~3 s wrote register
+        146=3 and then 147=that raw value to the unit, which the unit then
+        reports as T2 (FC04 register 1). Captures 2026-09-23 07:41-08:15:
+        402 of 415 writes were read back as the next T2. Without this the
+        unit's T2 stays frozen at the last HCP4 value once Pi is master.
+        """
+        now = time.monotonic() if now is None else now
+        if now - self.last_unit_supply_feed < 3.0:
+            return False
+        if not self.controller.hardware_writes_allowed():
+            return False
+        value = fresh_sensor_value(self.state, "heating_coil_after_temperature")
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or not -35 <= float(value) <= 100:
+            return False
+        self.last_unit_supply_feed = now
+        raw = int(round(float(value) * 100)) & 0xFFFF
+        try:
+            self.write_one(ser, 146, 3)
+            self.write_one(ser, 147, raw)
+        except Exception as error:
+            LOG.error("Unit supply temperature feed failed: %s", error)
+            return False
+        return True
+
     def write_afterheat_setpoint(self, ser: serial.Serial, value: int | None) -> int | None:
         """Write only the verified HAC1 thermostat block.
 
@@ -2377,6 +2408,7 @@ class Gateway:
                             self.last_fireplace_write = time.monotonic()
                             self.publish_fireplace_timer()
                     self.refresh_afterheat_temperature_block_if_due(ser)
+                    self.feed_unit_supply_temperature_if_due(ser)
                     if (
                         self.active_reads_enabled
                         and time.monotonic() - self.last_afterheat_poll >= 15.0

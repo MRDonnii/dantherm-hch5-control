@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0-beta.70
+
+- Fix the unit's T2 staying frozen with the Pi as master. With the external HAC1 afterheater the HCH5 has no live T2 of its own: HCP4 read HAC1's T2AH and wrote it to the unit (register 146=3, then 147=T2AH) every ~3 s, and the unit reported that as T2. The Pi now does the same, only as master and only with a fresh T2AH, so T2 on the unit, in the HAC1 temperature block and in Home Assistant follows the real supply air again. Found in the 2026-09-23 bus captures: 402 of 415 writes were read back as the next T2.
+- Air colours follow temperature and are relative to the warmest and coldest air in the drawing, so the warm side of the exchanger is always redder than the cold side; they fade through the core and the afterheat coil. The supply between core and coil follows T2AH while the afterheat is off.
+- The exchanger is drawn solid; tapping it shows the air passing through for a minute. Tapping the recovery value opens its 24-hour history.
+- Changes by Claude AI.
+
 ## 1.2.0-beta.69
 
 - The water coil shows the water flowing while the afterheat is active: light bands and small bubbles move from the flow pipe through the coil to the return, and the water stands still otherwise. When flow and return differ, the hotter end is red and the water fades through orange to blue at the colder end; equal temperatures give one colour from blue (cold) through orange to red (hot).

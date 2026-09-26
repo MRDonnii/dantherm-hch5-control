@@ -1,3 +1,4 @@
+import time
 import json
 import importlib.machinery
 import sys
@@ -425,3 +426,33 @@ class BypassAndDiscoveryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UnitSupplyFeedTests(unittest.TestCase):
+    def gateway(self, allowed=True):
+        gateway = make_gateway()
+        gateway.last_unit_supply_feed = 0.0
+        gateway.controller = type("C", (), {"hardware_writes_allowed": lambda self: allowed})()
+        writes = []
+        gateway.write_one = lambda _ser, register, value: writes.append((register, value))
+        return gateway, writes
+
+    def test_writes_146_then_147_with_t2ah_like_hcp4(self):
+        gateway, writes = self.gateway()
+        gateway.state.update({"heating_coil_after_temperature": 20.97,
+                              "heating_coil_after_temperature_sample_monotonic": time.monotonic()})
+        self.assertTrue(gateway.feed_unit_supply_temperature_if_due(None, now=100.0))
+        self.assertEqual(writes, [(146, 3), (147, 0x0831)])
+        self.assertFalse(gateway.feed_unit_supply_temperature_if_due(None, now=101.0))
+        self.assertTrue(gateway.feed_unit_supply_temperature_if_due(None, now=103.1))
+
+    def test_never_writes_without_mastership_or_fresh_t2ah(self):
+        gateway, writes = self.gateway(allowed=False)
+        gateway.state.update({"heating_coil_after_temperature": 21.0,
+                              "heating_coil_after_temperature_sample_monotonic": time.monotonic()})
+        self.assertFalse(gateway.feed_unit_supply_temperature_if_due(None, now=100.0))
+        gateway, writes = self.gateway()
+        gateway.state.update({"heating_coil_after_temperature": 21.0,
+                              "heating_coil_after_temperature_sample_monotonic": time.monotonic() - 3600})
+        self.assertFalse(gateway.feed_unit_supply_temperature_if_due(None, now=100.0))
+        self.assertEqual(writes, [])
