@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from controller_core import ControllerError
-from dashboard_server import ASSET_TYPES, DashboardHttpServer
+from dashboard_server import ASSET_TYPES, DashboardHttpServer, WEBUI_CSP
 
 LOG = logging.getLogger("passivelink-controller-web")
 CONTROLLER_ASSETS = {
@@ -334,7 +334,7 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                 self.send_header("Content-Type", content_type)
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("X-Content-Type-Options", "nosniff")
-                self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:")
+                self.send_header("Content-Security-Policy", WEBUI_CSP)
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers(); self.wfile.write(body)
 

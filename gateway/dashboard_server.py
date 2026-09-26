@@ -5,6 +5,12 @@ import hmac, importlib.util, json, logging, os, platform, shutil, socket, sqlite
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+WEBUI_CSP = (
+    "default-src 'self'; style-src 'self'; script-src 'self'; "
+    "connect-src 'self' https://api.open-meteo.com "
+    "https://air-quality-api.open-meteo.com https://geocoding-api.open-meteo.com; "
+    "img-src 'self' data:"
+)
 try:
     from webui_auth import AuthManager
 except ModuleNotFoundError:
@@ -293,7 +299,7 @@ class DashboardHttpServer:
                 except OSError: self.send_error(404); return
                 self._body(body, content_type)
             def _body(self, body, content_type):
-                self.send_response(200); self.send_header("Content-Type", content_type); self.send_header("Cache-Control", "no-store"); self.send_header("X-Content-Type-Options", "nosniff"); self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:"); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+                self.send_response(200); self.send_header("Content-Type", content_type); self.send_header("Cache-Control", "no-store"); self.send_header("X-Content-Type-Options", "nosniff"); self.send_header("Content-Security-Policy", WEBUI_CSP); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
             def log_message(self, format_, *args): LOGGER.debug(format_, *args)
         self.server = ThreadingHTTPServer((self.host, self.port), Handler); self.thread = threading.Thread(target=self.server.serve_forever, name="dashboard-http", daemon=True); self.thread.start()
         def record_history():
