@@ -73,6 +73,9 @@ class ControllerRuntime:
         # External fireplace switch (leased) and the automatic fireplace hold.
         self.fireplace_signal: bool | None = None
         self.fireplace_signal_until: float | None = None
+        # Electrical draw of the unit from a power meter in HA (e.g. a Shelly), leased.
+        self.unit_power_w: float | None = None
+        self.unit_power_until: float | None = None
         self.fireplace_auto_active = False
         self.fireplace_auto_by_temperature = False
         self.fireplace_auto_started_at: float | None = None
@@ -232,11 +235,18 @@ class ControllerRuntime:
             raise ControllerError("valid_for_s skal være et heltal") from error
         if not 30 <= valid_for <= 900:
             raise ControllerError("valid_for_s skal være 30..900 sekunder")
-        if "fireplace" in payload:
-            if not isinstance(payload["fireplace"], bool):
-                raise ControllerError("fireplace skal være boolean")
-            self.fireplace_signal = payload["fireplace"]
-            self.fireplace_signal_until = time.time() + valid_for
+        if "unit_power_w" in payload:
+            power = self._safe_number(payload["unit_power_w"], 0, 5000)
+            if power is None:
+                raise ControllerError("unit_power_w skal være et tal mellem 0 og 5000")
+            self.unit_power_w = round(power, 1)
+            self.unit_power_until = time.time() + valid_for
+        if "fireplace" not in payload:
+            return self.snapshot()
+        if not isinstance(payload["fireplace"], bool):
+            raise ControllerError("fireplace skal være boolean")
+        self.fireplace_signal = payload["fireplace"]
+        self.fireplace_signal_until = time.time() + valid_for
         self._update_fireplace_auto()
         if self.hardware_writes_allowed():
             self.apply_once()
@@ -713,6 +723,8 @@ class ControllerRuntime:
         extract = self._safe_number(self._first(self.gateway_state, "extract_temp", "extract_temperature"), -30, 60)
         supply_m3h = self._supply_airflow(result.get("effective_level"))
         result["supply_airflow_estimate_m3h"] = supply_m3h
+        fresh_power = self.unit_power_until is not None and time.time() <= self.unit_power_until
+        result["unit_power_w"] = self.unit_power_w if fresh_power else None
         result.update(supply_air_metrics(
             outdoor, extract, before_heater, after_heater, supply_m3h,
             self._first(self.gateway_state, "bypass_active") is True,

@@ -240,6 +240,18 @@ class FireplaceAutoTests(unittest.TestCase):
         with self.assertRaises(ControllerError):
             runtime.external_signals({"fireplace": True, "valid_for_s": 5})
 
+    def test_unit_power_is_leased_and_leaves_fireplace_alone(self):
+        runtime = self.make_runtime()
+        state = runtime.external_signals({"unit_power_w": 22.64, "valid_for_s": 120})
+        self.assertEqual(state["unit_power_w"], 22.6)
+        self.assertIsNone(runtime.fireplace_signal)
+        runtime.unit_power_until = 0
+        self.assertIsNone(runtime.snapshot()["unit_power_w"])
+        with self.assertRaises(ControllerError):
+            runtime.external_signals({"unit_power_w": "x"})
+        with self.assertRaises(ControllerError):
+            runtime.external_signals({"unit_power_w": 99999})
+
     def test_afterheat_room_auto_falls_back_to_t3_without_ha_rooms(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)

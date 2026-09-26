@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0-beta.74
+
+- The unit's electrical draw from a power meter in Home Assistant (e.g. a Shelly on the unit's supply) is shown in the overview as "Forbrug". Home Assistant sends it on `/api/controller/signals` as `unit_power_w`, leased like the fireplace signal, so a stale value disappears on its own. Sending only the power leaves the fireplace signal untouched.
+- Changes by Claude AI.
+
 ## 1.2.0-beta.73
 
 - With a measured T2 before the afterheat coil the controller now computes: recovery on the supply side, (T2 − T1) / (T3 − T1), which is where the heat ends up; the heat the exchanger hands to the supply air in W; the afterheat lift T2AH − T2; and the heat the afterheat coil adds to the air in W. Watts use the supply airflow of the running fan level (measured if entered under sizing, otherwise from the fan profile), which is reported as well. Without a T2 sensor these stay empty.

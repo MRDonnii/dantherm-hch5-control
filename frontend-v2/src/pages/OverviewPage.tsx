@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, Flame, Gauge, House, Leaf, Snowflake, Wind, X } from "lucide-react";
+import { ArrowRight, Flame, Gauge, House, Leaf, Snowflake, Wind, X, Zap } from "lucide-react";
 import { Hch5UnitDiagram } from "../components/Hch5UnitDiagram";
 import { describeControl } from "../lib/control";
 import { HistoryChart, type HistorySeries } from "../components/HistoryChart";
@@ -284,6 +284,7 @@ export function OverviewPage() {
           <div><span className="status-led"/><small>Master</small><strong>{masterLabel(controller.active_master)}</strong></div>
           <div><span className={`status-led ${busHealthy ? "" : "warn"}`}/><small>Bus</small><strong>{busHealthy ? "Sund" : "Afventer"}</strong></div>
           <div><Leaf size={18}/><small>Driftstilstand</small><strong>{modeLabel(controller.mode)}</strong></div>
+          {number(controller.unit_power_w) !== null && <div><Zap size={18}/><small>Forbrug</small><strong>{whole(number(controller.unit_power_w))} W</strong></div>}
           {number(controller.attic_temperature) !== null && <div><House size={18}/><small>Loftrum</small><strong>{temp(number(controller.attic_temperature))}</strong></div>}
         </div>
       </header>
