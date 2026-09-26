@@ -85,9 +85,6 @@ export function OverviewPage() {
   const afterheatTimer = useRef<number | null>(null);
   const afterheatPending = useRef<{ target: AfterheatValue; seq: number } | null>(null);
   const afterheatSeq = useRef(0);
-  const thermostatDraft = useRef<Record<string, number | null>>({});
-  const thermostatTimers = useRef<Record<string, number>>({});
-  const [, setThermostatRevision] = useState(0);
   const [activeSensor, setActiveSensor] = useState<string | null>(null);
   const [historySamples, setHistorySamples] = useState<HistorySample[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -155,27 +152,6 @@ export function OverviewPage() {
     }
   }, [csrf, refresh]);
 
-  const stepThermostat = (key: "t3_setpoint" | "t5_setpoint", label: string, current: number | null, direction: 1 | -1) => {
-    const next = direction > 0
-      ? current === null ? 10 : Math.min(35, current + 1)
-      : current === null || current <= 10 ? null : current - 1;
-    thermostatDraft.current[key] = next;
-    setThermostatRevision(value => value + 1);
-    window.clearTimeout(thermostatTimers.current[key]);
-    thermostatTimers.current[key] = window.setTimeout(async () => {
-      delete thermostatTimers.current[key];
-      const value = next === null ? "OFF" : `${next} °C`;
-      await command(
-        key,
-        { [key]: next },
-        `${label} er gemt lokalt som ${value}; ingen hardwarekommando sendt.`,
-      );
-      if (thermostatDraft.current[key] === next) {
-        delete thermostatDraft.current[key];
-        setThermostatRevision(value => value + 1);
-      }
-    }, AFTERHEAT_SEND_DELAY_MS);
-  };
 
   const sendAfterheat = useCallback(async (target: AfterheatValue, seq: number) => {
     await command(
@@ -401,21 +377,6 @@ export function OverviewPage() {
               <button disabled={shownAfterheat === 35} onClick={() => stepAfterheat(1)}>+</button>
             </div>
           </div>
-          {([["t3_setpoint", "T3 setpunkt"], ["t5_setpoint", "T5 setpunkt"]] as const).map(([key, label]) => {
-            const value = Object.hasOwn(thermostatDraft.current, key) ? thermostatDraft.current[key] : number(controller[key]);
-            const step = (direction: 1 | -1) => stepThermostat(key, label, value, direction);
-            return (
-              <div className="afterheat-row" key={key}>
-                <div className="afterheat-copy"><span>{label}</span><strong>{value === null ? "OFF" : `${whole(value)} °C`}</strong></div>
-                <div className="setpoint-stepper">
-                  <button disabled={value === null || busy === key} onClick={() => step(-1)}>−</button>
-                  <strong>{value === null ? "OFF" : `${whole(value)} °C`}</strong>
-                  <button disabled={value === 35 || busy === key} onClick={() => step(1)}>+</button>
-                </div>
-              </div>
-            );
-          })}
-          <p className="settings-help">T3- og T5-setpunkter gemmes lokalt. Der findes endnu ingen verificeret Modbus-mapping, så de sendes ikke til enheden.</p>
         </article>
       </div>
       {activeSensor && SENSOR_HISTORY[activeSensor] && <div className="sensor-history-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setActiveSensor(null); }}>

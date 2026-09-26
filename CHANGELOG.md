@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0-beta.76
+
+- The T3 and T5 setpoints are removed from the overview. They were only stored locally and never sent to the unit. The controller still accepts the fields so older Home Assistant versions keep working.
+- Changes by Claude AI.
+
 ## 1.2.0-beta.75
 
 - Diagnostics and protection. The controller now watches the unit and raises alarms once a condition has lasted a while, and clears them on its own: frost risk in the exchanger (exhaust T4 near 0 °C), low heat recovery, supply- and extract-side recovery disagreeing, the bypass not closing, the afterheat calling without warming the air, a 1-Wire sensor with a role not answering, no healthy RS485 bus, and the fans drawing more power than with a clean filter. The overview shows active alarms at the top.
