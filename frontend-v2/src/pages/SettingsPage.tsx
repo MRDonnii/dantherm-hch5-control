@@ -2,13 +2,14 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Droplets, Flame, Gauge, House, Monitor, Moon, Save, ShieldCheck, Snowflake, Thermometer, Wind } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { postJson, requestJson } from "../lib/api";
+import { airflowPlan, type AirflowProfiles } from "../lib/airflow";
 import { LANG_KEY, currentLang, useLang, type Lang } from "../lib/i18n";
 import "../styles/panels.css";import "../styles/management.css";
 
 type Data = Record<string, unknown>;
 type Auth = { csrf?: string | null; enabled?: boolean; username?: string | null };
 type Text = { da: string; en: string };
-type LevelPlan = { supply_m3h?: number; extract_m3h?: number; air_changes_per_hour?: number | null; measured?: boolean; meets_requirement?: boolean; meets_reduced?: boolean };
+type LevelPlan = { estimate_supply_m3h?: number; estimate_extract_m3h?: number; supply_m3h?: number; extract_m3h?: number; air_changes_per_hour?: number | null; measured?: boolean; meets_requirement?: boolean; meets_reduced?: boolean };
 type Plan = { volume_m3?: number; supply_required_m3h?: number; extract_required_m3h?: number; area_requirement_ls?: number; wet_room_requirement_ls?: number; required_air_changes_per_hour?: number | null; base_level?: number; min_level?: number; reachable?: boolean; estimated?: boolean; levels?: Record<string, LevelPlan> };
 type Airflow = Record<string, { supply?: number; extract?: number }>;
 
@@ -121,7 +122,7 @@ export function SettingsPage() {
   };
   const roomHint = rooms.length ? null : <Help>{lang === "da" ? "Ingen målerum modtaget fra Home Assistant endnu. Tilføj rummet i HCH PassiveLink-integrationen (Smart Auto-rum) med styring slået fra." : "No measurement rooms received from Home Assistant yet. Add the room in the HCH PassiveLink integration (Smart Auto rooms) with control turned off."}</Help>;
 
-  const plan = (controller.airflow_plan ?? {}) as Plan;
+  const plan = (airflowPlan(form, controller.profiles as AirflowProfiles | undefined) ?? controller.airflow_plan ?? {}) as Plan;
   const airflow = (form.airflow_measured ?? {}) as Airflow;
   const setAirflow = (level: number, side: "supply" | "extract", value: string) => {
     const next: Airflow = { ...airflow, [level]: { ...(airflow[level] ?? {}), [side]: value === "" ? undefined : Number(value) } };
@@ -143,7 +144,7 @@ export function SettingsPage() {
           <label>{lang === "da" ? "Reduceret minimum" : "Reduced minimum"}<input type="number" min="30" max="100" value={n(form.sizing_reduced_percent, 50)} onChange={num("sizing_reduced_percent")}/><span>%</span><Help>{lang === "da" ? "Laveste luftmængde i procent af kravet, som nat, ferie og tør luft må gå ned til." : "Lowest airflow, as a share of the requirement, that night, vacation and dry-air protection may use."}</Help></label>
         </div>
       </Card>
-      <Card title={lang === "da" ? "Beregning" : "Calculation"} lead={lang === "da" ? "Opdateres når du gemmer" : "Updates when you save"} icon={Gauge}>
+      <Card title={lang === "da" ? "Beregning" : "Calculation"} lead={lang === "da" ? "Følger felterne, mens du taster. Styringen bruger tallene, når du gemmer." : "Follows the fields as you type. Control uses them once you save."} icon={Gauge}>
         <div className="settings-summary">
           <span>{lang === "da" ? "Luftvolumen" : "Air volume"}<strong>{fmt(plan.volume_m3, lang, 0, " m³")}</strong></span>
           <span>{lang === "da" ? "Krav, indblæsning" : "Required supply"}<strong>{fmt(plan.supply_required_m3h, lang, 0, " m³/h")}</strong></span>
@@ -158,10 +159,10 @@ export function SettingsPage() {
           <tbody>{[1, 2, 3, 4, 5, 6].map(level => { const row = plan.levels?.[String(level)] ?? {}; return <tr key={level} className={level === plan.base_level ? "is-base" : undefined}>
             <td>{level}</td><td>{fmt(row.supply_m3h, lang, 0, " m³/h")}{row.measured ? "" : " *"}</td><td>{fmt(row.extract_m3h, lang, 0, " m³/h")}</td><td>{fmt(row.air_changes_per_hour, lang, 2)}</td>
             <td>{row.meets_requirement ? "✓" : row.meets_reduced ? (lang === "da" ? "Reduceret" : "Reduced") : "—"}</td>
-            <td><input aria-label={`${t(T.level)} ${level} supply`} type="number" min="10" max="1500" value={airflow[level]?.supply ?? ""} onChange={e => setAirflow(level, "supply", e.target.value)}/></td>
-            <td><input aria-label={`${t(T.level)} ${level} extract`} type="number" min="10" max="1500" value={airflow[level]?.extract ?? ""} onChange={e => setAirflow(level, "extract", e.target.value)}/></td>
+            <td><input aria-label={`${t(T.level)} ${level} supply`} type="number" min="10" max="1500" placeholder={row.estimate_supply_m3h === undefined ? undefined : String(row.estimate_supply_m3h)} value={airflow[level]?.supply ?? ""} onChange={e => setAirflow(level, "supply", e.target.value)}/></td>
+            <td><input aria-label={`${t(T.level)} ${level} extract`} type="number" min="10" max="1500" placeholder={row.estimate_extract_m3h === undefined ? undefined : String(row.estimate_extract_m3h)} value={airflow[level]?.extract ?? ""} onChange={e => setAirflow(level, "extract", e.target.value)}/></td>
           </tr>; })}</tbody></table></div>
-        <p className="settings-help">{lang === "da" ? "* skønnet. Lad felterne stå tomme for at bruge skønnet." : "* estimated. Leave the fields empty to use the estimate."}</p>
+        <p className="settings-help">{lang === "da" ? "* skønnet. De grå tal i felterne er skønnet; skriv den målte værdi fra indreguleringsrapporten for at erstatte det." : "* estimated. The grey numbers in the fields are the estimate; type the measured value from the commissioning report to replace it."}</p>
       </Card>
     </>,
     air: <>

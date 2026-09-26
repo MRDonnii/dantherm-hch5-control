@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0-beta.66
+
+- House and airflow: the calculation (volume, requirement, base level, lowest level and the level table) now follows the fields while you type, so you can see what a different house size does before saving. Control still uses the saved values.
+- The measured-airflow fields show the estimate for each level in grey, so the table is no longer a column of empty boxes; type a measured value to replace it.
+- Changes by Claude AI.
+
 ## 1.2.0-beta.65
 
 - CO₂ calibration: a new setting under Indstillinger → Air quality adds a fixed offset (−1000 to +1000 ppm) to the unit's own CO₂ sensor, so it can be matched to trusted room sensors. Smart Auto and Local Auto control on the corrected value, and the WebUI, MQTT and Home Assistant show it. The raw reading stays available as `co2_raw`, and the setting shows raw and corrected values side by side.
