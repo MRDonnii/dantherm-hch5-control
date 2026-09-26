@@ -313,29 +313,55 @@ function ElectricCoil({ heating, lockout }: { heating: boolean; lockout: boolean
 // the water only moves while the afterheat is active.
 const WATER_TUBE = "M-30 68 V-52 A6 6 0 0 1 -18 -52 V52 A6 6 0 0 0 -6 52 V-52 A6 6 0 0 1 6 -52 V52 A6 6 0 0 0 18 52 V-52 A6 6 0 0 1 30 -52 V68";
 const WATER_FINS = [-42, -34, -26, -18, -10, -2, 6, 14, 22, 30, 38];
-// Blue when cold, teal around room temperature, amber and red as it gets hot.
-const WATER_SCALE: readonly (readonly [number, number, number, number])[] = [[15, 74, 163, 230], [21, 79, 204, 206], [27, 150, 214, 140], [33, 240, 196, 84], [42, 245, 132, 66], [55, 226, 70, 60]];
+// Water-heating colours: blue when cold, orange when warm, red when hot.
+const WATER_SCALE: readonly (readonly [number, number, number, number])[] = [[15, 74, 163, 255], [28, 255, 154, 61], [45, 255, 78, 58]];
+const WATER_HOT = "rgb(255 78 58)", WATER_WARM = "rgb(255 154 61)", WATER_COLD = "rgb(74 163 255)", WATER_UNKNOWN = "rgb(111 135 150)";
+// Below this flow/return difference the water is drawn as one temperature.
+const WATER_SPLIT_DELTA = 0.3;
 export function waterColour(t: Num) {
-  if (t === null || !Number.isFinite(t)) return "rgb(111 135 150)";
+  if (t === null || !Number.isFinite(t)) return WATER_UNKNOWN;
   const i = WATER_SCALE.findIndex(([at]) => t <= at);
   if (i === 0 || i < 0) return `rgb(${WATER_SCALE[i === 0 ? 0 : WATER_SCALE.length - 1].slice(1).join(" ")})`;
   const [t0, ...a] = WATER_SCALE[i - 1], [t1, ...b] = WATER_SCALE[i], k = (t - t0) / (t1 - t0);
   return `rgb(${a.map((c, j) => Math.round(c + (b[j] - c) * k)).join(" ")})`;
 }
+/** Colours at the flow end, through the coil and at the return end. When
+ *  flow and return differ, the hotter end is red and the water fades through
+ *  orange to blue at the colder end; otherwise it is one colour. */
+export function waterPath(flow: Num, ret: Num): { flow: string; mid: string; ret: string } {
+  const known = (t: Num): t is number => t !== null && Number.isFinite(t);
+  if (!known(flow) && !known(ret)) return { flow: WATER_UNKNOWN, mid: WATER_UNKNOWN, ret: WATER_UNKNOWN };
+  if (!known(flow) || !known(ret) || Math.abs(flow - ret) < WATER_SPLIT_DELTA) {
+    const one = waterColour(known(flow) && known(ret) ? (flow + ret) / 2 : known(flow) ? flow : ret);
+    return { flow: one, mid: one, ret: one };
+  }
+  return flow > ret ? { flow: WATER_HOT, mid: WATER_WARM, ret: WATER_COLD } : { flow: WATER_COLD, mid: WATER_WARM, ret: WATER_HOT };
+}
+// Water moving inside a pipe: light bands and small bubbles slide along the
+// path in the flow direction. They are only drawn moving while the afterheat
+// is active; otherwise the water stands still.
+function WaterCurrent({ d }: { d: string }) {
+  return <g className="water-flow"><path className="water-current" d={d}/><path className="water-bubbles" d={d}/></g>;
+}
 function WaterCoil({ heating, lockout, flowWater, returnWater }: { heating: boolean; lockout: boolean; flowWater: Num; returnWater: Num }) {
   const local = ([x, y]: Point): Point => [x - COIL_AT[0], y - COIL_AT[1]];
   const [sx, sy] = local(WATER_SUPPLY_TO), [rx, ry] = local(WATER_RETURN_TO), [vx, vy] = local(WATER_VALVE_AT);
+  const colours = waterPath(flowWater, returnWater);
   const pipes = [
-    ["supply", `M${sx} ${sy} H-38 Q-30 ${sy} -30 ${sy - 8} V68`, waterColour(flowWater)],
-    ["return", `M30 68 V${ry - 8} Q30 ${ry} 22 ${ry} H${rx}`, waterColour(returnWater ?? flowWater)],
+    ["supply", `M${sx} ${sy} H-38 Q-30 ${sy} -30 ${sy - 8} V68`, colours.flow],
+    ["return", `M30 68 V${ry - 8} Q30 ${ry} 22 ${ry} H${rx}`, colours.ret],
   ] as const;
+  // The flow enters the left pass and leaves the right one, so the coil
+  // fades left to right from the flow colour through the middle to the return.
   return <g className={`hch-external-coil hch-water-coil${heating ? " active" : ""}`} transform={`translate(${COIL_AT[0]} ${COIL_AT[1]})`}>
-    <defs><linearGradient id="waterCoilTint" gradientUnits="userSpaceOnUse" x1="-30" y1="0" x2="30" y2="0"><stop offset="0" stopColor={pipes[0][2]}/><stop offset="1" stopColor={pipes[1][2]}/></linearGradient></defs>
-    {pipes.map(([kind, d, colour]) => <g key={kind} className={`water-pipe ${kind}`}><path className="water-pipe-shell" d={d}/><path className="water-pipe-core" d={d} style={{ stroke: colour }}/><path className="water-flow" d={d}/></g>)}
+    <defs>
+      <linearGradient id="waterCoilTint" gradientUnits="userSpaceOnUse" x1="-30" y1="0" x2="30" y2="0"><stop offset="0" stopColor={colours.flow}/><stop offset=".5" stopColor={colours.mid}/><stop offset="1" stopColor={colours.ret}/></linearGradient>
+    </defs>
+    {pipes.map(([kind, d, colour]) => <g key={kind} className={`water-pipe ${kind}`}><path className="water-pipe-shell" d={d}/><path className="water-pipe-core" d={d} style={{ stroke: colour }}/><WaterCurrent d={d}/></g>)}
     <g className="water-valve" transform={`translate(${vx} ${vy})`}><path className="valve-body" d="M-8 -6 L8 6 V-6 L-8 6 Z"/><rect className="valve-actuator" x="-5" y="7" width="10" height="7" rx="2"/></g>
     <rect className="coil-case" x="-48" y="-68" width="96" height="136" rx="12"/><rect className="coil-duct" x="-61" y="-48" width="122" height="96" rx="20"/>
     {WATER_FINS.map(y => <path key={y} className="coil-fin" d={`M-44 ${y} H44`}/>)}
-    <path className="water-tube-shell" d={WATER_TUBE}/><path className="water-tube-core" d={WATER_TUBE} stroke="url(#waterCoilTint)"/><path className="water-flow" d={WATER_TUBE}/>
+    <path className="water-tube-shell" d={WATER_TUBE}/><path className="water-tube-core" d={WATER_TUBE} stroke="url(#waterCoilTint)"/><WaterCurrent d={WATER_TUBE}/>
     {lockout && <LockoutBadge/>}
   </g>;
 }

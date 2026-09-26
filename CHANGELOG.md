@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0-beta.69
+
+- The water coil shows the water flowing while the afterheat is active: light bands and small bubbles move from the flow pipe through the coil to the return, and the water stands still otherwise. When flow and return differ, the hotter end is red and the water fades through orange to blue at the colder end; equal temperatures give one colour from blue (cold) through orange to red (hot).
+- Changes by Claude AI.
+
 ## 1.2.0-beta.68
 
 - Water coil colours follow the water temperature from flow to return: the coil tube no longer sits on a fixed brown outline that made it look hot regardless of the readings, and the colour scale is finer between 15 and 35 °C where the coil normally runs. Equal flow and return temperatures give the same colour all the way round.
