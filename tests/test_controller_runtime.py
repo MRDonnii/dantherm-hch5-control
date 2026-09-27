@@ -37,6 +37,23 @@ class ControllerRuntimeTests(unittest.TestCase):
                 self.assertIs(snapshot["actual_afterheat_outdoor_lockout"], expected)
                 self.assertEqual(snapshot["afterheat_outdoor_cutoff"], 15.0)
 
+    def test_setting_changes_are_logged_with_source(self):
+        import os
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        log = Path(temp.name) / "change-log.jsonl"
+        os.environ["DANTHERM_CHANGE_LOG"] = str(log)
+        self.addCleanup(os.environ.pop, "DANTHERM_CHANGE_LOG", None)
+        runtime = self.make_runtime()
+        runtime.configure({"afterheat_setpoint": 25}, apply=False, source="webui:john")
+        runtime.configure({"afterheat_setpoint": 25}, apply=False, source="home_assistant")
+        self.assertEqual(len(runtime.change_log), 1)
+        event = runtime.change_log[0]
+        self.assertEqual(event["source"], "webui:john")
+        self.assertEqual(event["changes"]["afterheat_setpoint"], [20, 25])
+        self.assertEqual(log.read_text(encoding="utf-8").count("\n"), 1)
+        self.assertEqual(runtime.snapshot()["change_log"][0]["source"], "webui:john")
+
     def test_energy_signals_are_read_only_and_expire(self):
         runtime = self.make_runtime()
         applied = []
@@ -217,3 +234,4 @@ class ControllerRuntimeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

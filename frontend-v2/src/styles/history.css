@@ -30,3 +30,8 @@
   .history-chart-legend { gap: 7px 12px; }
   .history-chart-range { flex-basis: 100%; margin-left: 0; }
 }
+.change-log-card { grid-column: 1 / -1; }
+.change-log { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 320px; overflow-y: auto; }
+.change-log li { display: grid; grid-template-columns: 92px minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 10px; align-items: center; padding: 6px 8px; border-radius: 8px; background: var(--surface-soft); font-size: 12px; }
+.change-log time, .change-log em { color: var(--muted); font-style: normal; }
+@media (max-width: 700px) { .change-log li { grid-template-columns: 1fr 1fr; } }

@@ -18,7 +18,7 @@ from controller_dashboard_server import ControllerDashboardHttpServer
 class FakeRuntime:
     def __init__(self): self.calls = []
     def snapshot(self): return {"enabled": True, "active_master": "unknown"}
-    def configure(self, patch):
+    def configure(self, patch, source="api"):
         if "enabled" in patch:
             from controller_core import ControllerError
             raise ControllerError("Pi-controlleren kan ikke slås fra")

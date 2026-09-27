@@ -78,7 +78,7 @@ For **active control**, disconnect the original HCP4 from the RS485 control path
 2. **Install** (replace the adapter path; omit `--enable-onewire` without DS18B20 sensors):
 
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/MRDonnii/dantherm-hch-passivelink-webui/main/install.sh \
+   curl -fsSL https://raw.githubusercontent.com/MRDonnii/dantherm-hch5-control/main/install.sh \
      | sudo bash -s -- \
          --device /dev/serial/by-id/usb-YOUR_ADAPTER \
          --enable-onewire
@@ -148,10 +148,10 @@ Three parts work together. The first is enough to see the unit in Home Assistant
 
 ### 1. Install the integration and read data
 
-[![Open the integration in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=MRDonnii&repository=dantherm-hch-passivelink&category=integration)
+[![Open the integration in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=MRDonnii&repository=dantherm-hch5-control-ha&category=integration)
 
-1. Install **Dantherm HCH PassiveLink** from HACS and restart Home Assistant.
-2. **Settings → Devices & services → Add integration → Dantherm HCH PassiveLink.**
+1. Install **Dantherm HCH5 Control** from HACS and restart Home Assistant.
+2. **Settings → Devices & services → Add integration → Dantherm HCH5 Control.**
 3. Choose **RS485 over TCP**, enter the Pi's IP address and port **4196**.
 
 Home Assistant now has temperatures, fans, CO₂, humidity, bypass, filter and alarms. This data path is read-only.

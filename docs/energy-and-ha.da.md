@@ -2,15 +2,15 @@
 
 ## Installer og opdater
 
-1. Installer [HCH PassiveLink-integrationen i HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=MRDonnii&repository=dantherm-hch-passivelink&category=integration). Genstart HA efter installation eller opdatering.
-2. Tilføj **Dantherm HCH PassiveLink** under **Indstillinger → Enheder og tjenester**. Vælg RS485 over TCP, og angiv Pi'ens lokale adresse og port **4196**.
+1. Installer [HCH5 Control-integrationen i HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=MRDonnii&repository=dantherm-hch5-control-ha&category=integration). Genstart HA efter installation eller opdatering.
+2. Tilføj **Dantherm HCH5 Control** under **Indstillinger → Enheder og tjenester**. Vælg RS485 over TCP, og angiv Pi'ens lokale adresse og port **4196**.
 3. Installer [Smart Home Cards i HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=MRDonnii&repository=ha-smart-home-cards&category=plugin). Tilføj HCH5 Live Card på dit dashboard. En hård browseropdatering kan være nødvendig efter kortopdatering.
 4. Hvis controllerfunktioner ønskes, skal integrationen desuden have Pi'ens HTTP-adresse og særskilte controller-token. Det bruges kun til controller-API'en; rå TCP-forbindelse er fortsat en separat datakilde. Tokenet vises på Pi'en med `sudo sed -n 's/^DANTHERM_CONTROLLER_TOKEN=//p' /etc/dantherm-passivelink-webui/gateway.env`. Opbevar det kun i HA, ikke i dashboard-YAML eller Git.
 5. WebUI-siden **Opdateringer** har genveje til begge HACS-repositories. Pi-opdateringsknappen opdaterer kun WebUI/controlleren; HA-integration og kort opdateres i HACS.
 
 ## HA-sensorer til Pi
 
-Under integrationens controllerindstillinger (**Indstillinger → Enheder og tjenester → Dantherm HCH PassiveLink → Konfigurér**, trinnet *Raspberry Pi-controller og Smart Auto*) kan du vælge fire valgfrie sensorer, som Pi'en kun viser i WebUI:
+Under integrationens controllerindstillinger (**Indstillinger → Enheder og tjenester → Dantherm HCH5 Control → Konfigurér**, trinnet *Raspberry Pi-controller og Smart Auto*) kan du vælge fire valgfrie sensorer, som Pi'en kun viser i WebUI:
 
 | Felt i integrationen | Vælg | Bruges i WebUI til |
 | --- | --- | --- |

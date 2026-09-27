@@ -153,3 +153,38 @@ def test_stream_parser_finds_write_frames_among_reads():
     assert frames == []
     frames += stream.feed(read[3:] + write1 + write2)
     assert frames == [read, write1, write2]
+
+
+def fc16_request(slave, start, values):
+    body = bytes([slave, 16, start >> 8, start & 0xFF, 0, len(values), len(values) * 2]) + b"".join(
+        value.to_bytes(2, "big") for value in values
+    )
+    return body + crc16(body).to_bytes(2, "little")
+
+
+def fc16_ack(slave, start, count):
+    body = bytes([slave, 16, start >> 8, start & 0xFF, 0, count])
+    return body + crc16(body).to_bytes(2, "little")
+
+
+def test_late_hac1_ack_does_not_release_pi_master():
+    arb = MasterArbitrator(startup_observation=3, release_timeout=3)
+    t0 = arb.started_monotonic
+    arb.observe_frame(fc03_response(), now=t0 + 0.1)
+    arb.evaluate(bus_healthy=True, now=t0 + 3.1)
+    assert arb.master == arb.PI
+    frame = fc16_request(0x40, 185, [1, 20 * 256, 15, 0x17FE, 0xFF03])
+    arb.note_own_frame(frame, now=t0 + 4.0)
+    assert arb.observe_frame(frame, now=t0 + 4.01) == "own"
+    # HAC1 answers after the own-echo window has expired.
+    assert arb.observe_frame(fc16_ack(0x40, 185, 5), now=t0 + 4.9) == "read_or_response"
+    assert arb.master == arb.PI and arb.foreign_write_count == 0
+
+
+def test_foreign_fc16_write_still_detected():
+    arb = MasterArbitrator(startup_observation=3, release_timeout=3)
+    t0 = arb.started_monotonic
+    arb.observe_frame(fc03_response(), now=t0 + 0.1)
+    arb.evaluate(bus_healthy=True, now=t0 + 3.1)
+    assert arb.observe_frame(fc16_request(0x40, 185, [1, 21 * 256, 15, 0x17FE, 0xFF03]), now=t0 + 4) == "foreign"
+    assert arb.master == arb.HCP4

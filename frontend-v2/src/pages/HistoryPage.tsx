@@ -1,11 +1,36 @@
 import { useCallback, useEffect, useState } from "react";
-import { Activity, Fan, Leaf, Recycle } from "lucide-react";
+import { Activity, Fan, Leaf, Recycle, SlidersHorizontal } from "lucide-react";
 import { HistoryChart } from "../components/HistoryChart";
 import { requestJson } from "../lib/api";
 import "../styles/history.css";
 
 type Sample = Record<string, number | null>;
 type HistoryResponse = { range: string; samples: Sample[] };
+type ChangeEvent = { timestamp: number; source: string; changes: Record<string, [unknown, unknown]> };
+
+// Readable names for the settings that are changed most often.
+const SETTING_LABELS: Record<string, string> = {
+  afterheat_setpoint: "Eftervarme setpunkt",
+  afterheat_enabled: "Eftervarme tændt",
+  mode: "Driftstilstand",
+  manual_level: "Manuelt trin",
+  local_normal_level: "Normaltrin",
+  bypass: "Bypass",
+  standby_minutes: "Sluk anlæg (min)",
+  bonfire_minutes: "Bål i haven (min)",
+  fireplace_minutes: "Pejsefunktion (min)",
+};
+function sourceLabel(source: string) {
+  if (source === "home_assistant") return "Home Assistant";
+  if (source.startsWith("webui:")) return `WebUI · ${source.slice(6)}`;
+  return source === "api" ? "API" : source;
+}
+function valueLabel(value: unknown) {
+  if (value === null || value === undefined || value === "") return "—";
+  if (value === true) return "til";
+  if (value === false) return "fra";
+  return typeof value === "object" ? JSON.stringify(value) : String(value);
+}
 
 const RANGES: { value: string; label: string }[] = [
   { value: "1h", label: "1 time" },
@@ -20,11 +45,14 @@ export function HistoryPage() {
   const [samples, setSamples] = useState<Sample[]>([]);
   const [online, setOnline] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [changes, setChanges] = useState<ChangeEvent[]>([]);
 
   const refresh = useCallback(async (activeRange: string) => {
     try {
       const result = await requestJson<HistoryResponse>(`/history.json?range=${activeRange}`, { timeoutMs: 6000 });
       setSamples(Array.isArray(result.samples) ? result.samples : []);
+      const state = await requestJson<{ change_log?: ChangeEvent[] }>("/api/controller/state", { timeoutMs: 3500 }).catch(() => null);
+      if (state && Array.isArray(state.change_log)) setChanges(state.change_log);
       setOnline(true);
     } catch {
       setOnline(false);
@@ -123,6 +151,22 @@ export function HistoryPage() {
               samples={samples}
               series={[{ key: "heat_recovery_efficiency", label: "Virkningsgrad", color: "blue" }]}
             />
+          )}
+        </article>
+
+        <article className="surface history-card change-log-card">
+          <div className="pro-card-head compact"><div><h2>Ændringer af indstillinger</h2><p>Hvem ændrede hvad · seneste 50</p></div><SlidersHorizontal size={20}/></div>
+          {changes.length === 0 ? <div className="history-chart-empty" style={{ height: 80 }}><span>Ingen ændringer logget endnu</span></div> : (
+            <ul className="change-log">
+              {changes.map(event => Object.entries(event.changes).map(([key, [from, to]]) => (
+                <li key={`${event.timestamp}-${key}`}>
+                  <time>{new Date(event.timestamp * 1000).toLocaleString("da-DK", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</time>
+                  <strong>{SETTING_LABELS[key] ?? key}</strong>
+                  <span>{valueLabel(from)} → {valueLabel(to)}</span>
+                  <em>{sourceLabel(event.source)}</em>
+                </li>
+              )))}
+            </ul>
           )}
         </article>
       </div>

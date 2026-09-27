@@ -224,7 +224,7 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                         if self.path == "/api/controller/heartbeat":
                             return self._json(dashboard.controller_runtime.heartbeat(str(data.get("demand", "normal"))))
                         if self.path == "/api/controller/command":
-                            return self._json(dashboard.controller_runtime.configure(data))
+                            return self._json(dashboard.controller_runtime.configure(data, source="home_assistant"))
                         if self.path == "/api/controller/signals":
                             return self._json(dashboard.controller_runtime.external_signals(data))
                         return self._json(dashboard.controller_runtime.room_inputs(data))
@@ -277,7 +277,7 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                 if self.path == "/api/controller/config":
                     data = self._read_json() or {}
                     try:
-                        return self._json(dashboard.controller_runtime.configure(data))
+                        return self._json(dashboard.controller_runtime.configure(data, source=f"webui:{session.get('username') or 'ukendt'}"))
                     except ControllerError as error:
                         return self._json_error(400, str(error))
                     except RuntimeError as error:

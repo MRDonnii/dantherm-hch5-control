@@ -86,7 +86,7 @@ Both must use the already hardware-tested functions in the installed monolithic 
 
 Do **not** reverse-engineer already-known HRC2/HCP4 behaviour again. Before binding active control, inventory and cross-reference:
 
-1. `MRDonnii/dantherm-hch-passivelink` current `tests/test_parser.py` and parser implementation.
+1. `MRDonnii/dantherm-hch5-control-ha` current `tests/test_parser.py` and parser implementation.
 2. Git history for parser/mode/afterheat work.
 3. The deploy host's local checkout, especially any untracked `docs/captures/**`, `analysis.md`, JSONL/raw capture files and test scripts. Run `git status --untracked-files=all` before changing or cleaning anything.
 4. The installed monolithic Pi gateway, whose hardware-tested write functions take precedence over reconstructed writes.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Runtime bridge between the live PassiveLink gateway and ControllerEngine.
+"""Runtime bridge between the live HCH5 Control gateway and ControllerEngine.
 
 The Pi controller is always enabled. Hardware writes are permitted only when
 master arbitration has established Raspberry Pi as master; HCP4 always wins.
@@ -8,14 +8,16 @@ and all persistent configuration remain on the Pi.
 """
 from __future__ import annotations
 
+import json
 import logging
 import math
+import os
 import threading
 import time
 from collections import defaultdict, deque
 from pathlib import Path
 
-from advanced_control import absolute_humidity, fit_fan_curve, source_room, supply_after_core, supply_air_metrics
+from advanced_control import absolute_humidity, fan_curve, fit_fan_curve, source_room, supply_after_core, supply_air_metrics
 from onewire_extras import OneWireExtras
 from diagnostics import Diagnostics
 from controller_core import AFTERHEAT_OUTDOOR_CUTOFF_C, ControllerEngine, ControllerError, ControllerState, HardwareAdapter
@@ -52,6 +54,13 @@ class ControllerRuntime:
         self.thread: threading.Thread | None = None
         self.apply_lock = threading.Lock()
         self.last_tick_at: float | None = None
+        self.change_log_path = Path(os.getenv("DANTHERM_CHANGE_LOG", "/var/lib/dantherm-hch5-ha/change-log.jsonl"))
+        self.change_log: list[dict[str, object]] = []
+        try:
+            for line in self.change_log_path.read_text(encoding="utf-8").splitlines()[-50:]:
+                self.change_log.append(json.loads(line))
+        except (OSError, ValueError):
+            pass
         self._write_error_message: str | None = None
         self._write_error_logged_at = 0.0
         self._write_error_count = 0
@@ -839,6 +848,7 @@ class ControllerRuntime:
         fresh_power = self.unit_power_until is not None and time.time() <= self.unit_power_until
         result["unit_power_w"] = self.unit_power_w if fresh_power else None
         result.update(self.diagnostics.result)
+        result["change_log"] = list(reversed(self.change_log[-50:]))
         fresh_energy = self.energy_signals_until is not None and time.time() <= self.energy_signals_until
         for field in ("unit_energy_measured_today_kwh", "electricity_price_dkk_kwh", "heat_price_dkk_kwh"):
             result[field] = self.energy_signals.get(field) if fresh_energy else None
@@ -849,11 +859,23 @@ class ControllerRuntime:
         return result
 
     def _supply_airflow(self, level: object) -> float | None:
-        """Supply airflow for the running level: measured if entered, else from the fan profile."""
+        """Supply airflow for the running level, corrected by the real fan speed.
+
+        The level's planned airflow (measured if entered, else from the fan
+        profile) is scaled by actual/expected supply rpm (fan law), so boost,
+        fireplace or a slow fan are reflected instead of the nominal level.
+        """
         try:
-            return float(self.config.airflow_plan()["levels"][int(level)]["supply_m3h"])
+            planned = float(self.config.airflow_plan()["levels"][int(level)]["supply_m3h"])
+            percent = float(self.config.data["profiles"][int(level)]["supply"])
         except (KeyError, TypeError, ValueError):
             return None
+        rpm = self._safe_number(self._first(self.gateway_state, "fan_supply_rpm", "supply_fan_rpm"), 1, 5000)
+        curve = fan_curve(self.config.data)
+        expected = float(curve["rpm_at_0"]) + float(curve["rpm_per_percent"]) * percent
+        if rpm is None or expected <= 0:
+            return planned
+        return round(planned * rpm / expected, 1)
 
     def _before_heater_estimate(self) -> float | None:
         """T2 estimate from T1, T3 and the recovery measured on the extract side."""
@@ -867,10 +889,33 @@ class ControllerRuntime:
             recovery = share if 0 <= share <= 105 else None
         return _round1(supply_after_core(t1, t3, recovery, bypass))
 
-    def configure(self, patch: dict[str, object], *, apply: bool = True) -> dict[str, object]:
+    def _record_change(self, before: dict[str, object], patch: dict[str, object], source: str) -> None:
+        """Keep who changed which setting from what to what (never breaks control)."""
+        after = self.config.data
+        changes = {
+            key: [before.get(key), after.get(key)]
+            for key in patch
+            if key in after and before.get(key) != after.get(key)
+        }
+        if not changes:
+            return
+        event = {"timestamp": time.time(), "source": source, "changes": changes}
+        self.change_log.append(event)
+        del self.change_log[:-50]
+        try:
+            self.change_log_path.parent.mkdir(parents=True, exist_ok=True)
+            with self.change_log_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(event, ensure_ascii=False, default=str) + "\n")
+        except OSError:
+            pass
+        LOG.info("Setting changed by %s: %s", source, changes)
+
+    def configure(self, patch: dict[str, object], *, apply: bool = True, source: str = "api") -> dict[str, object]:
         if "enabled" in patch:
             raise ControllerError("Pi-controlleren kan ikke slås fra; HCP4 master-detektion styrer automatisk overtagelse")
+        before = json.loads(json.dumps(self.config.data, default=str))
         self.config.configure(patch)
+        self._record_change(before, patch, source)
         self.config.data["enabled"] = True
         fireplace_off = patch.get("fireplace") is False or patch.get("fireplace_minutes") in (0, "0")
         if fireplace_off and self.fireplace_auto_active:

@@ -4,12 +4,12 @@ set -euo pipefail
 command -v curl >/dev/null || { echo "curl is required." >&2; exit 1; }
 command -v tar >/dev/null || { echo "tar is required." >&2; exit 1; }
 
-ref=$(curl -fsSL "https://github.com/MRDonnii/dantherm-hch-passivelink-webui/releases.atom" \
+ref=$(curl -fsSL "https://github.com/MRDonnii/dantherm-hch5-control/releases.atom" \
   | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+' | sort -V | tail -1)
 [[ -n ${ref} ]] || { echo "Could not resolve the current beta release." >&2; exit 1; }
 tmp=$(mktemp -d)
 trap 'rm -rf -- "$tmp"' EXIT
-curl -fsSL "https://codeload.github.com/MRDonnii/dantherm-hch-passivelink-webui/tar.gz/${ref}" \
+curl -fsSL "https://codeload.github.com/MRDonnii/dantherm-hch5-control/tar.gz/${ref}" \
   | tar -xz -C "$tmp" --strip-components=1
 
 build=$(cat "$tmp/VERSION")

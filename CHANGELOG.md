@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.1-beta.10
+
+- **New name: Dantherm HCH5 Control.** The project is no longer only passive, so the repository is now `MRDonnii/dantherm-hch5-control` (the old URL redirects, so existing installations keep updating) and the Home Assistant integration is `MRDonnii/dantherm-hch5-control-ha`. Install paths on the Pi are unchanged.
+- **Pi no longer hands the bus to HCP4 by mistake:** a late HAC1 acknowledgement of the Pi's own write was counted as a foreign write, which paused control about ten times a day. An 8-byte FC16 frame is now always treated as a response.
+- **HAC1 connection no longer flickers:** the Pi's own T2 feed (register 146 = 3) was read as "HAC1 disconnected".
+- **Temperature block to HAC1 keeps going:** if reading HAC1's T5 word fails once, the last value (up to 10 minutes old) is used instead of skipping the whole T1–T5 block. The error is logged at most every 15 minutes.
+- **Airflow follows the real fan speed:** the air-side afterheat power and recovered heat scale the level's airflow by the actual supply rpm.
+- **Who changed what:** every setting change is logged with its source (WebUI user or Home Assistant) and old → new value, shown under Historik.
+- Changes by Claude AI.
+
 ## 1.2.1-beta.9
 
 - The afterheat confirmation is now a popup over the thermostat card: old and new value, its own −/+ and Fortryd/Bekræft.

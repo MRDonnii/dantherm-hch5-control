@@ -1467,7 +1467,9 @@ class Gateway:
                         "HCP4 filter reset observed: %s days",
                         self.filter_interval_days,
                     )
-            elif register == 146:
+            elif register == 146 and value in (0, 1):
+                # 146=3 is the T2 feed selector the Pi itself writes every
+                # 3 s (feed_unit_supply_temperature_if_due), not a HAC1 state.
                 self.publish("hac1_connected", value == 1)
             self.update_mode()
 
@@ -1666,8 +1668,15 @@ class Gateway:
         # HRC2 is disconnected when Pi is master. Preserve HAC1's raw T5 word;
         # substituting T3 here would invent a room measurement in register 184.
         current = self.read_register_block(ser, 0x40, 180, 5)
-        if current is None or len(current) != 5:
-            raise RuntimeError("afterheat T5 source word unavailable")
+        if current is not None and len(current) == 5:
+            self.last_t5_word = (current[4], time.monotonic())
+        else:
+            # A single missed read is common on the bus; HAC1's T5 changes
+            # slowly, so its last word is reused for up to 10 minutes.
+            cached = getattr(self, "last_t5_word", None)
+            if cached is None or time.monotonic() - cached[1] > 600:
+                raise RuntimeError("afterheat T5 source word unavailable")
+            current = [0, 0, 0, 0, cached[0]]
         keys = ("outdoor_temp", "supply_temp", "extract_temp", "exhaust_temp")
         words: list[int] = []
         for key in keys:
@@ -1696,7 +1705,10 @@ class Gateway:
         try:
             self.write_afterheat_temperature_block(ser)
         except Exception as error:
-            LOG.error("Afterheat temperature refresh failed: %s", error)
+            now_log = time.monotonic()
+            if now_log - getattr(self, "last_afterheat_refresh_error_log", -1e9) >= 900:
+                LOG.error("Afterheat temperature refresh failed: %s", error)
+                self.last_afterheat_refresh_error_log = now_log
             return False
         return True
 

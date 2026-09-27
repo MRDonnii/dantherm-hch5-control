@@ -1,5 +1,5 @@
 [Unit]
-Description=Dantherm HCH5 PassiveLink controller gateway and WebUI
+Description=Dantherm HCH5 Control gateway and WebUI
 After=network-online.target
 Wants=network-online.target
 
