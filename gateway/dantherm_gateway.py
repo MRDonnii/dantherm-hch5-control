@@ -648,6 +648,10 @@ class Gateway:
         self.fireplace_until_epoch = 0.0
         self.startup_fireplace: dict | None = None
         self.last_fireplace_write = 0.0
+        # Unit off (standby): the HRC2/HCP4 standby pattern, rewritten every second.
+        self.standby_gateway_active = False
+        self.standby_restore: tuple[int, int, int, int] | None = None
+        self.last_standby_write = 0.0
         self.special_mode_flag: int | None = None
         self.filter_enabled = bool(config.get("filter", {}).get("enabled", False))
         self.filter_state_path = Path(
@@ -696,6 +700,7 @@ class Gateway:
                 set_bypass=lambda value: self.queue_controller_hardware("bypass", str(value)),
                 set_fireplace=lambda enabled: self.queue_controller_hardware("fireplace", bool(enabled)),
                 set_afterheat_setpoint=lambda value: self.queue_controller_hardware("afterheat_setpoint", value),
+                set_standby=lambda enabled: self.queue_controller_hardware("standby", bool(enabled)),
             ),
             state_path=controller_cfg.get("state_file", "/var/lib/dantherm-hch5-ha/controller.json"),
             tick_seconds=float(controller_cfg.get("tick_seconds", 2.0)),
@@ -743,6 +748,12 @@ class Gateway:
                     elif not value and self.fireplace_gateway_active:
                         self.stop_fireplace(ser)
                     result["value"] = self.fireplace_gateway_active
+                elif action == "standby":
+                    if value and not self.standby_gateway_active:
+                        self.start_standby(ser)
+                    elif not value and self.standby_gateway_active:
+                        self.stop_standby(ser)
+                    result["value"] = self.standby_gateway_active
                 elif action == "bypass":
                     result["value"] = self.write_bypass_request(ser, str(value))
                 elif action == "afterheat_setpoint":
@@ -2163,6 +2174,54 @@ class Gateway:
         self.publish_fireplace_timer()
         LOG.info("Pejs-ventilation startet i 15 minutter med indblæsning %s", supply)
 
+    def start_standby(self, ser: serial.Serial):
+        """Stop both fans with the standby pattern HRC2/HCP4 use (fireplace pattern, supply 0)."""
+        if self.standby_gateway_active:
+            return
+        if self.fireplace_gateway_active:
+            self.stop_fireplace(ser)
+        pair = self.read_fan_pair(ser)
+        bypass_values = self.read_register_block(ser, 1, 68, 1)
+        reg76_values = self.read_register_block(ser, 1, 76, 1)
+        if pair is None or bypass_values is None or reg76_values is None:
+            raise RuntimeError("standby: unit state could not be read")
+        extract, supply = pair
+        bypass_request = bypass_values[0] if bypass_values[0] in (0, 255) else 0
+        # After a restart during standby the unit already reads 0/0: restore a
+        # valid pair; the controller writes the wanted pair right after anyway.
+        if extract <= 0 or supply <= 0:
+            extract, supply = 55, 43
+        self.standby_restore = (bypass_request, 0, extract, supply)
+        self.write_fireplace_pattern(ser, 0, 1, 0, 0)
+        self.standby_gateway_active = True
+        self.last_standby_write = time.monotonic()
+        self.special_mode_flag = 1
+        self.publish("standby", True)
+        self.publish("fan_extract_percent", 0)
+        self.publish("fan_supply_percent", 0)
+        self.publish("operating_mode", "standby")
+        self.publish("control_status", "standby_active")
+        LOG.info("Anlæg slukket (standby); gendannes til %s/%s", extract, supply)
+
+    def stop_standby(self, ser: serial.Serial):
+        restored_pair: tuple[int, int] | None = None
+        if self.standby_restore is not None:
+            bypass_request, reg76, extract, supply = self.standby_restore
+            restored_pair = (extract, supply)
+            self.write_fireplace_pattern(ser, bypass_request, reg76, extract, supply)
+            time.sleep(0.15)
+            self.write_fireplace_pattern(ser, bypass_request, reg76, extract, supply)
+        self.standby_gateway_active = False
+        self.standby_restore = None
+        self.special_mode_flag = 0
+        self.publish("standby", False)
+        if restored_pair is not None:
+            self.publish("fan_extract_percent", restored_pair[0])
+            self.publish("fan_supply_percent", restored_pair[1])
+            self.update_mode()
+        self.publish("control_status", "idle")
+        LOG.info("Anlæg tændt igen efter standby")
+
     def resume_fireplace(self, ser: serial.Serial):
         if self.startup_fireplace is None:
             return
@@ -2398,6 +2457,9 @@ class Gateway:
                     ):
                         self.verify_control_pair(ser)
                         self.last_control_verify = time.monotonic()
+                    if self.standby_gateway_active and time.monotonic() - self.last_standby_write >= 1.0:
+                        self.write_fireplace_pattern(ser, 0, 1, 0, 0)
+                        self.last_standby_write = time.monotonic()
                     if self.fireplace_gateway_active:
                         if time.monotonic() >= self.fireplace_until_monotonic:
                             self.stop_fireplace(ser)

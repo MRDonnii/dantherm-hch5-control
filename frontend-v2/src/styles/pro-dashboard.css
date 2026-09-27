@@ -500,3 +500,8 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .bonfire-card.active .status-action-icon.smoke { color: #fff; background: rgb(185 199 209 / 28%); }
 .bonfire-actions { flex-wrap: wrap; justify-content: flex-end; }
 .bonfire-actions button { min-width: 44px; }
+.standby-card { grid-template-columns: 44px minmax(0,1fr) auto; }
+.standby-card .status-action-icon.power { color: #9fb4c2; background: rgb(159 180 194 / 12%); }
+.standby-card.active { border-color: #d97a5b; }
+.standby-card.active .status-action-icon.power { color: #ffb199; background: rgb(217 122 91 / 22%); }
+.standby-card .standby-on { border-color: #4fbf8a; color: #8ef0bd; font-weight: 800; }

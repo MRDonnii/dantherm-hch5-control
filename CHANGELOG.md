@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.1-beta.4
+
+- **Sluk anlæg:** a new card (and in Home Assistant) switches the unit off for 1, 4, 8 or 24 hours or until switched on again. It uses the standby pattern of the HRC2/HCP4 controllers (the verified fireplace sequence with both fans at 0 %), rewritten every second, and restores the previous state when switched on. Boost, bonfire and fireplace cannot start while the unit is off.
+- **Bål i haven switches the unit off** for the chosen time instead of running the fans at minimum, and starts it again by itself.
+- Changes by Claude AI.
+
 ## 1.2.1-beta.3
 
 - **Bål i haven:** a new card under the fireplace function (and in Home Assistant) runs both fans at the lowest speed (extract 11 %, supply 10 %) for 30 minutes to 3 hours (10–480 minutes via the API), closes the bypass, pauses free cooling and boost, and stops by itself. The fireplace function keeps priority.

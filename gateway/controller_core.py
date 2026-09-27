@@ -26,10 +26,15 @@ VALID_DEMANDS = {"low", "normal", "high", "boost"}
 VALID_BYPASS = {"off", "on"}
 VALID_QUICK_BOOST_MINUTES = {0, 15, 30, 60}
 VALID_AFTERHEAT_COILS = {"electric", "water"}
-# Bonfire in the garden: both fans at the lowest allowed speed so as little
-# smoke as possible is drawn in, while extract stays just above supply.
-BONFIRE_PROFILE = {"extract": 11, "supply": 10, "name": "Bål"}
+# Bonfire in the garden: the unit is switched off (standby pattern) for the
+# chosen time so no smoke is drawn in, then starts again by itself.
+BONFIRE_PROFILE = {"extract": 0, "supply": 0, "name": "Bål"}
 BONFIRE_MINUTES_RANGE = (10, 480)
+# Unit off (standby): both fans stopped with the HRC2/HCP4 standby pattern.
+# -1 = until switched on again; otherwise 10 minutes to 7 days.
+STANDBY_UNTIL_ON = -1
+STANDBY_MINUTES_RANGE = (10, 7 * 24 * 60)
+STANDBY_PROFILE = {"extract": 0, "supply": 0, "name": "Slukket"}
 
 DEFAULT_PROFILES = {
     1: {"extract": 25, "supply": 13, "name": "Lav"},
@@ -148,11 +153,13 @@ class HardwareAdapter:
         set_bypass: Callable[[str], object] | None = None,
         set_fireplace: Callable[[bool], object] | None = None,
         set_afterheat_setpoint: Callable[[int | None], object] | None = None,
+        set_standby: Callable[[bool], object] | None = None,
     ) -> None:
         self.write_fan_pair = write_fan_pair
         self.set_bypass = set_bypass
         self.set_fireplace = set_fireplace
         self.set_afterheat_setpoint = set_afterheat_setpoint
+        self.set_standby = set_standby
 
 
 class ControllerState:
@@ -209,6 +216,9 @@ class ControllerState:
         "quick_boost_minutes": 0,
         "bonfire_until": None,
         "bonfire_minutes": 0,
+        "standby": False,
+        "standby_until": None,
+        "standby_minutes": 0,
         "cooling_enabled": False,
         "cooling_room_setpoint": 23.0,
         "cooling_hysteresis": 0.5,
@@ -386,6 +396,15 @@ class ControllerState:
             self.data["bonfire_minutes"] = 0
         else:
             self.data["bonfire_until"] = bonfire_until
+        try:
+            standby_until = _parse_until(self.data.get("standby_until"), "Standby slut")
+        except ControllerError:
+            standby_until = None
+        self.data["standby"] = self.data.get("standby") is True
+        if not self.data["standby"] or (standby_until is not None and standby_until <= time.time()):
+            self.data["standby"], self.data["standby_until"], self.data["standby_minutes"] = False, None, 0
+        else:
+            self.data["standby_until"] = standby_until
         for key, default, low, high in (
             ("bathroom_rh_setpoint", 65.0, 35.0, 90.0),
             ("bathroom_rh_hysteresis", 5.0, 1.0, 20.0),
@@ -544,7 +563,7 @@ class ControllerState:
                 "night_air_quality_max_level", "bathroom_rh_setpoint",
                 "bathroom_rh_hysteresis", "bathroom_max_level",
                 "vacation_enabled", "vacation_level", "vacation_until",
-                "quick_boost_minutes", "quick_boost_level", "bonfire_minutes", "cooling_enabled",
+                "quick_boost_minutes", "quick_boost_level", "bonfire_minutes", "standby_minutes", "cooling_enabled",
                 "cooling_room_setpoint", "cooling_hysteresis", "cooling_outdoor_min",
                 "cooling_min_delta", "cooling_level", "cooling_start_delay_seconds",
                 "cooling_min_on_seconds", "cooling_min_off_seconds", "cooling_transition_timeout_seconds",
@@ -609,11 +628,27 @@ class ControllerState:
                     raise ControllerError("Quick Boost skal være 0, 15, 30 eller 60 minutter")
                 if minutes and self.data.get("fireplace"):
                     raise ControllerError("Quick Boost kan ikke startes under pejsefunktion")
+                if minutes and self.data.get("standby"):
+                    raise ControllerError("Anlægget er slukket; tænd det først")
                 self.data["quick_boost_minutes"] = minutes
                 self.data["quick_boost_until"] = time.time() + minutes * 60 if minutes else None
                 if minutes:
                     self.data["bonfire_until"] = None
                     self.data["bonfire_minutes"] = 0
+            if "standby_minutes" in patch:
+                minutes = int(patch["standby_minutes"])
+                low, high = STANDBY_MINUTES_RANGE
+                if minutes not in (0, STANDBY_UNTIL_ON) and not low <= minutes <= high:
+                    raise ControllerError(f"Standby skal være {low}..{high} minutter eller indtil tændt")
+                self.data["standby"] = minutes != 0
+                self.data["standby_minutes"] = minutes
+                self.data["standby_until"] = time.time() + minutes * 60 if minutes > 0 else None
+                if minutes:
+                    # Off means off: temporary functions end.
+                    self.data["quick_boost_until"], self.data["quick_boost_minutes"] = None, 0
+                    self.data["bonfire_until"], self.data["bonfire_minutes"] = None, 0
+                    self.data["fireplace"], self.data["fireplace_until"] = False, None
+                    self.data["fireplace_duration_minutes"] = 0
             if "bonfire_minutes" in patch:
                 minutes = int(patch["bonfire_minutes"])
                 low, high = BONFIRE_MINUTES_RANGE
@@ -621,6 +656,8 @@ class ControllerState:
                     raise ControllerError(f"Bål skal vare {low}..{high} minutter")
                 if minutes and self.data.get("fireplace"):
                     raise ControllerError("Bål kan ikke startes under pejsefunktion")
+                if minutes and self.data.get("standby"):
+                    raise ControllerError("Anlægget er slukket; tænd det først")
                 self.data["bonfire_minutes"] = minutes
                 self.data["bonfire_until"] = time.time() + minutes * 60 if minutes else None
                 if minutes:
@@ -657,6 +694,8 @@ class ControllerState:
                 if not isinstance(patch["fireplace"], bool):
                     raise ControllerError("fireplace skal være boolean")
                 minutes = 15 if patch["fireplace"] else 0
+                if minutes and self.data.get("standby"):
+                    raise ControllerError("Anlægget er slukket; tænd det først")
                 if minutes and self.data["bypass"] == "on":
                     raise ControllerError("Pejsefunktion kan ikke aktiveres mens bypass er tændt")
                 self.data["fireplace"] = minutes > 0
@@ -671,6 +710,8 @@ class ControllerState:
                 minutes = int(patch["fireplace_minutes"])
                 if minutes not in (0, 15, 30):
                     raise ControllerError("Pejsetid skal være 0, 15 eller 30 minutter")
+                if minutes and self.data.get("standby"):
+                    raise ControllerError("Anlægget er slukket; tænd det først")
                 if minutes and self.data["bypass"] == "on":
                     raise ControllerError("Pejsefunktion kan ikke aktiveres mens bypass er tændt")
                 self.data["fireplace"] = minutes > 0
@@ -868,9 +909,24 @@ class ControllerState:
             self.data["updated_at"] = now
             self.save()
 
+    def _expire_standby(self, now: float | None = None) -> None:
+        now = now or time.time()
+        until = self.data.get("standby_until")
+        if not self.data.get("standby") or until is None:
+            return
+        try:
+            active_until = float(until)
+        except (TypeError, ValueError):
+            active_until = 0.0
+        if active_until <= now:
+            self.data["standby"], self.data["standby_until"], self.data["standby_minutes"] = False, None, 0
+            self.data["updated_at"] = now
+            self.save()
+
     def snapshot(self) -> dict[str, object]:
         with self.lock:
             now = time.time()
+            self._expire_standby(now)
             self._expire_fireplace(now)
             self._expire_vacation(now)
             self._expire_quick_boost(now)
@@ -889,12 +945,17 @@ class ControllerState:
             bonfire_until = result.get("bonfire_until")
             result["bonfire_remaining_seconds"] = max(0, int(float(bonfire_until) - now)) if bonfire_until else 0
             result["bonfire_active"] = bool(result["bonfire_remaining_seconds"])
+            standby_until = result.get("standby_until")
+            result["standby_active"] = result.get("standby") is True
+            result["standby_remaining_seconds"] = max(0, int(float(standby_until) - now)) if standby_until else None
             vacation_until = _parse_until(result.get("vacation_until"), "Ferie slut") if result.get("vacation_until") else None
             result["vacation_remaining_seconds"] = max(0, int(vacation_until - now)) if vacation_until else None
             level = result.get("effective_level")
             result["effective_profile"] = result["profiles"].get(int(level)) if level else None
             if result["bonfire_active"] and not result.get("fireplace"):
                 result["effective_profile"] = dict(BONFIRE_PROFILE)
+            if result["standby_active"]:
+                result["effective_profile"] = dict(STANDBY_PROFILE)
             result["airflow_plan"] = self.airflow_plan()
             result["effective_normal_level"] = self.normal_level()
             return result
@@ -1175,10 +1236,19 @@ class ControllerEngine:
         if d.get("fireplace"):
             effective_bypass = "off"
         level = min(int(d["local_max_level"]), max(int(d["local_min_level"]), int(level)))
+        standby_until = d.get("standby_until")
+        flags["standby_active"] = d.get("standby") is True and (standby_until is None or float(standby_until) > now_ts)
+        if flags["standby_active"]:
+            flags["quick_boost_active"] = False
+            flags["cooling_active"] = False
+            self._stop_cooling(now_ts, "standby")
+            left = f" · ca. {max(1, math.ceil((float(standby_until) - now_ts) / 60))} min tilbage" if standby_until else " · indtil det tændes"
+            flags["bonfire_active"] = False
+            return level, "standby", f"Anlæg slukket (standby){left}", "off", flags
         bonfire_until = d.get("bonfire_until")
         flags["bonfire_active"] = False
         if not d.get("fireplace") and bonfire_until and float(bonfire_until) > now_ts:
-            # Smoke outside: the fan pair is replaced by BONFIRE_PROFILE in resolve().
+            # Smoke outside: the unit is switched off by the standby pattern in apply().
             flags["bonfire_active"] = True
             flags["quick_boost_active"] = False
             flags["cooling_active"] = False
@@ -1187,7 +1257,7 @@ class ControllerEngine:
             level = 1
             source = "bonfire"
             remaining = max(1, math.ceil((float(bonfire_until) - now_ts) / 60))
-            reason = f"Bål i haven · ventilatorer på minimum · ca. {remaining} min tilbage"
+            reason = f"Bål i haven · anlæg slukket · ca. {remaining} min tilbage"
         return level, source, reason, effective_bypass, flags
 
     def _dry_air(self, d: dict) -> bool:
@@ -1273,6 +1343,8 @@ class ControllerEngine:
             profile = d["profiles"].get(level) if level else None
             if flags.get("bonfire_active"):
                 profile = dict(BONFIRE_PROFILE)
+            if flags.get("standby_active"):
+                profile = dict(STANDBY_PROFILE)
             start_delay = int(d["cooling_start_delay_seconds"])
             qualifying_remaining = None
             if self.cooling_reason == "qualifying" and self.cooling_qualifying_since is not None:
@@ -1357,6 +1429,15 @@ class ControllerEngine:
     def apply(self) -> dict[str, object]:
         """Apply only changed desired values; arbitration is enforced below this layer."""
         snapshot = self.resolve()
+        # Standby and bonfire both switch the unit off with the standby pattern.
+        standby = snapshot.get("standby_active") is True or snapshot.get("bonfire_active") is True
+        previous_standby = self.last_applied.get("standby")
+        if standby or previous_standby is True:
+            # The standby pattern replaces the fan pair; leaving it restores the
+            # previous pair in the gateway, then the wanted pair is written again.
+            self._call("standby", standby, self.hardware.set_standby, standby)
+            if previous_standby is True and not standby:
+                self.last_applied.pop("fan_pair", None)
         fireplace = bool(snapshot["fireplace"])
         previous_fireplace = self.last_applied.get("fireplace")
         self._call("fireplace", fireplace, self.hardware.set_fireplace, fireplace)
@@ -1366,7 +1447,7 @@ class ControllerEngine:
         if self.hardware.set_bypass is not None:
             self._call("bypass", bypass, self.hardware.set_bypass, bypass)
         profile = snapshot.get("effective_profile")
-        if profile:
+        if profile and not standby:
             pair = (int(profile["extract"]), int(profile["supply"]))
             self._call("fan_pair", pair, self.hardware.write_fan_pair, *pair)
         enabled = bool(snapshot["afterheat_enabled"])
