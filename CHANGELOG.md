@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.1-beta.2
+
+- Bathroom drying is allowed at night: night mode no longer caps it at the night air-quality level. It still steps down as humidity falls. CO₂ and other rooms stay capped at night as before.
+- Changes by Claude AI.
+
 ## 1.2.1-beta.1
 
 - Bathroom drying: when bathroom humidity passes its limit, or rises 7 %-points within 10 minutes during a shower, Smart Auto starts at the bathroom's drying level (default 6, the highest) and steps down in proportion as humidity falls from its peak. Normal ventilation takes over below the limit minus the hysteresis. Previously a bathroom only added one level per 5 % RH and was capped at level 4.

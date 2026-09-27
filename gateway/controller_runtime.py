@@ -494,6 +494,7 @@ class ControllerRuntime:
             requested_level=self.smart_requested_level,
             valid_for_s=valid_for,
             reason=self.smart_reason,
+            bathroom_drying=decision[4] == "humidity" and decision[3] in self._bathroom_episodes,
         )
         if self.config.data.get("mode") == "smart_auto" and self.hardware_writes_allowed():
             self.apply_once()
@@ -675,6 +676,7 @@ class ControllerRuntime:
             requested_level=self.smart_requested_level,
             valid_for_s=self.smart_inputs_valid_for,
             reason=self.smart_reason,
+            bathroom_drying=decision[4] == "humidity" and decision[3] in self._bathroom_episodes,
         )
 
     def _smart_input_snapshot(self) -> dict[str, object]:

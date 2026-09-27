@@ -53,3 +53,21 @@ def test_shower_rise_starts_drying_before_the_limit(tmp_path):
 def test_drying_level_follows_the_setting(tmp_path):
     runtime = _runtime(tmp_path, bathroom_max_level=5)
     assert _level(runtime, 75, 3_000_000.0) == 5
+
+
+def test_drying_is_allowed_at_night(tmp_path):
+    runtime = _runtime(tmp_path, night_enabled=True, night_start="00:00", night_end="23:59",
+                       night_level=2, night_air_quality_max_level=4)
+    import time
+    now = time.time()
+    assert _level(runtime, 75, now) == 6
+    resolved = runtime.engine.resolve()
+    assert resolved["effective_level"] == 6
+    assert resolved["night_active"] is True
+
+
+def test_other_rooms_stay_capped_at_night(tmp_path):
+    runtime = _runtime(tmp_path, night_enabled=True, night_start="00:00", night_end="23:59",
+                       night_level=2, night_air_quality_max_level=4)
+    runtime.config.heartbeat("boost", requested_level=6, reason="CO2 Soveværelse")
+    assert runtime.engine.resolve()["effective_level"] <= 4

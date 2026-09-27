@@ -753,7 +753,7 @@ class ControllerState:
             except ValueError as error:
                 raise ControllerError(str(error)) from error
 
-    def heartbeat(self, demand: str = "normal", *, requested_level: int | None = None, valid_for_s: int | None = None, reason: str | None = None) -> dict[str, object]:
+    def heartbeat(self, demand: str = "normal", *, requested_level: int | None = None, valid_for_s: int | None = None, reason: str | None = None, bathroom_drying: bool = False) -> dict[str, object]:
         if demand not in VALID_DEMANDS:
             raise ControllerError("Ugyldigt HA-demand")
         if requested_level is not None and not 1 <= int(requested_level) <= 6:
@@ -769,6 +769,7 @@ class ControllerState:
                 self.data["ha_valid_for_seconds"] = int(valid_for_s)
             if reason is not None:
                 self.data["ha_reason"] = str(reason)[:256]
+            self.data["ha_bathroom_drying"] = bool(bathroom_drying)
             return self.snapshot()
 
     def _expire_fireplace(self, now: float | None = None) -> None:
@@ -999,7 +1000,12 @@ class ControllerEngine:
                 # configurable ceiling. This prevents a humid bathroom from repeatedly
                 # forcing full boost while night mode simultaneously tries to reduce it.
                 ha_urgent = source == "ha_smart" and level > int(d["night_level"])
-                if local_urgent or ha_urgent:
+                if source == "ha_smart" and d.get("ha_bathroom_drying"):
+                    # Drying a bathroom out after a shower is allowed at night too;
+                    # it steps down by itself as humidity falls.
+                    flags["night_active"] = True
+                    reason = f"{reason}; nat: badeværelse tørres ud"
+                elif local_urgent or ha_urgent:
                     night_cap = max(int(d["night_level"]), int(d["night_air_quality_max_level"]))
                     if level > night_cap:
                         level = night_cap

@@ -259,7 +259,7 @@ export function SettingsPage() {
         <label>{lang === "da" ? "Start" : "Start"}<input type="time" value={s(form.night_start, "22:00")} onChange={e => set("night_start", e.target.value)}/></label>
         <label>{lang === "da" ? "Slut" : "End"}<input type="time" value={s(form.night_end, "06:00")} onChange={e => set("night_end", e.target.value)}/></label>
         <label>{lang === "da" ? "Nat-trin" : "Night level"}<input type="number" min="1" max="6" value={n(form.night_level, 2)} onChange={num("night_level")}/><Help>{lang === "da" ? "Trinnet om natten, når luften er god." : "The level at night when the air is good."}</Help></label>
-        <label>{lang === "da" ? "Maks. ved dårlig luft" : "Maximum with poor air"}<input type="number" min="1" max="6" value={n(form.night_air_quality_max_level, 4)} onChange={num("night_air_quality_max_level")}/><Help>{lang === "da" ? "Om natten må fugt og CO₂ højst løfte til dette trin." : "At night humidity and CO₂ may raise the level to this at most."}</Help></label>
+        <label>{lang === "da" ? "Maks. ved dårlig luft" : "Maximum with poor air"}<input type="number" min="1" max="6" value={n(form.night_air_quality_max_level, 4)} onChange={num("night_air_quality_max_level")}/><Help>{lang === "da" ? "Om natten må fugt og CO₂ højst løfte til dette trin. Udtørring af badeværelset efter et bad er undtaget og må køre fuldt op." : "At night humidity and CO₂ can raise ventilation to this level at most. Drying a bathroom out after a shower is exempt and may run at full level."}</Help></label>
       </div>
     </Card>,
     afterheat: <>
