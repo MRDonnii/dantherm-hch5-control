@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.1-beta.6
+
+- **No afterheat writes during the summer stop:** when the outdoor temperature is 15 °C or higher, HAC1 cannot switch the water afterheat on, so the Pi no longer rewrites the afterheat setpoint every 4 seconds. It writes only when the setpoint changes, and the 4-second refresh resumes by itself when it is colder than 15 °C. This removes the repeated "missing FC16 acknowledgement for register 185" errors in the log. The outdoor temperature block (register 180) is still sent so HAC1 keeps seeing the outdoor temperature.
+- Changes by Claude AI.
+
 ## 1.2.1-beta.5
 
 - **OFF in the level row:** "Ventilatorniveau" now has an OFF button. It opens a popup with presets: 1, 4 or 8 hours, until tomorrow at 07:00, or permanently until switched on again. Pressing a level switches the unit on at that level. The separate "Sluk anlæg" card from beta.4 is gone.

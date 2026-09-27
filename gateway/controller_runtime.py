@@ -18,18 +18,12 @@ from pathlib import Path
 from advanced_control import absolute_humidity, fit_fan_curve, source_room, supply_after_core, supply_air_metrics
 from onewire_extras import OneWireExtras
 from diagnostics import Diagnostics
-from controller_core import ControllerEngine, ControllerError, ControllerState, HardwareAdapter
+from controller_core import AFTERHEAT_OUTDOOR_CUTOFF_C, ControllerEngine, ControllerError, ControllerState, HardwareAdapter
 from master_arbitration import MasterArbitrator, RtuFrameStream
 from sensor_freshness import fresh_sensor_value, sensor_sample_age
 
 LOG = logging.getLogger("passivelink-controller")
 VALID_PRIORITIES = {"auto", "low", "normal", "high", "critical"}
-# HAC1 firmware lockout, confirmed by the owner 2026-09-23: the water
-# afterheat never switches on while outdoor temperature (T1, register 180)
-# is 15 C or higher, whatever the setpoint (even 35 C) and whoever is master.
-# Register 209 staying 0 above this limit is correct HAC1 behaviour, not a
-# Pi/RS485 fault - do not debug it. It is not configurable over RS485.
-AFTERHEAT_OUTDOOR_CUTOFF_C = 15.0
 # The HCH5 runs its bypass damper for about three minutes either way
 # (180 s measured on the live unit 2026-09-23) and reports no position.
 BYPASS_TRAVEL_SECONDS = 180

@@ -241,6 +241,27 @@ class ControllerTests(unittest.TestCase):
         engine.apply()
         self.assertEqual(calls, [20, 20, None])
 
+    def test_afterheat_not_refreshed_during_outdoor_lockout(self):
+        calls = []
+        state, _ = self.make()
+        engine = ControllerEngine(state, HardwareAdapter(
+            write_fan_pair=lambda extract, supply: None,
+            set_fireplace=lambda enabled: None,
+            set_afterheat_setpoint=calls.append,
+        ))
+        engine.update_measurements(outdoor=18.0)
+        engine.apply()
+        engine.last_applied_at["afterheat_setpoint"] -= 60
+        engine.apply()
+        self.assertEqual(calls, [20])
+        state.configure({"afterheat_setpoint": 22})
+        engine.apply()
+        self.assertEqual(calls, [20, 22])
+        engine.update_measurements(outdoor=9.0)
+        engine.last_applied_at["afterheat_setpoint"] -= 4.1
+        engine.apply()
+        self.assertEqual(calls, [20, 22, 22])
+
     def test_failed_write_has_bounded_retries(self):
         calls = []
         state, _ = self.make()

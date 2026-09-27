@@ -21,6 +21,13 @@ from advanced_control import (
     valid_source,
 )
 
+# HAC1 firmware lockout, confirmed by the owner 2026-09-23: the water
+# afterheat never switches on while outdoor temperature (T1, register 180)
+# is 15 C or higher, whatever the setpoint (even 35 C) and whoever is master.
+# Register 209 staying 0 above this limit is correct HAC1 behaviour, not a
+# Pi/RS485 fault - do not debug it. It is not configurable over RS485.
+AFTERHEAT_OUTDOOR_CUTOFF_C = 15.0
+
 VALID_MODES = {"local_auto", "smart_auto", "manual"}
 VALID_DEMANDS = {"low", "normal", "high", "boost"}
 VALID_BYPASS = {"off", "on"}
@@ -1023,6 +1030,13 @@ class ControllerEngine:
         with self.lock:
             self.external = dict(values)
 
+    def afterheat_outdoor_lockout(self) -> bool:
+        outdoor = self.measurements.get("outdoor")
+        return (
+            isinstance(outdoor, (int, float)) and not isinstance(outdoor, bool)
+            and outdoor >= AFTERHEAT_OUTDOOR_CUTOFF_C
+        )
+
     def outdoor_absolute_humidity(self) -> float | None:
         outdoor = self.measurements.get("outdoor")
         return absolute_humidity(
@@ -1468,11 +1482,15 @@ class ControllerEngine:
         enabled = bool(snapshot["afterheat_enabled"])
         setpoint = int(snapshot.get("afterheat_effective_setpoint") or snapshot["afterheat_setpoint"])
         command = setpoint if enabled else None
+        # Above the HAC1 outdoor cutoff the water afterheat cannot run, so the
+        # four-second refresh only loads the bus (and logged missing acks).
+        # The setpoint is then written only when it changes; the refresh
+        # resumes by itself as soon as it is colder than the cutoff.
         self._call(
             "afterheat_setpoint",
             command,
             self.hardware.set_afterheat_setpoint,
             command,
-            refresh_seconds=4.0,
+            refresh_seconds=None if self.afterheat_outdoor_lockout() else 4.0,
         )
         return self.resolve()
