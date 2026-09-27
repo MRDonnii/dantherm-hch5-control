@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ArrowRight, CloudFog, Flame, Gauge, House, Leaf, Power, Snowflake, Wind, X, Zap } from "lucide-react";
 import { Hch5UnitDiagram } from "../components/Hch5UnitDiagram";
 import { AfterheatThermostat } from "../components/AfterheatThermostat";
@@ -52,8 +53,14 @@ function whole(value: number | null) {
   return value === null ? "—" : Math.round(value).toLocaleString("da-DK");
 }
 const BONFIRE_CHOICES: [number, string][] = [[30, "30 min"], [60, "1 t"], [120, "2 t"], [180, "3 t"]];
-// -1 keeps the unit off until it is switched on again.
-const STANDBY_CHOICES: [number, string][] = [[60, "1 t"], [240, "4 t"], [480, "8 t"], [1440, "24 t"], [-1, "Til tændt"]];
+// Presets in the OFF popup; -2 = until 07:00, -1 = until switched on again.
+const STANDBY_CHOICES: [number, string, string][] = [
+  [60, "1 time", "Tænder selv om en time"],
+  [240, "4 timer", "Tænder selv om fire timer"],
+  [480, "8 timer", "Tænder selv om otte timer"],
+  [-2, "Til i morgen", "Tænder selv kl. 07:00"],
+  [-1, "Permanent", "Slukket, til du tænder igen"],
+];
 function energy(value: number | null) {
   return value === null ? "—" : value.toLocaleString("da-DK", { maximumFractionDigits: 2 });
 }
@@ -98,6 +105,7 @@ export function OverviewPage() {
   // Setpoint to return to when the power button turns the afterheat back on.
   const lastAfterheatOn = useRef(20);
   const [activeSensor, setActiveSensor] = useState<string | null>(null);
+  const [standbyDialog, setStandbyDialog] = useState(false);
   const [historySamples, setHistorySamples] = useState<HistorySample[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
@@ -310,10 +318,11 @@ export function OverviewPage() {
               ))}
             </div>
             <label className="control-label">Ventilatorniveau</label>
-            <div className="pro-levels">
-              {[1,2,3,4,5,6].map(value => <button key={value} className={level === value ? "active" : ""} disabled={busy !== null} onClick={() => void command(`level-${value}`, { [levelPatch]: value }, `Ventilation sat til trin ${value}.`)}>{value}</button>)}
+            <div className="pro-levels with-off">
+              {[1,2,3,4,5,6].map(value => <button key={value} className={!standbyActive && level === value ? "active" : ""} disabled={busy !== null} onClick={() => void command(`level-${value}`, standbyActive ? { standby_minutes: 0, [levelPatch]: value } : { [levelPatch]: value }, standbyActive ? `Anlægget er tændt på trin ${value}.` : `Ventilation sat til trin ${value}.`)}>{value}</button>)}
+              <button className={`level-off${standbyActive ? " active" : ""}`} aria-haspopup="dialog" aria-pressed={standbyActive} disabled={busy !== null} onClick={() => setStandbyDialog(true)}>OFF</button>
             </div>
-            <div className="active-decision"><span>Aktiv beslutning</span><strong>Trin {whole(level)} · {text(controller.effective_source).replaceAll("_", " ")}</strong><small>{text(controller.effective_reason, "Afventer controllerens beslutning")}</small></div>
+            <div className="active-decision"><span>Aktiv beslutning</span><strong>{standbyActive ? "OFF · anlæg slukket" : `Trin ${whole(level)} · ${text(controller.effective_source).replaceAll("_", " ")}`}</strong><small>{text(controller.effective_reason, "Afventer controllerens beslutning")}</small></div>
           </article>
 
           <div className="pro-control-pair">
@@ -360,15 +369,6 @@ export function OverviewPage() {
             </div>
           </article>
 
-          <article className={`surface status-action-card standby-card${standbyActive ? " active" : ""}`}>
-            <div className="status-action-icon power"><Power size={24}/></div>
-            <div><span>Sluk anlæg</span><strong>{standbyActive ? "Slukket" : "Kører"}</strong><small>{standbyActive ? (controller.standby_remaining_seconds == null ? "Indtil det tændes igen" : `${remaining(controller.standby_remaining_seconds)} · tænder selv`) : "Stopper begge ventilatorer"}</small></div>
-            <div className="fireplace-actions bonfire-actions">
-              {standbyActive
-                ? <button className="standby-on" disabled={busy !== null} onClick={() => void command("standby-stop", { standby_minutes: 0 }, "Anlægget er tændt igen.")}>Tænd</button>
-                : STANDBY_CHOICES.map(([minutes, label]) => <button key={minutes} disabled={busy !== null} onClick={() => void command(`standby-${minutes}`, { standby_minutes: minutes }, minutes < 0 ? "Anlægget er slukket, indtil det tændes igen." : `Anlægget er slukket i ${label}.`)}>{label}</button>)}
-            </div>
-          </article>
         </aside>
 
         <article className="surface climate-panel">
@@ -405,12 +405,24 @@ export function OverviewPage() {
           </>}
         </article>
       </div>
-      {activeSensor && SENSOR_HISTORY[activeSensor] && <div className="sensor-history-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setActiveSensor(null); }}>
+      {standbyDialog && createPortal(<div className="sensor-history-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setStandbyDialog(false); }}>
+        <section className="standby-dialog surface" role="dialog" aria-modal="true" aria-labelledby="standby-dialog-title">
+          <div className="sensor-history-heading"><div><span className="eyebrow">VENTILATION</span><h2 id="standby-dialog-title">{standbyActive ? "Anlægget er slukket" : "Sluk anlægget"}</h2></div><button type="button" aria-label="Luk" onClick={() => setStandbyDialog(false)}><X size={20}/></button></div>
+          <p className="standby-dialog-lead">{standbyActive
+            ? (controller.standby_remaining_seconds == null ? "Begge ventilatorer står stille, til du tænder igen." : `Begge ventilatorer står stille · ${remaining(controller.standby_remaining_seconds)}.`)
+            : "Begge ventilatorer stopper. Pejs, bål og boost kan ikke startes, mens anlægget er slukket."}</p>
+          <div className="standby-choices">
+            {STANDBY_CHOICES.map(([minutes, label, hint]) => <button key={minutes} type="button" className={standbyActive && number(controller.standby_minutes) === minutes ? "active" : ""} disabled={busy !== null} onClick={() => { setStandbyDialog(false); void command(`standby-${minutes}`, { standby_minutes: minutes }, minutes === -1 ? "Anlægget er slukket, til du tænder igen." : minutes === -2 ? "Anlægget er slukket til i morgen kl. 07:00." : `Anlægget er slukket i ${label}.`); }}><strong>{label}</strong><small>{hint}</small></button>)}
+          </div>
+          {standbyActive && <button type="button" className="standby-on-action" disabled={busy !== null} onClick={() => { setStandbyDialog(false); void command("standby-stop", { standby_minutes: 0 }, "Anlægget er tændt igen."); }}>Tænd anlægget igen</button>}
+        </section>
+      </div>, document.body)}
+      {activeSensor && SENSOR_HISTORY[activeSensor] && createPortal(<div className="sensor-history-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setActiveSensor(null); }}>
         <section className="sensor-history-dialog surface" role="dialog" aria-modal="true" aria-labelledby="sensor-history-title">
           <div className="sensor-history-heading"><div><span className="eyebrow">SENESTE 24 TIMER</span><h2 id="sensor-history-title">{SENSOR_HISTORY[activeSensor].title}</h2></div><button ref={closeHistoryRef} type="button" aria-label="Luk temperaturgraf" onClick={() => setActiveSensor(null)}><X size={20}/></button></div>
           {historyError ? <p className="sensor-history-message" role="alert">{historyError}</p> : historyLoading ? <div className="history-chart-empty" style={{ height: 230 }}>Henter historik…</div> : <HistoryChart height={230} unit={SENSOR_HISTORY[activeSensor].unit ?? "°C"} samples={historySamples} series={[{ key: SENSOR_HISTORY[activeSensor].key, label: SENSOR_HISTORY[activeSensor].title, color: SENSOR_HISTORY[activeSensor].color }]}/>}
         </section>
-      </div>}
+      </div>, document.body)}
     </section>
   );
 }

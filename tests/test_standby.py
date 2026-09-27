@@ -81,3 +81,20 @@ def test_bonfire_switches_the_unit_off_too(tmp_path):
     state.configure({"bonfire_minutes": 0})
     engine.apply()
     assert hw.calls.index(("standby", False)) < hw.calls.index(("fan_pair", (55, 43)))
+
+
+def test_until_tomorrow_morning_is_the_next_seven_oclock():
+    from datetime import datetime
+    from controller_core import _next_morning
+    evening = datetime(2026, 9, 27, 22, 30).astimezone().timestamp()
+    night = datetime(2026, 9, 28, 1, 15).astimezone().timestamp()
+    assert datetime.fromtimestamp(_next_morning(evening, 7)).strftime("%d %H:%M") == "28 07:00"
+    assert datetime.fromtimestamp(_next_morning(night, 7)).strftime("%d %H:%M") == "28 07:00"
+
+
+def test_until_tomorrow_standby_sets_an_end_time(tmp_path):
+    state, engine, hw = _engine(tmp_path)
+    state.configure({"standby_minutes": -2})
+    result = engine.apply()
+    assert result["standby_active"] is True
+    assert 0 < result["standby_remaining_seconds"] <= 24 * 3600

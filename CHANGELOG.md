@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.1-beta.5
+
+- **OFF in the level row:** "Ventilatorniveau" now has an OFF button. It opens a popup with presets: 1, 4 or 8 hours, until tomorrow at 07:00, or permanently until switched on again. Pressing a level switches the unit on at that level. The separate "Sluk anlæg" card from beta.4 is gone.
+- Popups on the overview (OFF and the temperature history) are centred on the screen again.
+- Changes by Claude AI.
+
 ## 1.2.1-beta.4
 
 - **Sluk anlæg:** a new card (and in Home Assistant) switches the unit off for 1, 4, 8 or 24 hours or until switched on again. It uses the standby pattern of the HRC2/HCP4 controllers (the verified fireplace sequence with both fans at 0 %), rewritten every second, and restores the previous state when switched on. Boost, bonfire and fireplace cannot start while the unit is off.

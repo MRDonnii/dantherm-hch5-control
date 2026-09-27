@@ -8,7 +8,7 @@ import os
 import tempfile
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
@@ -33,6 +33,9 @@ BONFIRE_MINUTES_RANGE = (10, 480)
 # Unit off (standby): both fans stopped with the HRC2/HCP4 standby pattern.
 # -1 = until switched on again; otherwise 10 minutes to 7 days.
 STANDBY_UNTIL_ON = -1
+# -2 = until tomorrow morning at STANDBY_MORNING_HOUR (local time of the Pi).
+STANDBY_UNTIL_MORNING = -2
+STANDBY_MORNING_HOUR = 7
 STANDBY_MINUTES_RANGE = (10, 7 * 24 * 60)
 STANDBY_PROFILE = {"extract": 0, "supply": 0, "name": "Slukket"}
 
@@ -55,6 +58,15 @@ DEFAULT_SCHEDULE["6"] = {"enabled": True, "start": "08:00", "end": "22:00", "lev
 
 class ControllerError(ValueError):
     pass
+
+
+def _next_morning(now: float, hour: int) -> float:
+    """Epoch of the next local HH:00: this morning after midnight, else tomorrow."""
+    local = datetime.fromtimestamp(now).astimezone()
+    target = local.replace(hour=hour, minute=0, second=0, microsecond=0)
+    if target <= local:
+        target = (local + timedelta(days=1)).replace(hour=hour, minute=0, second=0, microsecond=0)
+    return target.timestamp()
 
 
 def _copy_profiles(profiles: dict | None = None) -> dict[int, dict[str, object]]:
@@ -638,11 +650,14 @@ class ControllerState:
             if "standby_minutes" in patch:
                 minutes = int(patch["standby_minutes"])
                 low, high = STANDBY_MINUTES_RANGE
-                if minutes not in (0, STANDBY_UNTIL_ON) and not low <= minutes <= high:
-                    raise ControllerError(f"Standby skal være {low}..{high} minutter eller indtil tændt")
+                if minutes not in (0, STANDBY_UNTIL_ON, STANDBY_UNTIL_MORNING) and not low <= minutes <= high:
+                    raise ControllerError(f"Standby skal være {low}..{high} minutter, til i morgen eller indtil tændt")
                 self.data["standby"] = minutes != 0
                 self.data["standby_minutes"] = minutes
-                self.data["standby_until"] = time.time() + minutes * 60 if minutes > 0 else None
+                if minutes == STANDBY_UNTIL_MORNING:
+                    self.data["standby_until"] = _next_morning(time.time(), STANDBY_MORNING_HOUR)
+                else:
+                    self.data["standby_until"] = time.time() + minutes * 60 if minutes > 0 else None
                 if minutes:
                     # Off means off: temporary functions end.
                     self.data["quick_boost_until"], self.data["quick_boost_minutes"] = None, 0
