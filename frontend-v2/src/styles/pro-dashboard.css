@@ -492,3 +492,11 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .hch-recovery-hit { cursor: pointer; outline: none; }
 .hch-recovery-hit rect { fill: transparent; }
 .hch-recovery-hit:hover rect,.hch-recovery-hit:focus-visible rect { fill: rgb(127 208 255 / 10%); stroke: rgb(127 208 255 / 45%); stroke-width: 1.2; }
+
+/* Bonfire in the garden: full-width card under the fireplace pair. */
+.bonfire-card { grid-template-columns: 44px minmax(0,1fr) auto; }
+.bonfire-card .status-action-icon.smoke { color: #b9c7d1; background: rgb(185 199 209 / 12%); }
+.bonfire-card.active { border-color: #8aa0ae; }
+.bonfire-card.active .status-action-icon.smoke { color: #fff; background: rgb(185 199 209 / 28%); }
+.bonfire-actions { flex-wrap: wrap; justify-content: flex-end; }
+.bonfire-actions button { min-width: 44px; }

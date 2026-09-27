@@ -15,7 +15,7 @@ import time
 from collections import defaultdict, deque
 from pathlib import Path
 
-from advanced_control import absolute_humidity, source_room, supply_after_core, supply_air_metrics
+from advanced_control import absolute_humidity, fit_fan_curve, source_room, supply_after_core, supply_air_metrics
 from onewire_extras import OneWireExtras
 from diagnostics import Diagnostics
 from controller_core import ControllerEngine, ControllerError, ControllerState, HardwareAdapter
@@ -69,6 +69,10 @@ class ControllerRuntime:
         self._room_rh_history: dict[str, deque[tuple[float, float]]] = defaultdict(deque)
         # Bathroom drying episodes: peak RH and the RH at which the episode ends.
         self._bathroom_episodes: dict[str, dict[str, float]] = {}
+        # Fan speed per steady percentage (both fans share one curve), for the airflow plan.
+        self._fan_points: dict[int, float] = {}
+        self._fan_steady: dict[str, tuple[int, float]] = {}
+        self._fan_curve_checked_at = 0.0
         self.smart_demand = "normal"
         self.smart_reason = "No Home Assistant room data"
         self.smart_requested_level = int(self.config.data["local_normal_level"])
@@ -719,8 +723,44 @@ class ControllerRuntime:
             },
         }
 
+    FAN_STEADY_SECONDS = 30.0
+    FAN_CURVE_INTERVAL_SECONDS = 600.0
+
+    def _learn_fan_curve(self, now: float | None = None) -> None:
+        """Learn rpm per fan percentage from steady readings and store the fitted line."""
+        now = time.time() if now is None else now
+        for fan in ("supply", "extract"):
+            percent = self._first(self.gateway_state, f"fan_{fan}_percent", f"{fan}_fan_percent")
+            rpm = self._first(self.gateway_state, f"fan_{fan}_rpm", f"{fan}_fan_rpm")
+            if not isinstance(percent, (int, float)) or not isinstance(rpm, (int, float)) or rpm <= 0:
+                continue
+            percent = int(round(percent))
+            steady = self._fan_steady.get(fan)
+            if steady is None or steady[0] != percent:
+                self._fan_steady[fan] = (percent, now)
+                continue
+            if now - steady[1] < self.FAN_STEADY_SECONDS:
+                continue
+            old = self._fan_points.get(percent)
+            self._fan_points[percent] = float(rpm) if old is None else 0.95 * old + 0.05 * float(rpm)
+        if now - self._fan_curve_checked_at < self.FAN_CURVE_INTERVAL_SECONDS:
+            return
+        self._fan_curve_checked_at = now
+        fitted = fit_fan_curve(self._fan_points)
+        if fitted is None:
+            return
+        stored = self.config.data.get("fan_curve") or {}
+        try:
+            unchanged = (abs(float(stored["rpm_at_0"]) - fitted["rpm_at_0"]) < 10
+                         and abs(float(stored["rpm_per_percent"]) - fitted["rpm_per_percent"]) < 0.25)
+        except (KeyError, TypeError, ValueError):
+            unchanged = False
+        if not unchanged:
+            self.config.set_fan_curve({**fitted, "samples": len(self._fan_points)})
+
     def snapshot(self) -> dict[str, object]:
         self.refresh_measurements()
+        self._learn_fan_curve()
         self._expire_smart_lease()
         self._evaluate_master()
         result = self.engine.resolve()

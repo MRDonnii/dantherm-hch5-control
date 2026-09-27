@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.1-beta.3
+
+- **Bål i haven:** a new card under the fireplace function (and in Home Assistant) runs both fans at the lowest speed (extract 11 %, supply 10 %) for 30 minutes to 3 hours (10–480 minutes via the API), closes the bypass, pauses free cooling and boost, and stops by itself. The fireplace function keeps priority.
+- **Better airflow calculation:** airflow now follows fan speed (fan law) instead of the fan percentage. On the HCH5 the speed is about 557 rpm at 0 % plus 24 rpm per %, so the low levels move far more air than before. The Pi learns the exact curve of the unit from steady readings. For a 179 m² house, level 3 now covers the requirement, so the house-sized base level becomes 3 and the lowest level 1.
+- Changes by Claude AI.
+
 ## 1.2.1-beta.2
 
 - Bathroom drying is allowed at night: night mode no longer caps it at the night air-quality level. It still steps down as humidity falls. CO₂ and other rooms stay capped at night as before.

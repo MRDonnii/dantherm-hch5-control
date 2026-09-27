@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, Flame, Gauge, House, Leaf, Snowflake, Wind, X, Zap } from "lucide-react";
+import { ArrowRight, CloudFog, Flame, Gauge, House, Leaf, Snowflake, Wind, X, Zap } from "lucide-react";
 import { Hch5UnitDiagram } from "../components/Hch5UnitDiagram";
 import { AfterheatThermostat } from "../components/AfterheatThermostat";
 import { describeControl } from "../lib/control";
@@ -51,6 +51,7 @@ function temp(value: number | null) {
 function whole(value: number | null) {
   return value === null ? "—" : Math.round(value).toLocaleString("da-DK");
 }
+const BONFIRE_CHOICES: [number, string][] = [[30, "30 min"], [60, "1 t"], [120, "2 t"], [180, "3 t"]];
 function energy(value: number | null) {
   return value === null ? "—" : value.toLocaleString("da-DK", { maximumFractionDigits: 2 });
 }
@@ -224,6 +225,7 @@ export function OverviewPage() {
   const afterheatCutoff = number(controller.afterheat_outdoor_cutoff) ?? 15;
   const afterheatStatus = heating ? "Aktiv" : afterheatLockout ? "Spærret af sommerstop" : heatKnown ? "Inaktiv" : "Ukendt";
   const fireplace = controller.actual_fireplace === true || unit.fireplace === true;
+  const bonfireActive = controller.bonfire_active === true;
   const mode = String(controller.mode ?? "local_auto");
   const level = number(controller.effective_level) ?? 3;
   const afterheatSetpoint = number(controller.afterheat_setpoint) ?? 20;
@@ -344,6 +346,16 @@ export function OverviewPage() {
               </div>
             </article>
           </div>
+
+          <article className={`surface status-action-card bonfire-card${bonfireActive ? " active" : ""}`}>
+            <div className="status-action-icon smoke"><CloudFog size={24}/></div>
+            <div><span>Bål i haven</span><strong>{bonfireActive ? "Aktiv · minimal luft" : "Ikke aktiv"}</strong><small>{bonfireActive ? `${remaining(controller.bonfire_remaining_seconds)} · stopper selv` : fireplace ? "Ikke under pejsefunktion" : "Ventilatorer på minimum, stopper selv"}</small></div>
+            <div className="fireplace-actions bonfire-actions">
+              {bonfireActive
+                ? <button onClick={() => void command("bonfire-stop", { bonfire_minutes: 0 }, "Bål-tilstand stoppet.")}>Stop</button>
+                : BONFIRE_CHOICES.map(([minutes, label]) => <button key={minutes} disabled={busy !== null || fireplace} onClick={() => void command(`bonfire-${minutes}`, { bonfire_minutes: minutes }, `Bål-tilstand startet i ${label}.`)}>{label}</button>)}
+            </div>
+          </article>
         </aside>
 
         <article className="surface climate-panel">

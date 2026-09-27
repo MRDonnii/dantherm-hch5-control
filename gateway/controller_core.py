@@ -26,6 +26,10 @@ VALID_DEMANDS = {"low", "normal", "high", "boost"}
 VALID_BYPASS = {"off", "on"}
 VALID_QUICK_BOOST_MINUTES = {0, 15, 30, 60}
 VALID_AFTERHEAT_COILS = {"electric", "water"}
+# Bonfire in the garden: both fans at the lowest allowed speed so as little
+# smoke as possible is drawn in, while extract stays just above supply.
+BONFIRE_PROFILE = {"extract": 11, "supply": 10, "name": "Bål"}
+BONFIRE_MINUTES_RANGE = (10, 480)
 
 DEFAULT_PROFILES = {
     1: {"extract": 25, "supply": 13, "name": "Lav"},
@@ -203,6 +207,8 @@ class ControllerState:
         "quick_boost_until": None,
         "quick_boost_level": 6,
         "quick_boost_minutes": 0,
+        "bonfire_until": None,
+        "bonfire_minutes": 0,
         "cooling_enabled": False,
         "cooling_room_setpoint": 23.0,
         "cooling_hysteresis": 0.5,
@@ -221,6 +227,8 @@ class ControllerState:
         "house_utility_rooms": 1,
         "airflow_max_m3h": HCH5_MAX_AIRFLOW_M3H,
         "airflow_measured": {},
+        # Learned fan speed curve (rpm = rpm_at_0 + rpm_per_percent x %), set by the runtime.
+        "fan_curve": None,
         "sizing_reduced_percent": 50,
         # Afterheat setpoint follows the room temperature.
         "afterheat_room_enabled": False,
@@ -369,6 +377,15 @@ class ControllerState:
         else:
             self.data["quick_boost_until"] = quick_boost_until
             self.data["quick_boost_minutes"] = quick_boost_minutes
+        try:
+            bonfire_until = _parse_until(self.data.get("bonfire_until"), "Bål slut")
+        except ControllerError:
+            bonfire_until = None
+        if not bonfire_until or bonfire_until <= time.time():
+            self.data["bonfire_until"] = None
+            self.data["bonfire_minutes"] = 0
+        else:
+            self.data["bonfire_until"] = bonfire_until
         for key, default, low, high in (
             ("bathroom_rh_setpoint", 65.0, 35.0, 90.0),
             ("bathroom_rh_hysteresis", 5.0, 1.0, 20.0),
@@ -487,6 +504,12 @@ class ControllerState:
     def airflow_plan(self) -> dict[str, object]:
         return airflow_plan(self.data, self.data["profiles"])
 
+    def set_fan_curve(self, curve: dict[str, object]) -> None:
+        """Store the fan speed curve learned from the unit (not user-settable)."""
+        with self.lock:
+            self.data["fan_curve"] = dict(curve)
+            self.save()
+
     def normal_level(self) -> int:
         """Base level: from the house size when sizing is on, else the user's."""
         if self.data.get("sizing_enabled"):
@@ -521,7 +544,7 @@ class ControllerState:
                 "night_air_quality_max_level", "bathroom_rh_setpoint",
                 "bathroom_rh_hysteresis", "bathroom_max_level",
                 "vacation_enabled", "vacation_level", "vacation_until",
-                "quick_boost_minutes", "quick_boost_level", "cooling_enabled",
+                "quick_boost_minutes", "quick_boost_level", "bonfire_minutes", "cooling_enabled",
                 "cooling_room_setpoint", "cooling_hysteresis", "cooling_outdoor_min",
                 "cooling_min_delta", "cooling_level", "cooling_start_delay_seconds",
                 "cooling_min_on_seconds", "cooling_min_off_seconds", "cooling_transition_timeout_seconds",
@@ -588,6 +611,21 @@ class ControllerState:
                     raise ControllerError("Quick Boost kan ikke startes under pejsefunktion")
                 self.data["quick_boost_minutes"] = minutes
                 self.data["quick_boost_until"] = time.time() + minutes * 60 if minutes else None
+                if minutes:
+                    self.data["bonfire_until"] = None
+                    self.data["bonfire_minutes"] = 0
+            if "bonfire_minutes" in patch:
+                minutes = int(patch["bonfire_minutes"])
+                low, high = BONFIRE_MINUTES_RANGE
+                if minutes and not low <= minutes <= high:
+                    raise ControllerError(f"Bål skal vare {low}..{high} minutter")
+                if minutes and self.data.get("fireplace"):
+                    raise ControllerError("Bål kan ikke startes under pejsefunktion")
+                self.data["bonfire_minutes"] = minutes
+                self.data["bonfire_until"] = time.time() + minutes * 60 if minutes else None
+                if minutes:
+                    self.data["quick_boost_until"] = None
+                    self.data["quick_boost_minutes"] = 0
             if "schedule" in patch:
                 incoming = patch["schedule"]
                 if not isinstance(incoming, dict):
@@ -627,6 +665,8 @@ class ControllerState:
                 if minutes:
                     self.data["quick_boost_until"] = None
                     self.data["quick_boost_minutes"] = 0
+                    self.data["bonfire_until"] = None
+                    self.data["bonfire_minutes"] = 0
             if "fireplace_minutes" in patch:
                 minutes = int(patch["fireplace_minutes"])
                 if minutes not in (0, 15, 30):
@@ -639,6 +679,8 @@ class ControllerState:
                 if minutes:
                     self.data["quick_boost_until"] = None
                     self.data["quick_boost_minutes"] = 0
+                    self.data["bonfire_until"] = None
+                    self.data["bonfire_minutes"] = 0
             if "afterheat_setpoint" in patch:
                 value = int(patch["afterheat_setpoint"])
                 if not 10 <= value <= 35:
@@ -811,12 +853,28 @@ class ControllerState:
             self.data["updated_at"] = now
             self.save()
 
+    def _expire_bonfire(self, now: float | None = None) -> None:
+        now = now or time.time()
+        until = self.data.get("bonfire_until")
+        if until is None:
+            return
+        try:
+            active_until = float(until)
+        except (TypeError, ValueError):
+            active_until = 0.0
+        if active_until <= now:
+            self.data["bonfire_until"] = None
+            self.data["bonfire_minutes"] = 0
+            self.data["updated_at"] = now
+            self.save()
+
     def snapshot(self) -> dict[str, object]:
         with self.lock:
             now = time.time()
             self._expire_fireplace(now)
             self._expire_vacation(now)
             self._expire_quick_boost(now)
+            self._expire_bonfire(now)
             result = dict(self.data)
             result["profiles"] = _copy_profiles(self.data["profiles"])
             result["schedule"] = _copy_schedule(self.data["schedule"])
@@ -828,10 +886,15 @@ class ControllerState:
             result["fireplace_remaining_seconds"] = max(0, int(float(until) - now)) if until else 0
             boost_until = result.get("quick_boost_until")
             result["quick_boost_remaining_seconds"] = max(0, int(float(boost_until) - now)) if boost_until else 0
+            bonfire_until = result.get("bonfire_until")
+            result["bonfire_remaining_seconds"] = max(0, int(float(bonfire_until) - now)) if bonfire_until else 0
+            result["bonfire_active"] = bool(result["bonfire_remaining_seconds"])
             vacation_until = _parse_until(result.get("vacation_until"), "Ferie slut") if result.get("vacation_until") else None
             result["vacation_remaining_seconds"] = max(0, int(vacation_until - now)) if vacation_until else None
             level = result.get("effective_level")
             result["effective_profile"] = result["profiles"].get(int(level)) if level else None
+            if result["bonfire_active"] and not result.get("fireplace"):
+                result["effective_profile"] = dict(BONFIRE_PROFILE)
             result["airflow_plan"] = self.airflow_plan()
             result["effective_normal_level"] = self.normal_level()
             return result
@@ -1112,6 +1175,19 @@ class ControllerEngine:
         if d.get("fireplace"):
             effective_bypass = "off"
         level = min(int(d["local_max_level"]), max(int(d["local_min_level"]), int(level)))
+        bonfire_until = d.get("bonfire_until")
+        flags["bonfire_active"] = False
+        if not d.get("fireplace") and bonfire_until and float(bonfire_until) > now_ts:
+            # Smoke outside: the fan pair is replaced by BONFIRE_PROFILE in resolve().
+            flags["bonfire_active"] = True
+            flags["quick_boost_active"] = False
+            flags["cooling_active"] = False
+            self._stop_cooling(now_ts, "bonfire")
+            effective_bypass = "off"
+            level = 1
+            source = "bonfire"
+            remaining = max(1, math.ceil((float(bonfire_until) - now_ts) / 60))
+            reason = f"Bål i haven · ventilatorer på minimum · ca. {remaining} min tilbage"
         return level, source, reason, effective_bypass, flags
 
     def _dry_air(self, d: dict) -> bool:
@@ -1195,6 +1271,8 @@ class ControllerEngine:
             d["effective_reason"] = reason
             d["updated_at"] = now
             profile = d["profiles"].get(level) if level else None
+            if flags.get("bonfire_active"):
+                profile = dict(BONFIRE_PROFILE)
             start_delay = int(d["cooling_start_delay_seconds"])
             qualifying_remaining = None
             if self.cooling_reason == "qualifying" and self.cooling_qualifying_since is not None:

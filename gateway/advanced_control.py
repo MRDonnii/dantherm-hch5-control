@@ -18,6 +18,52 @@ BR18_KITCHEN_LS = 20.0
 BR18_BATHROOM_LS = 15.0
 BR18_UTILITY_LS = 10.0
 LS_TO_M3H = 3.6
+# HCH5 EC fans: speed follows the control percentage in a straight line with a
+# large offset, measured on the reference unit (both fans alike): about 557 rpm
+# at 0 % plus 24 rpm per %. By the fan laws airflow follows speed, not the
+# percentage, so low levels move far more air than percent x maximum suggests.
+# The controller learns the curve of the actual unit and replaces these.
+DEFAULT_FAN_RPM_AT_0 = 557.0
+DEFAULT_FAN_RPM_PER_PERCENT = 24.0
+
+
+def fan_curve(data: dict) -> dict[str, object]:
+    """The fan speed curve in use: learned from the unit, else the HCH5 default."""
+    learned = data.get("fan_curve")
+    if isinstance(learned, dict):
+        try:
+            at_0 = float(learned["rpm_at_0"])
+            per_percent = float(learned["rpm_per_percent"])
+        except (KeyError, TypeError, ValueError):
+            pass
+        else:
+            if 0.0 <= at_0 <= 1500.0 and 5.0 <= per_percent <= 60.0:
+                return {"rpm_at_0": at_0, "rpm_per_percent": per_percent, "learned": True,
+                        "samples": int(learned.get("samples") or 0)}
+    return {"rpm_at_0": DEFAULT_FAN_RPM_AT_0, "rpm_per_percent": DEFAULT_FAN_RPM_PER_PERCENT,
+            "learned": False, "samples": 0}
+
+
+def airflow_at_percent(percent: float, max_flow: float, curve: dict) -> float:
+    """Airflow at a fan percentage: maximum airflow scaled by fan speed (fan law)."""
+    at_0, per_percent = float(curve["rpm_at_0"]), float(curve["rpm_per_percent"])
+    return max_flow * (at_0 + per_percent * percent) / (at_0 + per_percent * 100.0)
+
+
+def fit_fan_curve(points: dict[int, float]) -> dict[str, float] | None:
+    """Least-squares line rpm = a + b x percent through per-percent speeds."""
+    if len(points) < 3 or max(points) - min(points) < 30:
+        return None
+    xs, ys = list(points), [points[x] for x in points]
+    mean_x, mean_y = sum(xs) / len(xs), sum(ys) / len(ys)
+    sxx = sum((x - mean_x) ** 2 for x in xs)
+    if not sxx:
+        return None
+    slope = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys)) / sxx
+    intercept = mean_y - slope * mean_x
+    if not (5.0 <= slope <= 60.0 and 0.0 <= intercept <= 1500.0):
+        return None
+    return {"rpm_at_0": round(intercept, 1), "rpm_per_percent": round(slope, 2)}
 
 # "auto": average of the owner's Home Assistant rooms that have a temperature
 # (bathrooms and stove/outdoor sensor rooms left out), else T3 extract air.
@@ -57,9 +103,10 @@ def source_room(value: object) -> str | None:
 def airflow_plan(data: dict, profiles: dict) -> dict[str, object]:
     """Required airflow for the house and which fan levels deliver it.
 
-    Levels without a measured airflow are estimated linearly from the fan
-    percentage and the unit's maximum airflow. The estimate ignores duct
-    pressure, so a measured value (from the commissioning report) wins.
+    Levels without a measured airflow are estimated from the fan speed the
+    percentage gives (see fan_curve) and the unit's maximum airflow. The
+    estimate ignores duct pressure, so a measured value (from the
+    commissioning report) wins.
     """
     area = float(data["house_area_m2"])
     height = float(data["ceiling_height_m"])
@@ -68,6 +115,7 @@ def airflow_plan(data: dict, profiles: dict) -> dict[str, object]:
     max_flow = float(data["airflow_max_m3h"])
     reduced = float(data["sizing_reduced_percent"]) / 100.0
     measured = data.get("airflow_measured") or {}
+    curve = fan_curve(data)
 
     volume = area * height
     area_ls = area * BR18_AREA_LS_PER_M2
@@ -83,8 +131,8 @@ def airflow_plan(data: dict, profiles: dict) -> dict[str, object]:
         entry = measured.get(str(level)) or measured.get(level) or {}
         supply_measured = entry.get("supply") if isinstance(entry, dict) else None
         extract_measured = entry.get("extract") if isinstance(entry, dict) else None
-        supply = float(supply_measured) if supply_measured else max_flow * int(profile["supply"]) / 100.0
-        extract = float(extract_measured) if extract_measured else max_flow * int(profile["extract"]) / 100.0
+        supply = float(supply_measured) if supply_measured else airflow_at_percent(int(profile["supply"]), max_flow, curve)
+        extract = float(extract_measured) if extract_measured else airflow_at_percent(int(profile["extract"]), max_flow, curve)
         meets = supply >= supply_required and extract >= extract_required
         meets_reduced = supply >= supply_required * reduced and extract >= extract_required * reduced
         if meets and base_level is None:
@@ -114,6 +162,7 @@ def airflow_plan(data: dict, profiles: dict) -> dict[str, object]:
         "min_level": min_level,
         "reachable": reachable,
         "estimated": not all(values["measured"] for values in levels.values()),
+        "fan_curve": curve,
         "levels": levels,
     }
 
