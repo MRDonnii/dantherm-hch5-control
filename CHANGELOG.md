@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.1-beta.9
+
+- The afterheat confirmation is now a popup over the thermostat card: old and new value, its own −/+ and Fortryd/Bekræft.
+- Changes by Claude AI.
+
 ## 1.2.1-beta.8
 
 - **Confirm afterheat changes:** +/-, the dial and the power button on the afterheat thermostat only change a draft. A box asks "Skift eftervarme fra 20 °C til 25 °C?" and nothing is sent before **Bekræft** is pressed; **Fortryd** keeps the current setting. A change is no longer sent by itself after a pause.
