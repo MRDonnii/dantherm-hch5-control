@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.1-beta.7
+
+- **Afterheat off while the unit is off:** standby and "Bål i haven" now also switch the afterheat off, so the water coil does not heat still air. The previous setting returns when the unit starts again.
+- **Afterheat refreshed every 4 seconds again:** the beta.6 exception for outdoor temperatures of 15 °C or more is removed. HAC1 was seen heating at 17.7 °C outdoor, so the 15 °C summer stop is not reliable.
+- A missing HAC1 acknowledgement is now logged at most once every 15 minutes, with a count, instead of a traceback on every attempt.
+- The air-side afterheat power and recovered heat are 0 while the fans are stopped.
+- Changes by Claude AI.
+
 ## 1.2.1-beta.6
 
 - **No afterheat writes during the summer stop:** when the outdoor temperature is 15 °C or higher, HAC1 cannot switch the water afterheat on, so the Pi no longer rewrites the afterheat setpoint every 4 seconds. It writes only when the setpoint changes, and the 4-second refresh resumes by itself when it is colder than 15 °C. This removes the repeated "missing FC16 acknowledgement for register 185" errors in the log. The outdoor temperature block (register 180) is still sent so HAC1 keeps seeing the outdoor temperature.

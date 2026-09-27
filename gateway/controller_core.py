@@ -26,6 +26,9 @@ from advanced_control import (
 # is 15 C or higher, whatever the setpoint (even 35 C) and whoever is master.
 # Register 209 staying 0 above this limit is correct HAC1 behaviour, not a
 # Pi/RS485 fault - do not debug it. It is not configurable over RS485.
+# NOT a guarantee: on 2026-09-27 HAC1 opened the water valve at 17.7 C
+# outdoor (setpoint 35, fans stopped by bonfire). Only show it as a hint;
+# never skip or relax afterheat control because of it.
 AFTERHEAT_OUTDOOR_CUTOFF_C = 15.0
 
 VALID_MODES = {"local_auto", "smart_auto", "manual"}
@@ -1030,13 +1033,6 @@ class ControllerEngine:
         with self.lock:
             self.external = dict(values)
 
-    def afterheat_outdoor_lockout(self) -> bool:
-        outdoor = self.measurements.get("outdoor")
-        return (
-            isinstance(outdoor, (int, float)) and not isinstance(outdoor, bool)
-            and outdoor >= AFTERHEAT_OUTDOOR_CUTOFF_C
-        )
-
     def outdoor_absolute_humidity(self) -> float | None:
         outdoor = self.measurements.get("outdoor")
         return absolute_humidity(
@@ -1481,16 +1477,14 @@ class ControllerEngine:
             self._call("fan_pair", pair, self.hardware.write_fan_pair, *pair)
         enabled = bool(snapshot["afterheat_enabled"])
         setpoint = int(snapshot.get("afterheat_effective_setpoint") or snapshot["afterheat_setpoint"])
-        command = setpoint if enabled else None
-        # Above the HAC1 outdoor cutoff the water afterheat cannot run, so the
-        # four-second refresh only loads the bus (and logged missing acks).
-        # The setpoint is then written only when it changes; the refresh
-        # resumes by itself as soon as it is colder than the cutoff.
+        # With the fans stopped (standby or bonfire) the water coil would heat
+        # still air, so the afterheat is switched off and restored afterwards.
+        command = setpoint if enabled and not standby else None
         self._call(
             "afterheat_setpoint",
             command,
             self.hardware.set_afterheat_setpoint,
             command,
-            refresh_seconds=None if self.afterheat_outdoor_lockout() else 4.0,
+            refresh_seconds=4.0,
         )
         return self.resolve()

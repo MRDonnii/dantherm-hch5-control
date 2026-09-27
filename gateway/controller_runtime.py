@@ -52,6 +52,9 @@ class ControllerRuntime:
         self.thread: threading.Thread | None = None
         self.apply_lock = threading.Lock()
         self.last_tick_at: float | None = None
+        self._write_error_message: str | None = None
+        self._write_error_logged_at = 0.0
+        self._write_error_count = 0
         self.master = MasterArbitrator()
         self.master.configure(master_config)
         self.master_stream = RtuFrameStream()
@@ -829,7 +832,9 @@ class ControllerRuntime:
             "afterheat_room_source_used": self.afterheat_room_source_used,
         })
         extract = self._safe_number(self._first(self.gateway_state, "extract_temp", "extract_temperature"), -30, 60)
-        supply_m3h = self._supply_airflow(result.get("effective_level"))
+        # Standby and bonfire stop both fans: no air, so no air-side power.
+        fans_stopped = result.get("standby_active") is True or result.get("bonfire_active") is True
+        supply_m3h = 0.0 if fans_stopped else self._supply_airflow(result.get("effective_level"))
         result["supply_airflow_estimate_m3h"] = supply_m3h
         fresh_power = self.unit_power_until is not None and time.time() <= self.unit_power_until
         result["unit_power_w"] = self.unit_power_w if fresh_power else None
@@ -918,7 +923,16 @@ class ControllerRuntime:
         try:
             self.apply_once()
         except Exception as error:
-            LOG.error("Controller write failed: %s", error)
+            # A missed ack is retried on the next refresh; one line per
+            # 15 minutes keeps the journal readable.
+            message = str(error)
+            now = time.time()
+            if message != self._write_error_message or now - self._write_error_logged_at >= 900:
+                suffix = f" (x{self._write_error_count + 1} since last log)" if self._write_error_count else ""
+                LOG.error("Controller write failed: %s%s", message, suffix)
+                self._write_error_message, self._write_error_logged_at, self._write_error_count = message, now, 0
+            else:
+                self._write_error_count += 1
             self.last_tick_at = time.time()
 
     def _run(self) -> None:

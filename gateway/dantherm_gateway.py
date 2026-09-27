@@ -763,7 +763,12 @@ class Gateway:
                 else:
                     raise RuntimeError(f"unknown controller hardware action: {action}")
             except Exception as error:
-                LOG.exception("Controller hardware action failed: %s", action)
+                # A missing HAC1 ack is routine and retried; the controller
+                # runtime logs it rate-limited, so no traceback per attempt.
+                if "missing FC16 acknowledgement" in str(error):
+                    LOG.debug("Controller hardware action failed: %s: %s", action, error)
+                else:
+                    LOG.exception("Controller hardware action failed: %s", action)
                 result["error"] = str(error)
             finally:
                 done.set()
