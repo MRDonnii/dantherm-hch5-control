@@ -143,12 +143,12 @@ class ControllerRuntimeTests(unittest.TestCase):
         # A bathroom can be humid without immediately forcing full boost.
         self.assertLessEqual(self.decision(runtime, {"Bath": {"humidity": 58}}), 4)
         self.assertEqual(self.decision(runtime, {"Bath": {"humidity": 78}}), 4)
-        # A shower-like fast rise is still recognised, but remains capped.
+        # A shower-like fast rise starts drying, still at the configured level.
         runtime = self.make_runtime()
         runtime.config.configure({"bathroom_max_level": 4})
         runtime._room_rh_history["Bath"].append((time.time() - 300, 48.0))
-        self.assertLessEqual(self.decision(runtime, {"Bath": {"humidity": 68}}), 4)
-        self.assertEqual(runtime.smart_controlling_metric, "rh_rise")
+        self.assertEqual(self.decision(runtime, {"Bath": {"humidity": 58}}), 4)
+        self.assertEqual(runtime.smart_controlling_metric, "humidity")
 
     def test_normal_room_rh_keeps_global_policy(self):
         runtime = self.make_runtime()

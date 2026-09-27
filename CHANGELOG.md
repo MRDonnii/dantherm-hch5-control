@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.1-beta.1
+
+- Bathroom drying: when bathroom humidity passes its limit, or rises 7 %-points within 10 minutes during a shower, Smart Auto starts at the bathroom's drying level (default 6, the highest) and steps down in proportion as humidity falls from its peak. Normal ventilation takes over below the limit minus the hysteresis. Previously a bathroom only added one level per 5 % RH and was capped at level 4.
+- The bathroom setting is renamed "Trin ved udtørring" and explains the behaviour.
+- Changes by Claude AI.
+
 ## 1.2.0
 
 First stable release of the controller line. Compared with 1.0.1 (passive data bridge), HCH5 Control is now a local controller:

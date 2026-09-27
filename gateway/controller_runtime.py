@@ -67,6 +67,8 @@ class ControllerRuntime:
         self.smart_inputs_received_at: float | None = None
         self.smart_inputs_valid_for = 180
         self._room_rh_history: dict[str, deque[tuple[float, float]]] = defaultdict(deque)
+        # Bathroom drying episodes: peak RH and the RH at which the episode ends.
+        self._bathroom_episodes: dict[str, dict[str, float]] = {}
         self.smart_demand = "normal"
         self.smart_reason = "No Home Assistant room data"
         self.smart_requested_level = int(self.config.data["local_normal_level"])
@@ -556,7 +558,11 @@ class ControllerRuntime:
                 candidates.append((adjusted, raw, float(co2), name, "co2", f"CO2 {name} {float(co2):.0f} ({priority})"))
 
             humidity = values.get("humidity")
-            if isinstance(humidity, (int, float)) and name not in dry_rooms:
+            if bathroom and isinstance(humidity, (int, float)) and name not in dry_rooms:
+                candidate = self._bathroom_candidate(name, values, float(humidity), now, normal)
+                if candidate is not None:
+                    candidates.append(candidate)
+            elif isinstance(humidity, (int, float)) and name not in dry_rooms:
                 rh_setpoint = float(values.get("rh_setpoint") or (d["bathroom_rh_setpoint"] if bathroom else d["rh_setpoint"]))
                 rh_hysteresis = float(values.get("rh_hysteresis") or (d["bathroom_rh_hysteresis"] if bathroom else d["rh_hysteresis"]))
                 raw = self._metric_level(
@@ -574,6 +580,8 @@ class ControllerRuntime:
             values = rooms[name]
             if not values.get("enabled", True) or not values.get("control", True):
                 continue
+            if self._is_bathroom(name, values):
+                continue
             fresh = [(ts, value) for ts, value in history if now - ts <= 600]
             if len(fresh) >= 2:
                 rise = fresh[-1][1] - fresh[0][1]
@@ -588,12 +596,56 @@ class ControllerRuntime:
                         f"RH rise {name} +{rise:.1f}%/10m ({priority})",
                     ))
 
+        for name in list(self._bathroom_episodes):
+            if name not in rooms:
+                del self._bathroom_episodes[name]
         if not candidates:
             return normal, "normal", "No enabled control measurements", None, None
         adjusted, _raw, _value, room, metric, reason = max(candidates)
         adjusted = min(int(d["local_max_level"]), max(int(d["local_min_level"]), adjusted))
         demand = "low" if adjusted <= 2 else "normal" if adjusted == 3 else "high" if adjusted <= 5 else "boost"
         return adjusted, demand, reason, room, metric
+
+    def _bathroom_candidate(
+        self, name: str, values: dict[str, object], humidity: float, now: float, normal: int,
+    ) -> tuple[int, int, float, str, str, str] | None:
+        """Dry a bathroom out: start at its maximum level, then step down as RH falls.
+
+        An episode starts when RH passes the bathroom setpoint or rises 7 %-points
+        within 10 minutes (a shower). It remembers the peak RH, runs at the maximum
+        level at the peak and steps down in proportion as RH falls towards the end
+        point (setpoint minus hysteresis), where normal ventilation takes over.
+        """
+        d = self.config.data
+        setpoint = float(values.get("rh_setpoint") or d["bathroom_rh_setpoint"])
+        hysteresis = float(values.get("rh_hysteresis") or d["bathroom_rh_hysteresis"])
+        top = max(normal, min(6, int(values.get("max_level") or d["bathroom_max_level"])))
+        end = setpoint - hysteresis
+        episode = self._bathroom_episodes.get(name)
+        if episode is None:
+            fresh = [value for ts, value in self._room_rh_history.get(name, ()) if now - ts <= 600]
+            rising = len(fresh) >= 2 and fresh[-1] - fresh[0] >= 7.0
+            if humidity > setpoint:
+                episode = {"peak": humidity, "end": end}
+            elif rising:
+                # A shower caught before RH reaches the setpoint ends a little above
+                # where the rise started instead of at the (higher) setpoint end point.
+                episode = {"peak": humidity, "end": min(end, fresh[0] + hysteresis / 2)}
+            else:
+                return None
+            self._bathroom_episodes[name] = episode
+        if humidity <= episode["end"]:
+            del self._bathroom_episodes[name]
+            return None
+        episode["peak"] = max(episode["peak"], humidity)
+        span = max(0.1, episode["peak"] - episode["end"])
+        share = (humidity - episode["end"]) / span
+        level = min(top, normal + math.ceil((top - normal) * share - 1e-9))
+        level = max(level, min(top, normal + 1))
+        return (
+            level, level, humidity, name, "humidity",
+            f"Badeværelse RH {name} {humidity:.1f}% · udtørring (top {episode['peak']:.0f}%, slut {episode['end']:.0f}%)",
+        )
 
     def _room_air_dries(self, values: dict[str, object]) -> bool:
         temperature = values.get("temperature")

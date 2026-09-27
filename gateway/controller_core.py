@@ -196,7 +196,7 @@ class ControllerState:
         "night_air_quality_max_level": 4,
         "bathroom_rh_setpoint": 65.0,
         "bathroom_rh_hysteresis": 5.0,
-        "bathroom_max_level": 4,
+        "bathroom_max_level": 6,
         "vacation_enabled": False,
         "vacation_level": 1,
         "vacation_until": None,
@@ -296,7 +296,7 @@ class ControllerState:
             ("manual_level", 3), ("local_normal_level", 3),
             ("local_min_level", 1), ("local_max_level", 6),
             ("ha_requested_level", 3), ("night_level", 2),
-            ("night_air_quality_max_level", 4), ("bathroom_max_level", 4),
+            ("night_air_quality_max_level", 4), ("bathroom_max_level", 6),
             ("vacation_level", 1), ("quick_boost_level", 6), ("cooling_level", 4),
         ):
             try:
