@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Activity, Droplets, Flame, Gauge, House, Monitor, Moon, Save, ShieldCheck, Snowflake, Thermometer, Wind } from "lucide-react";
+import { Activity, Droplets, Flame, Gauge, House, Monitor, Moon, RotateCcw, Save, Scale, ShieldCheck, Snowflake, Thermometer, Wind } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { postJson, requestJson } from "../lib/api";
-import { airflowPlan, type AirflowProfiles } from "../lib/airflow";
+import { airflowPlan, balancedProfiles, sideConstants, type AirflowProfiles, type RatioSource } from "../lib/airflow";
 import { LANG_KEY, currentLang, useLang, type Lang } from "../lib/i18n";
 import "../styles/panels.css";import "../styles/management.css";
 
@@ -10,8 +10,12 @@ type Data = Record<string, unknown>;
 type Auth = { csrf?: string | null; enabled?: boolean; username?: string | null };
 type Text = { da: string; en: string };
 type LevelPlan = { estimate_supply_m3h?: number; estimate_extract_m3h?: number; supply_m3h?: number; extract_m3h?: number; air_changes_per_hour?: number | null; measured?: boolean; meets_requirement?: boolean; meets_reduced?: boolean };
-type Plan = { fan_curve?: { rpm_at_0?: number; rpm_per_percent?: number; learned?: boolean }; volume_m3?: number; supply_required_m3h?: number; extract_required_m3h?: number; area_requirement_ls?: number; wet_room_requirement_ls?: number; required_air_changes_per_hour?: number | null; base_level?: number; min_level?: number; reachable?: boolean; estimated?: boolean; levels?: Record<string, LevelPlan> };
-type Airflow = Record<string, { supply?: number; extract?: number }>;
+type Plan = { fan_curve?: { rpm_at_0?: number; rpm_per_percent?: number; learned?: boolean }; duct_ratio?: number; duct_ratio_source?: RatioSource; volume_m3?: number; supply_required_m3h?: number; extract_required_m3h?: number; area_requirement_ls?: number; wet_room_requirement_ls?: number; required_air_changes_per_hour?: number | null; base_level?: number; min_level?: number; reachable?: boolean; estimated?: boolean; levels?: Record<string, LevelPlan> };
+type Airflow = Record<string, { supply?: number; extract?: number; supply_percent?: number; extract_percent?: number }>;
+type Profiles = Record<string, { supply?: number; extract?: number; name?: string }>;
+type BalanceLive = { state?: string; reason?: string; remaining_seconds?: number; progress_percent?: number; delta_t?: number | null; delta_t_now?: number | null; excess_now_percent?: number | null };
+type BalanceLearned = { ratio?: number | null; ratio_in_use?: number | null; spread?: number | null; count?: number; nights?: number; confidence?: string; updated_at?: number | null; last?: { t?: number; accepted?: boolean; reason?: string } | null };
+type BalanceStatus = { enabled?: boolean; duct_ratio?: number; duct_ratio_source?: RatioSource; learned?: BalanceLearned; error?: string | null; levels?: Record<string, { current_supply?: number; current_excess_percent?: number }> };
 
 function n(v: unknown, f: number) { const x = Number(v); return Number.isFinite(x) ? x : f; }
 function s(v: unknown, f = "") { return v === null || v === undefined ? f : String(v); }
@@ -31,6 +35,7 @@ export const CONTROLLER_KEYS = [
   "cooling_level", "cooling_start_delay_seconds", "cooling_min_on_seconds", "cooling_min_off_seconds",
   "sizing_enabled", "house_area_m2", "ceiling_height_m", "house_bathrooms", "house_utility_rooms",
   "airflow_max_m3h", "sizing_reduced_percent", "airflow_measured",
+  "balance_enabled", "balance_extract_excess_percent", "balance_ratio_mode", "balance_duct_ratio",
   "humidity_smart_enabled", "outdoor_humidity_source", "humidity_margin_gm3",
   "dry_protection_enabled", "dry_rh_limit", "dry_max_level",
   "fireplace_auto_enabled", "fireplace_auto_source", "fireplace_auto_on_temp", "fireplace_auto_off_temp",
@@ -51,7 +56,7 @@ const T = {
 
 type SectionId = "ui" | "house" | "air" | "humidity" | "night" | "afterheat" | "cooling" | "fireplace" | "security" | "sensors";
 const SECTIONS: { id: SectionId; icon: LucideIcon; title: Text; lead: Text }[] = [
-  { id: "house", icon: House, title: { da: "Hus og luftmængde", en: "House and airflow" }, lead: { da: "Grundtrin beregnet ud fra boligens størrelse", en: "Base level calculated from the size of the home" } },
+  { id: "house", icon: House, title: { da: "Hus og luftmængde", en: "House and airflow" }, lead: { da: "Grundtrin og luftbalance ud fra boligen", en: "Base level and air balance from the home" } },
   { id: "air", icon: Wind, title: { da: "Luftkvalitet", en: "Air quality" }, lead: { da: "Fugt og CO₂ løfter ventilationen", en: "Humidity and CO₂ raise the ventilation" } },
   { id: "humidity", icon: Droplets, title: { da: "Fugt og tør luft", en: "Moisture and dry air" }, lead: { da: "Ventilér kun når det faktisk tørrer", en: "Only ventilate when it actually dries" } },
   { id: "night", icon: Moon, title: { da: "Nat", en: "Night" }, lead: { da: "Lavere trin mens I sover", en: "Lower level while you sleep" } },
@@ -89,6 +94,8 @@ export function SettingsPage() {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("hch5-v2-sidebar") === "1");
   const [motion, setMotion] = useState(() => localStorage.getItem("hch5-v2-motion") ?? "normal");
   const [language, setLanguage] = useState<Lang>(currentLang);
+  // Extract percentages typed in the air balance table, saved as level profiles.
+  const [extractEdits, setExtractEdits] = useState<Record<string, number>>({});
 
   const refresh = useCallback(async () => {
     const [c, a] = await Promise.all([requestJson<Data>("/api/controller/state"), requestJson<Auth>("/api/auth/status")]);
@@ -102,8 +109,9 @@ export function SettingsPage() {
   const save = async () => {
     if (!csrf) return;
     setBusy(true); setNotice(t(T.saving));
-    const patch = Object.fromEntries(CONTROLLER_KEYS.filter(k => form[k] !== undefined).map(k => [k, form[k]]));
-    try { const next = await postJson<Data>("/api/controller/config", patch, csrf); setController(next); setForm(next); setNotice(t(T.saved)); }
+    const patch: Data = Object.fromEntries(CONTROLLER_KEYS.filter(k => form[k] !== undefined).map(k => [k, form[k]]));
+    if (Object.keys(extractEdits).length) patch.profiles = Object.fromEntries(Object.entries(extractEdits).map(([level, extract]) => [level, { extract }]));
+    try { const next = await postJson<Data>("/api/controller/config", patch, csrf); setController(next); setForm(next); setExtractEdits({}); setNotice(t(T.saved)); }
     catch (e) { setNotice(`${t(T.error)}: ${e instanceof Error ? e.message : "?"}`); }
     finally { setBusy(false); }
   };
@@ -123,13 +131,58 @@ export function SettingsPage() {
   };
   const roomHint = rooms.length ? null : <Help>{lang === "da" ? "Ingen målerum modtaget fra Home Assistant endnu. Tilføj rummet i HCH5 Control-integrationen (Smart Auto-rum) med styring slået fra." : "No measurement rooms received from Home Assistant yet. Add the room in the HCH5 Control integration (Smart Auto rooms) with control turned off."}</Help>;
 
-  const plan = (airflowPlan(form, controller.profiles as AirflowProfiles | undefined) ?? controller.airflow_plan ?? {}) as Plan;
+  const runningProfiles = controller.profiles as Profiles | undefined;
+  const editedProfiles = (runningProfiles && Object.keys(extractEdits).length
+    ? Object.fromEntries(Object.entries(runningProfiles).map(([level, values]) => [level, extractEdits[level] === undefined ? values : { ...values, extract: extractEdits[level] }]))
+    : runningProfiles) as AirflowProfiles | undefined;
+  const plan = (airflowPlan(form, editedProfiles) ?? controller.airflow_plan ?? {}) as Plan;
   const airflow = (form.airflow_measured ?? {}) as Airflow;
+  // A measured value belongs to the fan percentage it was measured at; it
+  // starts as the percentage the level runs now.
   const setAirflow = (level: number, side: "supply" | "extract", value: string) => {
-    const next: Airflow = { ...airflow, [level]: { ...(airflow[level] ?? {}), [side]: value === "" ? undefined : Number(value) } };
+    const current = airflow[level] ?? {};
+    const percentKey = side === "supply" ? "supply_percent" : "extract_percent";
+    const running = Number(runningProfiles?.[String(level)]?.[side]);
+    const next: Airflow = { ...airflow, [level]: { ...current, [side]: value === "" ? undefined : Number(value),
+      [percentKey]: value === "" ? undefined : current[percentKey] ?? (Number.isFinite(running) ? running : undefined) } };
     set("airflow_measured", next);
   };
+  const setAirflowPercent = (level: number, side: "supply" | "extract", value: string) => {
+    const percentKey = side === "supply" ? "supply_percent" : "extract_percent";
+    set("airflow_measured", { ...airflow, [level]: { ...(airflow[level] ?? {}), [percentKey]: value === "" ? undefined : Number(value) } });
+  };
   const sizing = form.sizing_enabled === true;
+
+  const balanceOn = form.balance_enabled === true;
+  const balanced = balancedProfiles(form, editedProfiles);
+  const balanceStatus = (controller.balance ?? {}) as BalanceStatus;
+  const live = (controller.balance_live ?? {}) as BalanceLive;
+  const learned = balanceStatus.learned ?? {};
+  const ducts = sideConstants(form, runningProfiles as AirflowProfiles | undefined);
+  const signed = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? `${value > 0 ? "+" : ""}${fmt(value, lang, 1)} %` : "—";
+  const sourceLabel: Record<RatioSource, Text> = {
+    measured: { da: "målt ved ventilerne", en: "measured at the valves" },
+    learned: { da: "lært af varmebalancen", en: "learned from the heat balance" },
+    fixed: { da: "fast værdi", en: "fixed value" },
+  };
+  const confidenceLabel: Record<string, Text> = {
+    ok: { da: "sikker", en: "trusted" }, low: { da: "foreløbig", en: "preliminary" }, none: { da: "ingen målinger endnu", en: "no readings yet" },
+  };
+  const liveText = (() => {
+    if (live.state === "settling") return lang === "da" ? `Venter på stabil drift (${Math.ceil(n(live.remaining_seconds, 0) / 60)} min)` : `Waiting for steady running (${Math.ceil(n(live.remaining_seconds, 0) / 60)} min)`;
+    if (live.state === "measuring") return lang === "da" ? `Måler (${n(live.progress_percent, 0)} %)` : `Measuring (${n(live.progress_percent, 0)} %)`;
+    return s(live.reason, "—");
+  })();
+  const resetLearning = async () => {
+    if (!csrf) return;
+    setBusy(true);
+    try {
+      const next = await postJson<Data>("/api/controller/config", { balance_learning_reset: true }, csrf);
+      setController(next); setForm(v => ({ ...v, balance_learned: next.balance_learned }));
+      setNotice(lang === "da" ? "Læringen af kanalforholdet starter forfra." : "Learning of the duct ratio starts over.");
+    } catch (e) { setNotice(`${t(T.error)}: ${e instanceof Error ? e.message : "?"}`); }
+    finally { setBusy(false); }
+  };
 
   type OneWireSensor = { id: string; temperature: number | null; role: string; name: string };
   const onewire = (Array.isArray(controller.onewire_sensors) ? controller.onewire_sensors : []) as OneWireSensor[];
@@ -187,6 +240,47 @@ export function SettingsPage() {
           <label>{lang === "da" ? "Reduceret minimum" : "Reduced minimum"}<input type="number" min="30" max="100" value={n(form.sizing_reduced_percent, 50)} onChange={num("sizing_reduced_percent")}/><span>%</span><Help>{lang === "da" ? "Laveste luftmængde i procent af kravet, som nat, ferie og tør luft må gå ned til." : "Lowest airflow, as a share of the requirement, that night, vacation and dry-air protection may use."}</Help></label>
         </div>
       </Card>
+      <Card title={lang === "da" ? "Luftbalance" : "Air balance"} lead={lang === "da" ? "Svagt undertryk i m³/h på alle trin" : "Slight underpressure in m³/h on every level"} icon={Scale}>
+        <div className="settings-grid">
+          <div className="settings-mode-row"><span>{lang === "da" ? "Indblæsning" : "Supply"}</span>
+            <div className="settings-segment" role="radiogroup" aria-label={lang === "da" ? "Luftbalance" : "Air balance"}>
+              <button type="button" role="radio" aria-checked={balanceOn} className={balanceOn ? "is-active" : undefined} onClick={() => set("balance_enabled", true)}>Auto</button>
+              <button type="button" role="radio" aria-checked={!balanceOn} className={!balanceOn ? "is-active" : undefined} onClick={() => set("balance_enabled", false)}>{lang === "da" ? "Manuel" : "Manual"}</button>
+            </div>
+            <strong>{balanceOn
+              ? (lang === "da" ? `Udsugning ${fmt(n(form.balance_extract_excess_percent, 5), lang, 1)} % over indblæsning på alle trin` : `Extract ${fmt(n(form.balance_extract_excess_percent, 5), lang, 1)} % above supply on every level`)
+              : (lang === "da" ? "Trinenes egne procenter" : "The levels' own percentages")}</strong>
+          </div>
+          <Help>{lang === "da" ? "Auto: hvert trin beholder sin udsugning, og controlleren regner indblæsningen ud, så udsugningen er den valgte andel større end indblæsningen i m³/h – ikke i procent. Ventilatorernes omdrejninger starter ved ca. 550 omdr./min ved 0 %, så en fast forskel i procent giver meget forskellig balance på trin 1 og trin 6. Manuel: trinenes procenter bruges, som de står." : "Auto: every level keeps its extract, and the controller works out the supply so extract is the chosen share above supply in m³/h – not in percent. The fans turn at about 550 rpm at 0 %, so a fixed gap in percent gives a very different balance at level 1 and level 6. Manual: the levels' percentages are used as they are."}</Help>
+          <label>{lang === "da" ? "Udsugning over indblæsning" : "Extract above supply"}<input type="number" min="0" max="20" step="0.5" value={n(form.balance_extract_excess_percent, 5)} onChange={num("balance_extract_excess_percent")}/><span>%</span><Help>{lang === "da" ? "Anbefalet 0–10 % i boliger: et svagt undertryk, så fugtig indeluft ikke presses ud i vægge og tag. Overtryk bruges kun kortvarigt af pejsefunktionen." : "Recommended 0–10 % in homes: a slight underpressure so moist indoor air is not pushed into walls and roof. Only the fireplace function uses overpressure, briefly."}</Help></label>
+          <label>{lang === "da" ? "Kanalforhold" : "Duct ratio"}<select value={s(form.balance_ratio_mode, "auto")} onChange={e => set("balance_ratio_mode", e.target.value)}><option value="auto">{lang === "da" ? "Lær af varmebalancen" : "Learn from the heat balance"}</option><option value="fixed">{lang === "da" ? "Fast værdi" : "Fixed value"}</option></select><Help>{lang === "da" ? "Kanalerne giver ikke lige meget luft pr. omdrejning. Controlleren måler forholdet ud fra varmebalancen i veksleren (kræver T2-føleren før eftervarmen) og bruger det, når to nætter giver samme resultat. Indtil da bruges den faste værdi. Målte luftmængder fra indreguleringen går altid forud." : "The ducts do not give the same airflow per rpm. The controller measures the ratio from the heat balance of the exchanger (needs the T2 sensor before the afterheat) and uses it once two nights agree. Until then the fixed value is used. Airflow measured at commissioning always wins."}</Help></label>
+          <label>{lang === "da" ? "Fast kanalforhold" : "Fixed duct ratio"}<input type="number" min="0.7" max="1.5" step="0.01" value={n(form.balance_duct_ratio, 1)} onChange={num("balance_duct_ratio")}/><Help>{lang === "da" ? "Indblæsningens luftmængde pr. omdrejning delt med udsugningens. 1,00 = ens kanaler; 1,10 = indblæsningen giver 10 % mere luft ved samme omdrejninger." : "Supply airflow per rpm divided by extract airflow per rpm. 1.00 = alike ducts; 1.10 = supply moves 10 % more air at the same speed."}</Help></label>
+        </div>
+        <div className="settings-summary">
+          <span>{lang === "da" ? "Kanalforhold i brug" : "Duct ratio in use"}<strong>{ducts.ratio.toLocaleString(lang === "en" ? "en-GB" : "da-DK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · {t(sourceLabel[ducts.source])}</strong></span>
+          <span>{lang === "da" ? "Varmebalancen" : "Heat balance"}<strong>{liveText}</strong>{typeof live.excess_now_percent === "number" && <small>{lang === "da" ? `Lige nu (vejledende): udsugning ${signed(live.excess_now_percent)}` : `Right now (indicative): extract ${signed(live.excess_now_percent)}`}</small>}</span>
+          <span>{lang === "da" ? "Lært af varmebalancen" : "Learned from the heat balance"}<strong>{typeof learned.ratio === "number"
+            ? `${fmt(learned.ratio, lang, 2)} · ${learned.count ?? 0} ${learned.count === 1 ? (lang === "da" ? "måling" : "reading") : (lang === "da" ? "målinger" : "readings")} · ${learned.nights ?? 0} ${learned.nights === 1 ? (lang === "da" ? "nat" : "night") : (lang === "da" ? "nætter" : "nights")} (${t(confidenceLabel[s(learned.confidence, "none")] ?? confidenceLabel.none)})`
+            : t(confidenceLabel.none)}</strong>{learned.last?.reason && <small>{lang === "da" ? "Seneste: " : "Latest: "}{learned.last.reason}</small>}</span>
+          <span>{lang === "da" ? "Anlægget kører nu" : "The unit runs now"}<strong>{typeof controller.balance_running_excess_percent === "number" ? (lang === "da" ? `Udsugning ${signed(controller.balance_running_excess_percent)}` : `Extract ${signed(controller.balance_running_excess_percent)}`) : "—"}</strong></span>
+        </div>
+        {balanceStatus.error && <p className="settings-warning">{balanceStatus.error}</p>}
+        {balanced && <div className="settings-table-wrap"><table className="settings-table"><thead><tr><th>{t(T.level)}</th><th>{lang === "da" ? "Udsugning" : "Extract"}</th><th>{balanceOn ? (lang === "da" ? "Indblæsning" : "Supply") : (lang === "da" ? "Indblæsning med Auto" : "Supply with Auto")}</th><th>{lang === "da" ? "Luft ind / ud" : "Air in / out"}</th><th>{lang === "da" ? "Udsugning over indbl." : "Extract above supply"}</th><th>{lang === "da" ? "Kører nu" : "Running now"}</th></tr></thead>
+          <tbody>{[1, 2, 3, 4, 5, 6].map(level => { const row = balanced[String(level)]; const running = runningProfiles?.[String(level)]; const current = balanceStatus.levels?.[String(level)]; return <tr key={level}>
+            <td>{level}</td>
+            <td>{balanceOn
+              ? <input aria-label={`${t(T.level)} ${level} ${lang === "da" ? "udsugning" : "extract"}`} type="number" min="11" max="100" value={row.extract} onChange={e => setExtractEdits(v => ({ ...v, [String(level)]: Number(e.target.value) }))}/>
+              : `${row.extract} %`}</td>
+            <td>{row.supply} %</td>
+            <td>{row.supply_m3h} / {row.extract_m3h} m³/h</td>
+            <td className={row.reached ? undefined : "settings-table-warn"}>{signed(row.excess_percent)}</td>
+            <td>{running ? `${s(running.supply)}/${s(running.extract)} % · ${signed(current?.current_excess_percent)}` : "—"}</td>
+          </tr>; })}</tbody></table></div>}
+        <p className="settings-help">{lang === "da"
+          ? "Varmebalancen: veksleren kan kun give indblæsningen den varme, udsugningen afleverer. Luftmængdernes forhold er derfor forholdet mellem udsugningens temperaturfald (T3 − T4) og indblæsningens temperaturstigning (T2 − T1). Kun rolige perioder tæller: samme trin i 30 minutter, mindst 8 °C mellem inde og ude, ingen bypass, pejs, frost eller kondens i veksleren. Halvdelen af ventilatorernes varme trækkes fra og regnes med i usikkerheden. Luft ind/ud er skønnet ud fra omdrejningerne og maks. luftmængden."
+          : "Heat balance: the exchanger can only give the supply air the heat the extract air hands over. The airflow ratio is therefore the ratio of the extract temperature drop (T3 − T4) to the supply temperature rise (T2 − T1). Only calm periods count: the same level for 30 minutes, at least 8 °C between inside and outside, no bypass, fireplace, frost or condensation in the core. Half of the fans' heat is taken out and counted in the uncertainty. Air in/out is estimated from the fan speed and the maximum airflow."}</p>
+        <div className="diag-actions"><button type="button" className="secondary-action" disabled={busy || !csrf} onClick={() => void resetLearning()}><RotateCcw size={14}/>{lang === "da" ? "Nulstil læring" : "Reset learning"}</button></div>
+      </Card>
       <Card title={lang === "da" ? "Beregning" : "Calculation"} lead={lang === "da" ? "Følger felterne, mens du taster. Styringen bruger tallene, når du gemmer." : "Follows the fields as you type. Control uses them once you save."} icon={Gauge}>
         <div className="settings-summary">
           <span>{lang === "da" ? "Luftvolumen" : "Air volume"}<strong>{fmt(plan.volume_m3, lang, 0, " m³")}</strong></span>
@@ -198,16 +292,16 @@ export function SettingsPage() {
         </div>
         {plan.reachable === false && <p className="settings-warning">{lang === "da" ? "Selv trin 6 når ikke kravet med de nuværende tal. Tjek areal, maks. luftmængde eller indtast målte værdier." : "Even level 6 does not reach the requirement with the current figures. Check the area, maximum airflow or enter measured values."}</p>}
         {plan.estimated && <p className="settings-help">{lang === "da"
-          ? `Luftmængder uden målt værdi er skønnet ud fra ventilatorernes omdrejninger: luftmængden følger omdrejningstallet (ventilatorloven), og omdrejningerne stiger lineært med procenten fra ca. ${Math.round(plan.fan_curve?.rpm_at_0 ?? 557)} omdr./min ved 0 % plus ${(plan.fan_curve?.rpm_per_percent ?? 24).toLocaleString("da-DK", { maximumFractionDigits: 1 })} pr. %. ${plan.fan_curve?.learned ? "Kurven er lært fra dit anlæg." : "Kurven er HCH5-standard, indtil Pi'en har lært dit anlæg at kende (kræver målinger på mindst tre trin)."} Kanaltrykket er ikke med, så målte luftmængder fra indreguleringsrapporten er altid bedre – indtast dem herunder.`
-          : `Airflows without a measured value are estimated from fan speed: airflow follows speed (fan law), and speed rises linearly with the percentage from about ${Math.round(plan.fan_curve?.rpm_at_0 ?? 557)} rpm at 0 % plus ${(plan.fan_curve?.rpm_per_percent ?? 24).toFixed(1)} per %. ${plan.fan_curve?.learned ? "The curve is learned from your unit." : "The curve is the HCH5 default until the Pi has learned your unit (needs readings on at least three levels)."} Duct pressure is not included, so measured airflows from the commissioning report are always better – enter them below.`}</p>}
-        <div className="settings-table-wrap"><table className="settings-table"><thead><tr><th>{t(T.level)}</th><th>{lang === "da" ? "Indblæsning" : "Supply"}</th><th>{lang === "da" ? "Udsugning" : "Extract"}</th><th>{lang === "da" ? "Luftskifte" : "Air changes"}</th><th>{lang === "da" ? "Opfylder krav" : "Meets requirement"}</th><th>{lang === "da" ? "Målt indbl." : "Measured supply"}</th><th>{lang === "da" ? "Målt udsug." : "Measured extract"}</th></tr></thead>
+          ? `Luftmængder uden målt værdi er skønnet ud fra ventilatorernes omdrejninger: luftmængden følger omdrejningstallet (ventilatorloven), og omdrejningerne stiger lineært med procenten fra ca. ${Math.round(plan.fan_curve?.rpm_at_0 ?? 557)} omdr./min ved 0 % plus ${(plan.fan_curve?.rpm_per_percent ?? 24).toLocaleString("da-DK", { maximumFractionDigits: 1 })} pr. %. ${plan.fan_curve?.learned ? "Kurven er lært fra dit anlæg." : "Kurven er HCH5-standard, indtil Pi'en har lært dit anlæg at kende (kræver målinger på mindst tre trin)."} Luftbalancens kanalforhold (${(plan.duct_ratio ?? 1).toLocaleString("da-DK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) fordeler luften mellem indblæsning og udsugning. Kanaltrykket er ikke med, så målte luftmængder fra indreguleringsrapporten er altid bedre – indtast dem herunder.`
+          : `Airflows without a measured value are estimated from fan speed: airflow follows speed (fan law), and speed rises linearly with the percentage from about ${Math.round(plan.fan_curve?.rpm_at_0 ?? 557)} rpm at 0 % plus ${(plan.fan_curve?.rpm_per_percent ?? 24).toFixed(1)} per %. ${plan.fan_curve?.learned ? "The curve is learned from your unit." : "The curve is the HCH5 default until the Pi has learned your unit (needs readings on at least three levels)."} The duct ratio of the air balance (${(plan.duct_ratio ?? 1).toFixed(2)}) splits the air between supply and extract. Duct pressure is not included, so measured airflows from the commissioning report are always better – enter them below.`}</p>}
+        <div className="settings-table-wrap"><table className="settings-table"><thead><tr><th>{t(T.level)}</th><th>{lang === "da" ? "Indblæsning" : "Supply"}</th><th>{lang === "da" ? "Udsugning" : "Extract"}</th><th>{lang === "da" ? "Luftskifte" : "Air changes"}</th><th>{lang === "da" ? "Opfylder krav" : "Meets requirement"}</th><th>{lang === "da" ? "Målt indbl. · ved %" : "Measured supply · at %"}</th><th>{lang === "da" ? "Målt udsug. · ved %" : "Measured extract · at %"}</th></tr></thead>
           <tbody>{[1, 2, 3, 4, 5, 6].map(level => { const row = plan.levels?.[String(level)] ?? {}; return <tr key={level} className={level === plan.base_level ? "is-base" : undefined}>
             <td>{level}</td><td>{fmt(row.supply_m3h, lang, 0, " m³/h")}{row.measured ? "" : " *"}</td><td>{fmt(row.extract_m3h, lang, 0, " m³/h")}</td><td>{fmt(row.air_changes_per_hour, lang, 2)}</td>
             <td>{row.meets_requirement ? "✓" : row.meets_reduced ? (lang === "da" ? "Reduceret" : "Reduced") : "—"}</td>
-            <td><input aria-label={`${t(T.level)} ${level} supply`} type="number" min="10" max="1500" placeholder={row.estimate_supply_m3h === undefined ? undefined : String(row.estimate_supply_m3h)} value={airflow[level]?.supply ?? ""} onChange={e => setAirflow(level, "supply", e.target.value)}/></td>
-            <td><input aria-label={`${t(T.level)} ${level} extract`} type="number" min="10" max="1500" placeholder={row.estimate_extract_m3h === undefined ? undefined : String(row.estimate_extract_m3h)} value={airflow[level]?.extract ?? ""} onChange={e => setAirflow(level, "extract", e.target.value)}/></td>
+            <td><input aria-label={`${t(T.level)} ${level} supply`} type="number" min="10" max="1500" placeholder={row.estimate_supply_m3h === undefined ? undefined : String(row.estimate_supply_m3h)} value={airflow[level]?.supply ?? ""} onChange={e => setAirflow(level, "supply", e.target.value)}/><input className="settings-table-percent" aria-label={`${t(T.level)} ${level} supply %`} type="number" min="1" max="100" placeholder={s(runningProfiles?.[String(level)]?.supply)} value={airflow[level]?.supply_percent ?? ""} onChange={e => setAirflowPercent(level, "supply", e.target.value)}/></td>
+            <td><input aria-label={`${t(T.level)} ${level} extract`} type="number" min="10" max="1500" placeholder={row.estimate_extract_m3h === undefined ? undefined : String(row.estimate_extract_m3h)} value={airflow[level]?.extract ?? ""} onChange={e => setAirflow(level, "extract", e.target.value)}/><input className="settings-table-percent" aria-label={`${t(T.level)} ${level} extract %`} type="number" min="1" max="100" placeholder={s(runningProfiles?.[String(level)]?.extract)} value={airflow[level]?.extract_percent ?? ""} onChange={e => setAirflowPercent(level, "extract", e.target.value)}/></td>
           </tr>; })}</tbody></table></div>
-        <p className="settings-help">{lang === "da" ? "* skønnet. De grå tal i felterne er skønnet; skriv den målte værdi fra indreguleringsrapporten for at erstatte det." : "* estimated. The grey numbers in the fields are the estimate; type the measured value from the commissioning report to replace it."}</p>
+        <p className="settings-help">{lang === "da" ? "* skønnet. De grå tal i felterne er skønnet; skriv den målte værdi fra indreguleringsrapporten for at erstatte det, og ventilatorprocenten den blev målt ved. Én målt værdi pr. side er nok til at rette skønnet på alle trin, og målinger på begge sider giver luftbalancen det præcise kanalforhold." : "* estimated. The grey numbers in the fields are the estimate; type the measured value from the commissioning report to replace it, and the fan percentage it was measured at. One measured value per side corrects the estimate on every level, and values on both sides give the air balance the exact duct ratio."}</p>
       </Card>
     </>,
     air: <>

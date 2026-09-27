@@ -13,3 +13,6 @@
 .settings-table select{min-width:170px;min-height:30px;padding:4px 7px;border:1px solid var(--border);border-radius:7px;background:var(--surface-soft);color:var(--text)}.settings-table input.settings-table-name{width:100%;min-width:160px}.settings-table code{font-size:9px;color:var(--muted)}
 .settings-table-fixed td{color:var(--muted)}.settings-table-note{font-size:11px;color:var(--muted)}
 .update-ha-links{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}.update-ha-links>a{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:38px}.update-ha-links>a:not(.primary-action){padding:0 13px;color:var(--blue);font-size:11px;font-weight:750;text-decoration:none}.update-ha-links>a:focus-visible{outline:2px solid var(--blue);outline-offset:3px}
+.settings-table input.settings-table-percent{width:56px;margin-left:5px}.settings-table td.settings-table-warn{color:var(--orange)}.settings-summary span small{color:var(--muted);font-size:8px;line-height:1.45}
+/* Wide tables scroll inside their card instead of widening the page on phones. */
+.settings-content>*{min-width:0}@media(max-width:920px){.settings-layout{grid-template-columns:minmax(0,1fr)}}

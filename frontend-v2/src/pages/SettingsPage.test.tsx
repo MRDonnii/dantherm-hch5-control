@@ -8,7 +8,8 @@ describe("SettingsPage", () => {
 
   it("saves every advanced controller feature", () => {
     for (const key of ["sizing_enabled", "house_area_m2", "ceiling_height_m", "airflow_measured", "afterheat_room_enabled",
-      "fireplace_auto_enabled", "fireplace_auto_source", "humidity_smart_enabled", "dry_protection_enabled", "cooling_min_on_seconds", "onewire_roles"]) {
+      "fireplace_auto_enabled", "fireplace_auto_source", "humidity_smart_enabled", "dry_protection_enabled", "cooling_min_on_seconds", "onewire_roles",
+      "balance_enabled", "balance_extract_excess_percent", "balance_ratio_mode", "balance_duct_ratio"]) {
       expect(CONTROLLER_KEYS).toContain(key);
     }
   });
@@ -19,6 +20,8 @@ describe("SettingsPage", () => {
       expect(markup).toContain(label);
     }
     expect(markup).toContain("Grundtrin");
+    expect(markup).toContain("Luftbalance");
+    expect(markup).toContain("Udsugning over indblæsning");
     expect(markup).toContain(">Manuel<");
     expect(markup).toContain('aria-current="page"');
   });

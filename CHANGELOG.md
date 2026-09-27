@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.1-beta.11
+
+- **Air balance (Hus og luftmængde → Luftbalance):** with *Auto* every level keeps its extract percentage and the controller works out the supply percentage so extract is a chosen share (default 5 %, 0–20 %) above supply **in m³/h**, not in percent. The HCH5 fans turn at about 550 rpm at 0 %, so the old fixed 12-point gap gave about 30 % more extract at level 1 but only a few percent at level 6. The balanced percentages are written into the level profiles, so the engine, the house-size plan and Home Assistant all use them. While Auto is on, supply is set by the balance (changing it is refused with an explanation); switching to *Manuel* keeps the last balanced values.
+- **Duct ratio:** supply and extract ducts rarely move the same air per rpm. The ratio comes from airflow measured at the valves when both sides are entered, else from the **heat balance of the exchanger** (below), else from a fixed value (1.00 = alike ducts).
+- **Heat balance learning:** with a 1-Wire T2 sensor before the afterheat, the Pi compares the extract temperature drop (T3 − T4) with the supply temperature rise (T2 − T1). Only calm, cold periods count: the same fan pair for 30 minutes, then 15-minute windows with at least 8 K between inside and outside, no bypass, fireplace, frost or condensation in the core (dew point from the unit's humidity). Half of the fans' heat (from the power meter in Home Assistant, else a fan model) is taken out and counted as uncertainty. The learned ratio is used once at least 8 windows from two nights agree, follows new windows in small steps and survives summers without cold nights. *Nulstil læring* starts it over.
+- **Measured airflow keeps its fan percentage:** a value from the commissioning report is tied to the percentage it was measured at ("ved %"), so the balance can change the level without misusing it. One measured value per side now corrects the airflow estimate on every level.
+- **Overpressure alarm:** once the ducts are known (measured or learned), running with more supply than extract for an hour raises an info alarm, except in fireplace mode.
+- Settings on a phone: wide tables scroll inside their card instead of widening the page.
+- Changes by Claude AI.
+
 ## 1.2.1-beta.10
 
 - **New name: Dantherm HCH5 Control.** The project is no longer only passive, so the repository is now `MRDonnii/dantherm-hch5-control` (the old URL redirects, so existing installations keep updating) and the Home Assistant integration is `MRDonnii/dantherm-hch5-control-ha`. Install paths on the Pi are unchanged.

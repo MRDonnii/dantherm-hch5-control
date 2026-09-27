@@ -60,7 +60,7 @@ Kontrollér derefter på **Overblik**:
 
 Gå så til **Indstillinger** og tag disse i rækkefølge:
 
-1. **Hus og luftmængde** – boligens størrelse giver grundtrinnet.
+1. **Hus og luftmængde** – boligens størrelse giver grundtrinnet. Slå **Luftbalance** på *Auto*, så udsugningen altid er lidt større end indblæsningen (5 % i m³/h) på alle trin. Har du en T2-føler før eftervarmen, lærer Pi'en selv, hvor meget luft kanalerne giver pr. omdrejning.
 2. **Luftkvalitet** – normaltrin og grænser for fugt og CO₂.
 3. **Nat**, **Frikøling**, **Pejs og brændeovn** efter behov.
 4. **Eftervarme** – eftervarmefladens type (el eller vand) og sommerstop.

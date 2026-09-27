@@ -2,6 +2,7 @@
 """Local controller for HCH5/HAC1 with modern automation and HCP4 arbitration."""
 from __future__ import annotations
 
+import copy
 import json
 import math
 import os
@@ -14,10 +15,16 @@ from typing import Callable
 
 from onewire_extras import clean_roles
 from advanced_control import (
+    BALANCE_EXCESS_DEFAULT,
+    BALANCE_RATIO_MODES,
     HCH5_MAX_AIRFLOW_M3H,
     absolute_humidity,
     afterheat_room_target,
     airflow_plan,
+    balanced_profiles,
+    rpm_at_percent,
+    fan_curve,
+    side_constants,
     valid_source,
 )
 
@@ -114,6 +121,14 @@ def validate_profile(extract: int, supply: int) -> None:
         raise ControllerError("Udsugning skal være højere end indblæsning")
     if extract - supply > 35:
         raise ControllerError("Forskellen mellem udsugning og indblæsning er for stor")
+
+
+def validate_ladder(profiles: dict[int, dict[str, object]]) -> None:
+    for values in profiles.values():
+        validate_profile(int(values["extract"]), int(values["supply"]))
+    for level in range(2, 7):
+        if profiles[level]["extract"] <= profiles[level - 1]["extract"] or profiles[level]["supply"] <= profiles[level - 1]["supply"]:
+            raise ControllerError("Niveauerne skal stige i både udsugning og indblæsning")
 
 
 def _validate_time(value: object, label: str) -> str:
@@ -262,6 +277,15 @@ class ControllerState:
         # Learned fan speed curve (rpm = rpm_at_0 + rpm_per_percent x %), set by the runtime.
         "fan_curve": None,
         "sizing_reduced_percent": 50,
+        # Air balance: each level keeps its extract percentage and supply is
+        # solved so extract stays this share above supply in m3/h.
+        "balance_enabled": False,
+        "balance_extract_excess_percent": BALANCE_EXCESS_DEFAULT,
+        # "auto": duct ratio learned from the heat balance once trusted, else the fixed value.
+        "balance_ratio_mode": "auto",
+        "balance_duct_ratio": 1.0,
+        # Heat-balance windows and the learned duct ratio (air_balance.py), set by the runtime.
+        "balance_learned": None,
         # Afterheat setpoint follows the room temperature.
         "afterheat_room_enabled": False,
         "afterheat_room_target": 21.0,
@@ -295,6 +319,7 @@ class ControllerState:
     def __init__(self, path: str | Path | None = None) -> None:
         self.path = Path(path or os.getenv("DANTHERM_CONTROLLER_STATE", "/var/lib/dantherm-hch5-ha/controller.json"))
         self.lock = threading.RLock()
+        self.balance_error: str | None = None
         self.data = dict(self.DEFAULTS)
         self.data["profiles"] = _copy_profiles()
         self.data["schedule"] = _copy_schedule()
@@ -315,8 +340,7 @@ class ControllerState:
             try:
                 profiles = _copy_profiles(saved["profiles"])
                 if set(profiles) == set(range(1, 7)):
-                    for values in profiles.values():
-                        validate_profile(int(values["extract"]), int(values["supply"]))
+                    validate_ladder(profiles)
                     self.data["profiles"] = profiles
             except (ControllerError, KeyError, TypeError, ValueError):
                 pass
@@ -326,6 +350,7 @@ class ControllerState:
             except (TypeError, ValueError):
                 pass
         self._sanitize()
+        self._rebalance()
 
     def _sanitize(self) -> None:
         if self.data["mode"] not in VALID_MODES:
@@ -461,10 +486,15 @@ class ControllerState:
         self.data["schedule"] = schedule
         self._sanitize_advanced()
 
+    BOOL_KEYS = ("sizing_enabled", "afterheat_room_enabled", "fireplace_auto_enabled",
+                 "humidity_smart_enabled", "dry_protection_enabled", "balance_enabled")
+
     def _sanitize_advanced(self) -> None:
-        for key in ("sizing_enabled", "afterheat_room_enabled", "fireplace_auto_enabled",
-                    "humidity_smart_enabled", "dry_protection_enabled"):
+        for key in self.BOOL_KEYS:
             self.data[key] = bool(self.data.get(key, False))
+        if self.data.get("balance_ratio_mode") not in BALANCE_RATIO_MODES:
+            self.data["balance_ratio_mode"] = "auto"
+        self.data["balance_learned"] = self._clean_learned(self.data.get("balance_learned"))
         for key, low, high in self.ADVANCED_FLOATS:
             try:
                 self.data[key] = min(high, max(low, float(self.data.get(key, self.DEFAULTS[key]))))
@@ -489,7 +519,7 @@ class ControllerState:
             except ValueError:
                 self.data[key] = default
         try:
-            self.data["airflow_measured"] = self._clean_airflow(self.data.get("airflow_measured"))
+            self.data["airflow_measured"] = self._stamp_airflow(self._clean_airflow(self.data.get("airflow_measured")))
         except ControllerError:
             self.data["airflow_measured"] = {}
         try:
@@ -502,6 +532,7 @@ class ControllerState:
         ("afterheat_room_target", 15.0, 26.0), ("afterheat_room_gain", 0.5, 5.0),
         ("fireplace_auto_on_temp", 15.0, 400.0), ("fireplace_auto_off_temp", 10.0, 399.0),
         ("humidity_margin_gm3", 0.0, 3.0), ("dry_rh_limit", 15.0, 45.0),
+        ("balance_extract_excess_percent", 0.0, 20.0), ("balance_duct_ratio", 0.7, 1.5),
     )
     ADVANCED_INTS = (
         ("house_bathrooms", 0, 10), ("house_utility_rooms", 0, 10),
@@ -512,8 +543,38 @@ class ControllerState:
     )
 
     @staticmethod
+    def _clean_learned(value: object) -> dict[str, object] | None:
+        """Heat-balance windows and the learned duct ratio; anything odd is dropped."""
+        if not isinstance(value, dict):
+            return None
+        windows = []
+        for window in value.get("windows") or []:
+            try:
+                windows.append({**window, "t": float(window["t"]), "duct_ratio": float(window["duct_ratio"]),
+                                "delta_t": float(window["delta_t"])})
+            except (KeyError, TypeError, ValueError):
+                continue
+        cleaned: dict[str, object] = {"windows": windows[-60:]}
+        for key in ("ratio", "ratio_in_use", "spread", "idle_power_w", "updated_at"):
+            try:
+                cleaned[key] = None if value.get(key) is None else float(value[key])
+            except (TypeError, ValueError):
+                cleaned[key] = None
+        ratio = cleaned["ratio_in_use"]
+        if ratio is not None and not 0.7 <= ratio <= 1.5:
+            cleaned["ratio_in_use"] = None
+        for key in ("count", "nights"):
+            try:
+                cleaned[key] = int(value.get(key) or 0)
+            except (TypeError, ValueError):
+                cleaned[key] = 0
+        cleaned["confidence"] = value.get("confidence") if value.get("confidence") in ("none", "low", "ok") else "none"
+        cleaned["last"] = value.get("last") if isinstance(value.get("last"), dict) else None
+        return cleaned
+
+    @staticmethod
     def _clean_airflow(value: object) -> dict[str, dict[str, int]]:
-        """Measured airflow per level (m3/h) from the commissioning report."""
+        """Measured airflow per level (m3/h), each at the fan percentage it was measured at."""
         if value in (None, ""):
             return {}
         if not isinstance(value, dict):
@@ -538,18 +599,113 @@ class ControllerState:
                 if not 10 <= number <= 1500:
                     raise ControllerError("Luftmængde skal være 10..1500 m³/h")
                 entry[side] = number
+                percent = values.get(f"{side}_percent")
+                if percent not in (None, ""):
+                    try:
+                        percent = int(round(float(percent)))
+                    except (TypeError, ValueError) as error:
+                        raise ControllerError("Målt ved skal være en procent") from error
+                    if not 1 <= percent <= 100:
+                        raise ControllerError("Målt ved skal være 1..100 %")
+                    entry[f"{side}_percent"] = percent
             if entry:
                 cleaned[str(level)] = entry
         return cleaned
 
+    def _stamp_airflow(self, measured: dict[str, dict[str, int]], previous: dict | None = None) -> dict[str, dict[str, int]]:
+        """Tie each measured value to a fan percentage.
+
+        A value keeps the percentage it had; a new or changed value without one
+        belongs to the percentage the level runs now.
+        """
+        previous = previous if previous is not None else self.data.get("airflow_measured") or {}
+        for level, entry in measured.items():
+            old = previous.get(level) if isinstance(previous.get(level), dict) else {}
+            profile = self.data["profiles"].get(int(level)) or {}
+            for side in ("supply", "extract"):
+                key = f"{side}_percent"
+                if side not in entry or key in entry:
+                    continue
+                if old.get(side) == entry[side] and old.get(key) is not None:
+                    entry[key] = int(old[key])
+                elif profile.get(side) is not None:
+                    entry[key] = int(profile[side])
+        return measured
+
     def airflow_plan(self) -> dict[str, object]:
         return airflow_plan(self.data, self.data["profiles"])
 
-    def set_fan_curve(self, curve: dict[str, object]) -> None:
-        """Store the fan speed curve learned from the unit (not user-settable)."""
+    def set_fan_curve(self, curve: dict[str, object]) -> bool:
+        """Store the fan speed curve learned from the unit (not user-settable).
+
+        Returns True when the balance moved a supply percentage.
+        """
         with self.lock:
             self.data["fan_curve"] = dict(curve)
+            changed = self._rebalance()
             self.save()
+            return changed
+
+    def set_balance_learned(self, learned: dict[str, object]) -> bool:
+        """Store the heat-balance windows and duct ratio (runtime only).
+
+        Returns True when the balance moved a supply percentage.
+        """
+        with self.lock:
+            self.data["balance_learned"] = self._clean_learned(learned)
+            changed = self._rebalance()
+            self.save()
+            return changed
+
+    def _rebalance(self, *, strict: bool = False) -> bool:
+        """Write the balanced supply percentages into the level profiles.
+
+        The profiles stay what the unit runs, so the engine, the airflow plan
+        and Home Assistant need no second set. Returns True when a supply
+        percentage changed. strict raises when no valid ladder comes out
+        (a user change); otherwise the profiles are left as they were.
+        """
+        if not self.data.get("balance_enabled"):
+            self.balance_error = None
+            return False
+        profiles = _copy_profiles(self.data["profiles"])
+        for level, values in balanced_profiles(self.data, profiles).items():
+            profiles[level]["supply"] = int(values["supply"])
+        try:
+            validate_ladder(profiles)
+        except ControllerError as error:
+            self.balance_error = f"Luftbalancen kan ikke lave gyldige trin: {error}"
+            if strict:
+                raise ControllerError(self.balance_error) from error
+            return False
+        self.balance_error = None
+        changed = profiles != self.data["profiles"]
+        self.data["profiles"] = profiles
+        return changed
+
+    def balance_status(self) -> dict[str, object]:
+        """Air balance per level: what the balance gives and what runs now."""
+        curve = fan_curve(self.data)
+        k = side_constants(self.data)
+        levels = balanced_profiles(self.data, self.data["profiles"])
+        for level, values in levels.items():
+            running = self.data["profiles"][level]
+            extract_flow = float(k["extract"]) * rpm_at_percent(int(running["extract"]), curve)
+            supply_flow = float(k["supply"]) * rpm_at_percent(int(running["supply"]), curve)
+            values["current_supply"] = int(running["supply"])
+            values["current_excess_percent"] = round((extract_flow / supply_flow - 1.0) * 100.0, 1)
+        learned = self.data.get("balance_learned") or {}
+        return {
+            "enabled": self.data.get("balance_enabled") is True,
+            "target_excess_percent": float(self.data["balance_extract_excess_percent"]),
+            "duct_ratio": round(float(k["ratio"]), 3),
+            "duct_ratio_source": k["source"],
+            "measured_sides": k["measured"],
+            "levels": levels,
+            "learned": {key: learned.get(key) for key in (
+                "ratio", "ratio_in_use", "spread", "count", "nights", "confidence", "updated_at", "last", "idle_power_w")},
+            "error": self.balance_error,
+        }
 
     def normal_level(self) -> int:
         """Base level: from the house size when sizing is on, else the user's."""
@@ -574,6 +730,15 @@ class ControllerState:
                 pass
 
     def configure(self, patch: dict[str, object]) -> dict[str, object]:
+        with self.lock:
+            backup = copy.deepcopy(self.data)
+            try:
+                return self._configure(patch)
+            except Exception:
+                self.data = backup
+                raise
+
+    def _configure(self, patch: dict[str, object]) -> dict[str, object]:
         with self.lock:
             allowed = {
                 "mode", "manual_level", "local_normal_level", "local_min_level", "local_max_level",
@@ -767,6 +932,8 @@ class ControllerState:
                 incoming = patch["profiles"]
                 if not isinstance(incoming, dict):
                     raise ControllerError("profiles skal være et objekt")
+                balance_was_on = self.data.get("balance_enabled") is True
+                balance_on = patch.get("balance_enabled", balance_was_on) is True
                 profiles = _copy_profiles(self.data["profiles"])
                 for raw_level, values in incoming.items():
                     level = int(raw_level)
@@ -774,19 +941,32 @@ class ControllerState:
                         raise ControllerError("Kun niveau 1..6 understøttes")
                     extract = int(values.get("extract", profiles[level]["extract"]))
                     supply = int(values.get("supply", profiles[level]["supply"]))
-                    validate_profile(extract, supply)
-                    profiles[level].update(extract=extract, supply=supply)
+                    if balance_on:
+                        # The balance solves supply from extract; resending the
+                        # current value (a form saving every field) is fine.
+                        if balance_was_on and supply != profiles[level]["supply"]:
+                            raise ControllerError("Indblæsningen styres af luftbalancen. Ændr udsugningen, eller slå luftbalancen fra for at sætte indblæsningen selv")
+                        if not 11 <= extract <= 100:
+                            raise ControllerError("Udsugning skal være 11..100 %")
+                        profiles[level]["extract"] = extract
+                    else:
+                        validate_profile(extract, supply)
+                        profiles[level].update(extract=extract, supply=supply)
                     if "name" in values:
                         name = str(values["name"]).strip()
                         if not name or len(name) > 24:
                             raise ControllerError("Profilnavn skal være 1..24 tegn")
                         profiles[level]["name"] = name
-                for level in range(2, 7):
-                    if profiles[level]["extract"] <= profiles[level - 1]["extract"] or profiles[level]["supply"] <= profiles[level - 1]["supply"]:
-                        raise ControllerError("Niveauerne skal stige i både udsugning og indblæsning")
+                if balance_on:
+                    for level in range(2, 7):
+                        if profiles[level]["extract"] <= profiles[level - 1]["extract"]:
+                            raise ControllerError("Udsugningen skal stige fra trin til trin")
+                else:
+                    validate_ladder(profiles)
                 self.data["profiles"] = profiles
             self._configure_advanced(patch)
             self._sanitize()
+            self._rebalance(strict=True)
             self.data["updated_at"] = time.time()
             self.save()
             return self.snapshot()
@@ -794,6 +974,8 @@ class ControllerState:
     ADVANCED_KEYS = (
         "sizing_enabled", "house_area_m2", "ceiling_height_m", "house_bathrooms",
         "house_utility_rooms", "airflow_max_m3h", "airflow_measured", "sizing_reduced_percent",
+        "balance_enabled", "balance_extract_excess_percent", "balance_ratio_mode", "balance_duct_ratio",
+        "balance_learning_reset",
         "afterheat_room_enabled", "afterheat_room_target", "afterheat_room_gain",
         "afterheat_room_min", "afterheat_room_max", "afterheat_room_step_minutes",
         "afterheat_room_source", "fireplace_auto_enabled", "fireplace_auto_source",
@@ -813,15 +995,25 @@ class ControllerState:
         "fireplace_afterrun_minutes": "Efterløb", "fireplace_max_hours": "Maks. varighed",
         "humidity_margin_gm3": "Fugtmargin", "dry_rh_limit": "Tør luft-grænse",
         "dry_max_level": "Maks. trin ved tør luft",
+        "balance_extract_excess_percent": "Udsugning over indblæsning", "balance_duct_ratio": "Kanalforhold",
     }
 
     def _configure_advanced(self, patch: dict[str, object]) -> None:
-        for key in ("sizing_enabled", "afterheat_room_enabled", "fireplace_auto_enabled",
-                    "humidity_smart_enabled", "dry_protection_enabled"):
+        for key in self.BOOL_KEYS:
             if key in patch:
                 if not isinstance(patch[key], bool):
                     raise ControllerError(f"{key} skal være boolean")
                 self.data[key] = patch[key]
+        if "balance_ratio_mode" in patch:
+            if patch["balance_ratio_mode"] not in BALANCE_RATIO_MODES:
+                raise ControllerError("balance_ratio_mode skal være auto eller fixed")
+            self.data["balance_ratio_mode"] = patch["balance_ratio_mode"]
+        if patch.get("balance_learning_reset") is True:
+            # Start the heat-balance learning over; the standby draw is kept.
+            learned = self.data.get("balance_learned") or {}
+            self.data["balance_learned"] = {"windows": [], "idle_power_w": learned.get("idle_power_w")}
+        elif "balance_learning_reset" in patch and patch["balance_learning_reset"] is not False:
+            raise ControllerError("balance_learning_reset skal være true")
         for key, low, high in self.ADVANCED_FLOATS:
             if key in patch:
                 try:
@@ -854,7 +1046,7 @@ class ControllerState:
                 except ValueError as error:
                     raise ControllerError(f"{key}: ugyldig målekilde") from error
         if "airflow_measured" in patch:
-            self.data["airflow_measured"] = self._clean_airflow(patch["airflow_measured"])
+            self.data["airflow_measured"] = self._stamp_airflow(self._clean_airflow(patch["airflow_measured"]))
         if "onewire_roles" in patch:
             try:
                 self.data["onewire_roles"] = clean_roles(patch["onewire_roles"])
@@ -983,6 +1175,9 @@ class ControllerState:
                 result["effective_profile"] = dict(STANDBY_PROFILE)
             result["airflow_plan"] = self.airflow_plan()
             result["effective_normal_level"] = self.normal_level()
+            result["balance"] = self.balance_status()
+            # The windows stay on the Pi; the summary is in balance.learned.
+            result["balance_learned"] = {key: value for key, value in (result.get("balance_learned") or {}).items() if key != "windows"} or None
             return result
 
 
