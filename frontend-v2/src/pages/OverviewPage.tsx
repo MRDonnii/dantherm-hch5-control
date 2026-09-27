@@ -14,9 +14,6 @@ import "../styles/history.css";
 type Data = Record<string, unknown>;
 type AfterheatValue = number | "off";
 type AuthState = { csrf?: string | null };
-// +/- only move a local draft; one command is sent once the user has stopped
-// pressing, so each step does not wait for a save and RS485 round trip.
-const AFTERHEAT_SEND_DELAY_MS = 1200;
 const SENSOR_HISTORY: Record<string, { title: string; key: string; color: HistorySeries["color"]; unit?: string }> = {
   outdoor: { title: "Udeluft · T1", key: "outdoor_temp", color: "blue" },
   extract: { title: "Udsugning · T3", key: "extract_temp", color: "orange" },
@@ -99,8 +96,8 @@ export function OverviewPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const { setNotice } = useTopbarNotice();
   const [afterheatDraft, setAfterheatDraft] = useState<AfterheatValue | null>(null);
-  const afterheatTimer = useRef<number | null>(null);
-  const afterheatPending = useRef<{ target: AfterheatValue; seq: number } | null>(null);
+  // A confirmed value shown while it is being saved; not a draft needing confirmation.
+  const [afterheatSent, setAfterheatSent] = useState<AfterheatValue | null>(null);
   const afterheatSeq = useRef(0);
   // Setpoint to return to when the power button turns the afterheat back on.
   const lastAfterheatOn = useRef(20);
@@ -179,22 +176,9 @@ export function OverviewPage() {
       target === "off" ? { afterheat_enabled: false } : { afterheat_setpoint: target },
       target === "off" ? "Eftervarmen er sat til OFF." : `Eftervarmen er sat til ${target} °C.`,
     );
-    // A newer press may have started another draft while this one was saving.
-    if (afterheatSeq.current === seq) setAfterheatDraft(null);
+    if (afterheatSeq.current === seq) setAfterheatSent(null);
   }, [command]);
 
-  const flushAfterheat = useCallback(() => {
-    if (afterheatTimer.current !== null) window.clearTimeout(afterheatTimer.current);
-    afterheatTimer.current = null;
-    const pending = afterheatPending.current;
-    afterheatPending.current = null;
-    if (pending) void sendAfterheat(pending.target, pending.seq);
-  }, [sendAfterheat]);
-
-  // Leaving the page must not drop a change that is still waiting to be sent.
-  const flushAfterheatRef = useRef(flushAfterheat);
-  flushAfterheatRef.current = flushAfterheat;
-  useEffect(() => () => flushAfterheatRef.current(), []);
 
   const outdoor = first(unit, "outdoor_temp", "outdoor_temperature");
   const extract = first(unit, "extract_temp", "extract_temperature");
@@ -241,7 +225,8 @@ export function OverviewPage() {
   const level = number(controller.effective_level) ?? 3;
   const afterheatSetpoint = number(controller.afterheat_setpoint) ?? 20;
   const afterheatEnabled = controller.afterheat_enabled !== false;
-  const shownAfterheat: AfterheatValue = afterheatDraft ?? (afterheatEnabled ? afterheatSetpoint : "off");
+  const committedAfterheat: AfterheatValue = afterheatSent ?? (afterheatEnabled ? afterheatSetpoint : "off");
+  const shownAfterheat: AfterheatValue = afterheatDraft ?? committedAfterheat;
   if (typeof afterheatSetpoint === "number") lastAfterheatOn.current = afterheatSetpoint;
   const actualAfterheatSelectionNumber = number(controller.actual_afterheat_selection);
   const actualAfterheatSelection = controller.actual_afterheat_selection === "off"
@@ -260,13 +245,18 @@ export function OverviewPage() {
 
   const levelPatch = mode === "manual" ? "manual_level" : "local_normal_level";
   // Remote-style range: OFF - 10 - 11 ... 35. Minus below 10 selects OFF.
+  // +/-, the dial and the power button only move a draft; nothing is sent
+  // before the user confirms, so a slip cannot change the afterheat.
   const setAfterheatTarget = (next: AfterheatValue) => {
     if (next !== "off") lastAfterheatOn.current = next;
+    setAfterheatDraft(next === committedAfterheat ? null : next);
+  };
+  const confirmAfterheat = () => {
+    if (afterheatDraft === null) return;
     const seq = ++afterheatSeq.current;
-    setAfterheatDraft(next);
-    afterheatPending.current = { target: next, seq };
-    if (afterheatTimer.current !== null) window.clearTimeout(afterheatTimer.current);
-    afterheatTimer.current = window.setTimeout(flushAfterheat, AFTERHEAT_SEND_DELAY_MS);
+    setAfterheatSent(afterheatDraft);
+    setAfterheatDraft(null);
+    void sendAfterheat(afterheatDraft, seq);
   };
 
   return (
@@ -392,7 +382,8 @@ export function OverviewPage() {
         <article className="surface afterheat-setpoint-card">
           <AfterheatThermostat value={shownAfterheat} onChange={setAfterheatTarget} heating={heating} lockout={afterheatLockout}
             cutoff={afterheatCutoff} outdoor={outdoor} airBefore={number(controller.actual_supply_before_heater_temperature)} airAfter={afterHeater}
-            registered={actualAfterheatSelection} lastOn={lastAfterheatOn.current}/>
+            registered={actualAfterheatSelection} lastOn={lastAfterheatOn.current}
+            current={committedAfterheat} onConfirm={confirmAfterheat} onCancel={() => setAfterheatDraft(null)} busy={busy !== null}/>
           {/* Only with a measured T2 before the afterheat coil (1-Wire role "t2"). */}
           {number(controller.actual_supply_before_heater_temperature) !== null && <>
             <div className="pro-card-head compact air-calc-head"><div><h2>Beregnet fra målt T2</h2><p>Luftmængde anslået for aktuelt trin{number(controller.supply_airflow_estimate_m3h) === null ? "" : ` · ${whole(number(controller.supply_airflow_estimate_m3h))} m³/h`}</p></div></div>

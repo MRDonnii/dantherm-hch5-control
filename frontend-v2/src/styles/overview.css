@@ -126,3 +126,12 @@ button:disabled{opacity:.42!important;cursor:not-allowed!important;transform:non
 :root[data-theme="light"] .thermostat-center strong, :root[data-theme="light"] .thermostat-head span, :root[data-theme="light"] .thermostat-readings strong { color: #0f2733; }
 :root[data-theme="light"] .thermostat-readings div, :root[data-theme="light"] .thermostat-actions button { background: var(--surface); border-color: #c3d6e2; color: #20394a; }
 :root[data-theme="light"] .thermostat-knob { fill: #fff; }
+
+/* Afterheat change waits for confirmation. */
+.thermostat-confirm { display: grid; gap: 8px; padding: 10px; border: 1px solid #ffad55; border-radius: 12px; background: rgb(255 173 85 / 10%); }
+.thermostat-confirm p { margin: 0; color: #dff6ff; font-size: 12px; line-height: 1.4; }
+.thermostat-confirm > div { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.thermostat-confirm button { min-height: 40px; border-radius: 10px; border: 1px solid #294658; background: transparent; color: #dff6ff; font-size: 12px; font-weight: 800; cursor: pointer; }
+.thermostat-confirm .thermostat-ok { border-color: #ffad55; background: rgb(255 173 85 / 22%); }
+.thermostat-confirm button:disabled { opacity: .5; cursor: wait; }
+:root[data-theme="light"] .thermostat-confirm p, :root[data-theme="light"] .thermostat-confirm button { color: #20394a; }

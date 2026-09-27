@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.1-beta.8
+
+- **Confirm afterheat changes:** +/-, the dial and the power button on the afterheat thermostat only change a draft. A box asks "Skift eftervarme fra 20 °C til 25 °C?" and nothing is sent before **Bekræft** is pressed; **Fortryd** keeps the current setting. A change is no longer sent by itself after a pause.
+- Changes by Claude AI.
+
 ## 1.2.1-beta.7
 
 - **Afterheat off while the unit is off:** standby and "Bål i haven" now also switch the afterheat off, so the water coil does not heat still air. The previous setting returns when the unit starts again.
