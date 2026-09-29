@@ -1,17 +1,25 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Activity, Droplets, Flame, Gauge, House, Monitor, Moon, Save, ShieldCheck, Snowflake, Thermometer, Wind } from "lucide-react";
+import { Activity, Droplets, Flame, Gauge, House, Mail, Monitor, Moon, RotateCcw, Save, Scale, ShieldCheck, Snowflake, Thermometer, Users, Wind } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { postJson, requestJson } from "../lib/api";
-import { airflowPlan, type AirflowProfiles } from "../lib/airflow";
+import { airflowPlan, balancedProfiles, sideConstants, type AirflowProfiles, type RatioSource } from "../lib/airflow";
 import { LANG_KEY, currentLang, useLang, type Lang } from "../lib/i18n";
+import { useSession, type Permission } from "../lib/session";
+import { AccountPanel } from "../components/AccountPanel";
+import { MailPanel } from "../components/MailPanel";
+import { UsersPanel } from "../components/UsersPanel";
 import "../styles/panels.css";import "../styles/management.css";
 
 type Data = Record<string, unknown>;
 type Auth = { csrf?: string | null; enabled?: boolean; username?: string | null };
 type Text = { da: string; en: string };
 type LevelPlan = { estimate_supply_m3h?: number; estimate_extract_m3h?: number; supply_m3h?: number; extract_m3h?: number; air_changes_per_hour?: number | null; measured?: boolean; meets_requirement?: boolean; meets_reduced?: boolean };
-type Plan = { volume_m3?: number; supply_required_m3h?: number; extract_required_m3h?: number; area_requirement_ls?: number; wet_room_requirement_ls?: number; required_air_changes_per_hour?: number | null; base_level?: number; min_level?: number; reachable?: boolean; estimated?: boolean; levels?: Record<string, LevelPlan> };
-type Airflow = Record<string, { supply?: number; extract?: number }>;
+type Plan = { fan_curve?: { rpm_at_0?: number; rpm_per_percent?: number; learned?: boolean }; duct_ratio?: number; duct_ratio_source?: RatioSource; volume_m3?: number; supply_required_m3h?: number; extract_required_m3h?: number; area_requirement_ls?: number; wet_room_requirement_ls?: number; required_air_changes_per_hour?: number | null; base_level?: number; min_level?: number; reachable?: boolean; estimated?: boolean; levels?: Record<string, LevelPlan> };
+type Airflow = Record<string, { supply?: number; extract?: number; supply_percent?: number; extract_percent?: number }>;
+type Profiles = Record<string, { supply?: number; extract?: number; name?: string }>;
+type BalanceLive = { state?: string; reason?: string; remaining_seconds?: number; progress_percent?: number; delta_t?: number | null; delta_t_now?: number | null; excess_now_percent?: number | null };
+type BalanceLearned = { ratio?: number | null; ratio_in_use?: number | null; spread?: number | null; count?: number; nights?: number; confidence?: string; updated_at?: number | null; last?: { t?: number; accepted?: boolean; reason?: string } | null };
+type BalanceStatus = { enabled?: boolean; duct_ratio?: number; duct_ratio_source?: RatioSource; learned?: BalanceLearned; error?: string | null; levels?: Record<string, { current_supply?: number; current_excess_percent?: number }> };
 
 function n(v: unknown, f: number) { const x = Number(v); return Number.isFinite(x) ? x : f; }
 function s(v: unknown, f = "") { return v === null || v === undefined ? f : String(v); }
@@ -31,10 +39,12 @@ export const CONTROLLER_KEYS = [
   "cooling_level", "cooling_start_delay_seconds", "cooling_min_on_seconds", "cooling_min_off_seconds",
   "sizing_enabled", "house_area_m2", "ceiling_height_m", "house_bathrooms", "house_utility_rooms",
   "airflow_max_m3h", "sizing_reduced_percent", "airflow_measured",
+  "balance_enabled", "balance_extract_excess_percent", "balance_ratio_mode", "balance_duct_ratio",
   "humidity_smart_enabled", "outdoor_humidity_source", "humidity_margin_gm3",
   "dry_protection_enabled", "dry_rh_limit", "dry_max_level",
   "fireplace_auto_enabled", "fireplace_auto_source", "fireplace_auto_on_temp", "fireplace_auto_off_temp",
   "fireplace_afterrun_minutes", "fireplace_max_hours", "onewire_roles",
+  "pm25_enabled", "pm25_setpoint", "pm25_step", "pm25_hysteresis", "pm25_max_level", "pm25_ignored_rooms",
 ] as const;
 
 const T = {
@@ -49,9 +59,9 @@ const T = {
   level: { da: "Trin", en: "Level" }, status: { da: "Status lige nu", en: "Status right now" },
 } satisfies Record<string, Text>;
 
-type SectionId = "ui" | "house" | "air" | "humidity" | "night" | "afterheat" | "cooling" | "fireplace" | "security" | "sensors";
+type SectionId = "ui" | "house" | "air" | "humidity" | "night" | "afterheat" | "cooling" | "fireplace" | "security" | "sensors" | "users" | "mail";
 const SECTIONS: { id: SectionId; icon: LucideIcon; title: Text; lead: Text }[] = [
-  { id: "house", icon: House, title: { da: "Hus og luftmængde", en: "House and airflow" }, lead: { da: "Grundtrin beregnet ud fra boligens størrelse", en: "Base level calculated from the size of the home" } },
+  { id: "house", icon: House, title: { da: "Hus og luftmængde", en: "House and airflow" }, lead: { da: "Grundtrin og luftbalance ud fra boligen", en: "Base level and air balance from the home" } },
   { id: "air", icon: Wind, title: { da: "Luftkvalitet", en: "Air quality" }, lead: { da: "Fugt og CO₂ løfter ventilationen", en: "Humidity and CO₂ raise the ventilation" } },
   { id: "humidity", icon: Droplets, title: { da: "Fugt og tør luft", en: "Moisture and dry air" }, lead: { da: "Ventilér kun når det faktisk tørrer", en: "Only ventilate when it actually dries" } },
   { id: "night", icon: Moon, title: { da: "Nat", en: "Night" }, lead: { da: "Lavere trin mens I sover", en: "Lower level while you sleep" } },
@@ -59,9 +69,21 @@ const SECTIONS: { id: SectionId; icon: LucideIcon; title: Text; lead: Text }[] =
   { id: "cooling", icon: Snowflake, title: { da: "Frikøling", en: "Free cooling" }, lead: { da: "Køl huset med kølig udeluft via bypass", en: "Cool the house with cool outdoor air via bypass" } },
   { id: "fireplace", icon: Flame, title: { da: "Pejs og brændeovn", en: "Fireplace and stove" }, lead: { da: "Overtryk mens der fyres", en: "Positive pressure while the stove burns" } },
   { id: "ui", icon: Monitor, title: { da: "Brugerflade", en: "Interface" }, lead: { da: "Sprog, tema og bevægelse", en: "Language, theme and motion" } },
-  { id: "security", icon: ShieldCheck, title: { da: "Sikkerhed", en: "Security" }, lead: { da: "Login og hvem der styrer anlægget", en: "Login and who controls the unit" } },
+  { id: "security", icon: ShieldCheck, title: { da: "Sikkerhed", en: "Security" }, lead: { da: "Min konto, login og hvem der styrer anlægget", en: "My account, login and who controls the unit" } },
   { id: "sensors", icon: Activity, title: { da: "Følere", en: "Sensors" }, lead: { da: "1-Wire-følere: eftervarme, T2, loft og andre", en: "1-Wire sensors: afterheat, T2, loft and others" } },
+  { id: "users", icon: Users, title: { da: "Brugere", en: "Users" }, lead: { da: "Brugere, teknikere og administratorer", en: "Users, technicians and administrators" } },
+  { id: "mail", icon: Mail, title: { da: "Mail", en: "Mail" }, lead: { da: "Fejlmeddelelser og nulstilling af adgangskode", en: "Fault notifications and password reset" } },
 ];
+
+/** Who may open each section. Controller sections need "configure"; the rest follow their own permission. */
+const SECTION_PERMISSION: Partial<Record<SectionId, Permission>> = { users: "users", mail: "mail" };
+const OPEN_SECTIONS: SectionId[] = ["ui", "security"];
+/** Sections with their own save button instead of the controller save bar. */
+const SELF_SAVING: SectionId[] = ["ui", "security", "users", "mail"];
+export function sectionAllowed(id: SectionId, can: (permission: Permission) => boolean) {
+  if (OPEN_SECTIONS.includes(id)) return true;
+  return can(SECTION_PERMISSION[id] ?? "configure");
+}
 
 function Card({ title, lead, icon: Icon, children }: { title: string; lead?: string; icon?: LucideIcon; children: ReactNode }) {
   return <article className="surface panel-card settings-card"><div className="pro-card-head compact"><div><h2>{title}</h2>{lead && <p>{lead}</p>}</div>{Icon && <Icon size={20}/>}</div>{children}</article>;
@@ -77,6 +99,7 @@ function Help({ children }: { children: ReactNode }) { return <small className="
 
 export function SettingsPage() {
   const lang = useLang();
+  const { can } = useSession();
   const t = (text: Text) => text[lang];
   const [controller, setController] = useState<Data>({});
   const [auth, setAuth] = useState<Auth>({});
@@ -89,6 +112,8 @@ export function SettingsPage() {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("hch5-v2-sidebar") === "1");
   const [motion, setMotion] = useState(() => localStorage.getItem("hch5-v2-motion") ?? "normal");
   const [language, setLanguage] = useState<Lang>(currentLang);
+  // Extract percentages typed in the air balance table, saved as level profiles.
+  const [extractEdits, setExtractEdits] = useState<Record<string, number>>({});
 
   const refresh = useCallback(async () => {
     const [c, a] = await Promise.all([requestJson<Data>("/api/controller/state"), requestJson<Auth>("/api/auth/status")]);
@@ -102,8 +127,9 @@ export function SettingsPage() {
   const save = async () => {
     if (!csrf) return;
     setBusy(true); setNotice(t(T.saving));
-    const patch = Object.fromEntries(CONTROLLER_KEYS.filter(k => form[k] !== undefined).map(k => [k, form[k]]));
-    try { const next = await postJson<Data>("/api/controller/config", patch, csrf); setController(next); setForm(next); setNotice(t(T.saved)); }
+    const patch: Data = Object.fromEntries(CONTROLLER_KEYS.filter(k => form[k] !== undefined).map(k => [k, form[k]]));
+    if (Object.keys(extractEdits).length) patch.profiles = Object.fromEntries(Object.entries(extractEdits).map(([level, extract]) => [level, { extract }]));
+    try { const next = await postJson<Data>("/api/controller/config", patch, csrf); setController(next); setForm(next); setExtractEdits({}); setNotice(t(T.saved)); }
     catch (e) { setNotice(`${t(T.error)}: ${e instanceof Error ? e.message : "?"}`); }
     finally { setBusy(false); }
   };
@@ -121,15 +147,60 @@ export function SettingsPage() {
     if (selected.startsWith("room:")) names.add(selected.slice(5));
     return [...names].sort().map(name => <option key={name} value={`room:${name}`}>{name}</option>);
   };
-  const roomHint = rooms.length ? null : <Help>{lang === "da" ? "Ingen målerum modtaget fra Home Assistant endnu. Tilføj rummet i HCH PassiveLink-integrationen (Smart Auto-rum) med styring slået fra." : "No measurement rooms received from Home Assistant yet. Add the room in the HCH PassiveLink integration (Smart Auto rooms) with control turned off."}</Help>;
+  const roomHint = rooms.length ? null : <Help>{lang === "da" ? "Ingen målerum modtaget fra Home Assistant endnu. Tilføj rummet i HCH5 Control-integrationen (Smart Auto-rum) med styring slået fra." : "No measurement rooms received from Home Assistant yet. Add the room in the HCH5 Control integration (Smart Auto rooms) with control turned off."}</Help>;
 
-  const plan = (airflowPlan(form, controller.profiles as AirflowProfiles | undefined) ?? controller.airflow_plan ?? {}) as Plan;
+  const runningProfiles = controller.profiles as Profiles | undefined;
+  const editedProfiles = (runningProfiles && Object.keys(extractEdits).length
+    ? Object.fromEntries(Object.entries(runningProfiles).map(([level, values]) => [level, extractEdits[level] === undefined ? values : { ...values, extract: extractEdits[level] }]))
+    : runningProfiles) as AirflowProfiles | undefined;
+  const plan = (airflowPlan(form, editedProfiles) ?? controller.airflow_plan ?? {}) as Plan;
   const airflow = (form.airflow_measured ?? {}) as Airflow;
+  // A measured value belongs to the fan percentage it was measured at; it
+  // starts as the percentage the level runs now.
   const setAirflow = (level: number, side: "supply" | "extract", value: string) => {
-    const next: Airflow = { ...airflow, [level]: { ...(airflow[level] ?? {}), [side]: value === "" ? undefined : Number(value) } };
+    const current = airflow[level] ?? {};
+    const percentKey = side === "supply" ? "supply_percent" : "extract_percent";
+    const running = Number(runningProfiles?.[String(level)]?.[side]);
+    const next: Airflow = { ...airflow, [level]: { ...current, [side]: value === "" ? undefined : Number(value),
+      [percentKey]: value === "" ? undefined : current[percentKey] ?? (Number.isFinite(running) ? running : undefined) } };
     set("airflow_measured", next);
   };
+  const setAirflowPercent = (level: number, side: "supply" | "extract", value: string) => {
+    const percentKey = side === "supply" ? "supply_percent" : "extract_percent";
+    set("airflow_measured", { ...airflow, [level]: { ...(airflow[level] ?? {}), [percentKey]: value === "" ? undefined : Number(value) } });
+  };
   const sizing = form.sizing_enabled === true;
+
+  const balanceOn = form.balance_enabled === true;
+  const balanced = balancedProfiles(form, editedProfiles);
+  const balanceStatus = (controller.balance ?? {}) as BalanceStatus;
+  const live = (controller.balance_live ?? {}) as BalanceLive;
+  const learned = balanceStatus.learned ?? {};
+  const ducts = sideConstants(form, runningProfiles as AirflowProfiles | undefined);
+  const signed = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? `${value > 0 ? "+" : ""}${fmt(value, lang, 1)} %` : "—";
+  const sourceLabel: Record<RatioSource, Text> = {
+    measured: { da: "målt ved ventilerne", en: "measured at the valves" },
+    learned: { da: "lært af varmebalancen", en: "learned from the heat balance" },
+    fixed: { da: "fast værdi", en: "fixed value" },
+  };
+  const confidenceLabel: Record<string, Text> = {
+    ok: { da: "sikker", en: "trusted" }, low: { da: "foreløbig", en: "preliminary" }, none: { da: "ingen målinger endnu", en: "no readings yet" },
+  };
+  const liveText = (() => {
+    if (live.state === "settling") return lang === "da" ? `Venter på stabil drift (${Math.ceil(n(live.remaining_seconds, 0) / 60)} min)` : `Waiting for steady running (${Math.ceil(n(live.remaining_seconds, 0) / 60)} min)`;
+    if (live.state === "measuring") return lang === "da" ? `Måler (${n(live.progress_percent, 0)} %)` : `Measuring (${n(live.progress_percent, 0)} %)`;
+    return s(live.reason, "—");
+  })();
+  const resetLearning = async () => {
+    if (!csrf) return;
+    setBusy(true);
+    try {
+      const next = await postJson<Data>("/api/controller/config", { balance_learning_reset: true }, csrf);
+      setController(next); setForm(v => ({ ...v, balance_learned: next.balance_learned }));
+      setNotice(lang === "da" ? "Læringen af kanalforholdet starter forfra." : "Learning of the duct ratio starts over.");
+    } catch (e) { setNotice(`${t(T.error)}: ${e instanceof Error ? e.message : "?"}`); }
+    finally { setBusy(false); }
+  };
 
   type OneWireSensor = { id: string; temperature: number | null; role: string; name: string };
   const onewire = (Array.isArray(controller.onewire_sensors) ? controller.onewire_sensors : []) as OneWireSensor[];
@@ -153,7 +224,7 @@ export function SettingsPage() {
     other: { da: "Andet (eget navn)", en: "Other (own name)" },
   };
   const sections: Record<SectionId, ReactNode> = {
-    sensors: <Card title={t(SECTIONS[SECTIONS.length - 1].title)} lead={lang === "da" ? "DS18B20-følere på Pi'ens 1-Wire-bus (GPIO4)" : "DS18B20 sensors on the Pi's 1-Wire bus (GPIO4)"} icon={Activity}>
+    sensors: <Card title={t(SECTIONS[9].title)} lead={lang === "da" ? "DS18B20-følere på Pi'ens 1-Wire-bus (GPIO4)" : "DS18B20 sensors on the Pi's 1-Wire bus (GPIO4)"} icon={Activity}>
       <p className="settings-help">{lang === "da" ? "Nye følere dukker op her af sig selv, når de er loddet på 1-Wire-bussen (3,3 V, GND og data parallelt med de eksisterende). Giv hver føler en rolle: T2 bruges i tegningen, genvindingen og som målt T2; Loftrum og egne navne vises her og i Home Assistant. Eftervarme frem/retur bestemmer, hvilke følere 1-Wire-tjenesten sender til Home Assistant som vandets frem- og returtemperatur. Er de forvekslet, så byt rollerne her." : "New sensors appear here by themselves once soldered onto the 1-Wire bus (3.3 V, GND and data in parallel with the existing ones). Give each a role: T2 is used in the drawing, the recovery and as measured T2; Loft space and own names show here and in Home Assistant. Afterheat flow/return decide which sensors the 1-Wire service reports to Home Assistant as the water flow and return. Swap the roles here if they are mixed up."}</p>
       {onewire.length === 0
         ? <p className="settings-warning">{lang === "da" ? "Ingen følere fundet endnu. Tjek lodningerne og at føleren er på samme bus som frem/retur." : "No extra sensors found yet. Check the soldering and that the sensor is on the same bus as flow/return."}</p>
@@ -187,6 +258,47 @@ export function SettingsPage() {
           <label>{lang === "da" ? "Reduceret minimum" : "Reduced minimum"}<input type="number" min="30" max="100" value={n(form.sizing_reduced_percent, 50)} onChange={num("sizing_reduced_percent")}/><span>%</span><Help>{lang === "da" ? "Laveste luftmængde i procent af kravet, som nat, ferie og tør luft må gå ned til." : "Lowest airflow, as a share of the requirement, that night, vacation and dry-air protection may use."}</Help></label>
         </div>
       </Card>
+      <Card title={lang === "da" ? "Luftbalance" : "Air balance"} lead={lang === "da" ? "Svagt undertryk i m³/h på alle trin" : "Slight underpressure in m³/h on every level"} icon={Scale}>
+        <div className="settings-grid">
+          <div className="settings-mode-row"><span>{lang === "da" ? "Indblæsning" : "Supply"}</span>
+            <div className="settings-segment" role="radiogroup" aria-label={lang === "da" ? "Luftbalance" : "Air balance"}>
+              <button type="button" role="radio" aria-checked={balanceOn} className={balanceOn ? "is-active" : undefined} onClick={() => set("balance_enabled", true)}>Auto</button>
+              <button type="button" role="radio" aria-checked={!balanceOn} className={!balanceOn ? "is-active" : undefined} onClick={() => set("balance_enabled", false)}>{lang === "da" ? "Manuel" : "Manual"}</button>
+            </div>
+            <strong>{balanceOn
+              ? (lang === "da" ? `Udsugning ${fmt(n(form.balance_extract_excess_percent, 5), lang, 1)} % over indblæsning på alle trin` : `Extract ${fmt(n(form.balance_extract_excess_percent, 5), lang, 1)} % above supply on every level`)
+              : (lang === "da" ? "Trinenes egne procenter" : "The levels' own percentages")}</strong>
+          </div>
+          <Help>{lang === "da" ? "Auto: hvert trin beholder sin udsugning, og controlleren regner indblæsningen ud, så udsugningen er den valgte andel større end indblæsningen i m³/h – ikke i procent. Ventilatorernes omdrejninger starter ved ca. 550 omdr./min ved 0 %, så en fast forskel i procent giver meget forskellig balance på trin 1 og trin 6. Manuel: trinenes procenter bruges, som de står." : "Auto: every level keeps its extract, and the controller works out the supply so extract is the chosen share above supply in m³/h – not in percent. The fans turn at about 550 rpm at 0 %, so a fixed gap in percent gives a very different balance at level 1 and level 6. Manual: the levels' percentages are used as they are."}</Help>
+          <label>{lang === "da" ? "Udsugning over indblæsning" : "Extract above supply"}<input type="number" min="0" max="20" step="0.5" value={n(form.balance_extract_excess_percent, 5)} onChange={num("balance_extract_excess_percent")}/><span>%</span><Help>{lang === "da" ? "Anbefalet 0–10 % i boliger: et svagt undertryk, så fugtig indeluft ikke presses ud i vægge og tag. Overtryk bruges kun kortvarigt af pejsefunktionen." : "Recommended 0–10 % in homes: a slight underpressure so moist indoor air is not pushed into walls and roof. Only the fireplace function uses overpressure, briefly."}</Help></label>
+          <label>{lang === "da" ? "Kanalforhold" : "Duct ratio"}<select value={s(form.balance_ratio_mode, "auto")} onChange={e => set("balance_ratio_mode", e.target.value)}><option value="auto">{lang === "da" ? "Lær af varmebalancen" : "Learn from the heat balance"}</option><option value="fixed">{lang === "da" ? "Fast værdi" : "Fixed value"}</option></select><Help>{lang === "da" ? "Kanalerne giver ikke lige meget luft pr. omdrejning. Controlleren måler forholdet ud fra varmebalancen i veksleren (kræver T2-føleren før eftervarmen) og bruger det, når to nætter giver samme resultat. Indtil da bruges den faste værdi. Målte luftmængder fra indreguleringen går altid forud." : "The ducts do not give the same airflow per rpm. The controller measures the ratio from the heat balance of the exchanger (needs the T2 sensor before the afterheat) and uses it once two nights agree. Until then the fixed value is used. Airflow measured at commissioning always wins."}</Help></label>
+          <label>{lang === "da" ? "Fast kanalforhold" : "Fixed duct ratio"}<input type="number" min="0.7" max="1.5" step="0.01" value={n(form.balance_duct_ratio, 1)} onChange={num("balance_duct_ratio")}/><Help>{lang === "da" ? "Indblæsningens luftmængde pr. omdrejning delt med udsugningens. 1,00 = ens kanaler; 1,10 = indblæsningen giver 10 % mere luft ved samme omdrejninger." : "Supply airflow per rpm divided by extract airflow per rpm. 1.00 = alike ducts; 1.10 = supply moves 10 % more air at the same speed."}</Help></label>
+        </div>
+        <div className="settings-summary">
+          <span>{lang === "da" ? "Kanalforhold i brug" : "Duct ratio in use"}<strong>{ducts.ratio.toLocaleString(lang === "en" ? "en-GB" : "da-DK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · {t(sourceLabel[ducts.source])}</strong></span>
+          <span>{lang === "da" ? "Varmebalancen" : "Heat balance"}<strong>{liveText}</strong>{typeof live.excess_now_percent === "number" && <small>{lang === "da" ? `Lige nu (vejledende): udsugning ${signed(live.excess_now_percent)}` : `Right now (indicative): extract ${signed(live.excess_now_percent)}`}</small>}</span>
+          <span>{lang === "da" ? "Lært af varmebalancen" : "Learned from the heat balance"}<strong>{typeof learned.ratio === "number"
+            ? `${fmt(learned.ratio, lang, 2)} · ${learned.count ?? 0} ${learned.count === 1 ? (lang === "da" ? "måling" : "reading") : (lang === "da" ? "målinger" : "readings")} · ${learned.nights ?? 0} ${learned.nights === 1 ? (lang === "da" ? "nat" : "night") : (lang === "da" ? "nætter" : "nights")} (${t(confidenceLabel[s(learned.confidence, "none")] ?? confidenceLabel.none)})`
+            : t(confidenceLabel.none)}</strong>{learned.last?.reason && <small>{lang === "da" ? "Seneste: " : "Latest: "}{learned.last.reason}</small>}</span>
+          <span>{lang === "da" ? "Anlægget kører nu" : "The unit runs now"}<strong>{typeof controller.balance_running_excess_percent === "number" ? (lang === "da" ? `Udsugning ${signed(controller.balance_running_excess_percent)}` : `Extract ${signed(controller.balance_running_excess_percent)}`) : "—"}</strong></span>
+        </div>
+        {balanceStatus.error && <p className="settings-warning">{balanceStatus.error}</p>}
+        {balanced && <div className="settings-table-wrap"><table className="settings-table"><thead><tr><th>{t(T.level)}</th><th>{lang === "da" ? "Udsugning" : "Extract"}</th><th>{balanceOn ? (lang === "da" ? "Indblæsning" : "Supply") : (lang === "da" ? "Indblæsning med Auto" : "Supply with Auto")}</th><th>{lang === "da" ? "Luft ind / ud" : "Air in / out"}</th><th>{lang === "da" ? "Udsugning over indbl." : "Extract above supply"}</th><th>{lang === "da" ? "Kører nu" : "Running now"}</th></tr></thead>
+          <tbody>{[1, 2, 3, 4, 5, 6].map(level => { const row = balanced[String(level)]; const running = runningProfiles?.[String(level)]; const current = balanceStatus.levels?.[String(level)]; return <tr key={level}>
+            <td>{level}</td>
+            <td>{balanceOn
+              ? <input aria-label={`${t(T.level)} ${level} ${lang === "da" ? "udsugning" : "extract"}`} type="number" min="11" max="100" value={row.extract} onChange={e => setExtractEdits(v => ({ ...v, [String(level)]: Number(e.target.value) }))}/>
+              : `${row.extract} %`}</td>
+            <td>{row.supply} %</td>
+            <td>{row.supply_m3h} / {row.extract_m3h} m³/h</td>
+            <td className={row.reached ? undefined : "settings-table-warn"}>{signed(row.excess_percent)}</td>
+            <td>{running ? `${s(running.supply)}/${s(running.extract)} % · ${signed(current?.current_excess_percent)}` : "—"}</td>
+          </tr>; })}</tbody></table></div>}
+        <p className="settings-help">{lang === "da"
+          ? "Varmebalancen: veksleren kan kun give indblæsningen den varme, udsugningen afleverer. Luftmængdernes forhold er derfor forholdet mellem udsugningens temperaturfald (T3 − T4) og indblæsningens temperaturstigning (T2 − T1). Kun rolige perioder tæller: samme trin i 30 minutter, mindst 8 °C mellem inde og ude, ingen bypass, pejs, frost eller kondens i veksleren. Halvdelen af ventilatorernes varme trækkes fra og regnes med i usikkerheden. Luft ind/ud er skønnet ud fra omdrejningerne og maks. luftmængden."
+          : "Heat balance: the exchanger can only give the supply air the heat the extract air hands over. The airflow ratio is therefore the ratio of the extract temperature drop (T3 − T4) to the supply temperature rise (T2 − T1). Only calm periods count: the same level for 30 minutes, at least 8 °C between inside and outside, no bypass, fireplace, frost or condensation in the core. Half of the fans' heat is taken out and counted in the uncertainty. Air in/out is estimated from the fan speed and the maximum airflow."}</p>
+        <div className="diag-actions"><button type="button" className="secondary-action" disabled={busy || !csrf} onClick={() => void resetLearning()}><RotateCcw size={14}/>{lang === "da" ? "Nulstil læring" : "Reset learning"}</button></div>
+      </Card>
       <Card title={lang === "da" ? "Beregning" : "Calculation"} lead={lang === "da" ? "Følger felterne, mens du taster. Styringen bruger tallene, når du gemmer." : "Follows the fields as you type. Control uses them once you save."} icon={Gauge}>
         <div className="settings-summary">
           <span>{lang === "da" ? "Luftvolumen" : "Air volume"}<strong>{fmt(plan.volume_m3, lang, 0, " m³")}</strong></span>
@@ -197,15 +309,17 @@ export function SettingsPage() {
           <span>{lang === "da" ? "Laveste tilladte trin" : "Lowest allowed level"}<strong>{s(plan.min_level, "—")}</strong></span>
         </div>
         {plan.reachable === false && <p className="settings-warning">{lang === "da" ? "Selv trin 6 når ikke kravet med de nuværende tal. Tjek areal, maks. luftmængde eller indtast målte værdier." : "Even level 6 does not reach the requirement with the current figures. Check the area, maximum airflow or enter measured values."}</p>}
-        {plan.estimated && <p className="settings-help">{lang === "da" ? "Luftmængder uden målt værdi er skønnet lineært ud fra ventilatorprocenten og ser bort fra kanaltrykket, så de er som regel for høje. Står der målte luftmængder i indreguleringsrapporten, skal de indtastes herunder." : "Airflows without a measured value are estimated linearly from the fan percentage and ignore duct pressure, so they are usually too high. If the commissioning report lists measured airflows, enter them below."}</p>}
-        <div className="settings-table-wrap"><table className="settings-table"><thead><tr><th>{t(T.level)}</th><th>{lang === "da" ? "Indblæsning" : "Supply"}</th><th>{lang === "da" ? "Udsugning" : "Extract"}</th><th>{lang === "da" ? "Luftskifte" : "Air changes"}</th><th>{lang === "da" ? "Opfylder krav" : "Meets requirement"}</th><th>{lang === "da" ? "Målt indbl." : "Measured supply"}</th><th>{lang === "da" ? "Målt udsug." : "Measured extract"}</th></tr></thead>
+        {plan.estimated && <p className="settings-help">{lang === "da"
+          ? `Luftmængder uden målt værdi er skønnet ud fra ventilatorernes omdrejninger: luftmængden følger omdrejningstallet (ventilatorloven), og omdrejningerne stiger lineært med procenten fra ca. ${Math.round(plan.fan_curve?.rpm_at_0 ?? 557)} omdr./min ved 0 % plus ${(plan.fan_curve?.rpm_per_percent ?? 24).toLocaleString("da-DK", { maximumFractionDigits: 1 })} pr. %. ${plan.fan_curve?.learned ? "Kurven er lært fra dit anlæg." : "Kurven er HCH5-standard, indtil Pi'en har lært dit anlæg at kende (kræver målinger på mindst tre trin)."} Luftbalancens kanalforhold (${(plan.duct_ratio ?? 1).toLocaleString("da-DK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) fordeler luften mellem indblæsning og udsugning. Kanaltrykket er ikke med, så målte luftmængder fra indreguleringsrapporten er altid bedre – indtast dem herunder.`
+          : `Airflows without a measured value are estimated from fan speed: airflow follows speed (fan law), and speed rises linearly with the percentage from about ${Math.round(plan.fan_curve?.rpm_at_0 ?? 557)} rpm at 0 % plus ${(plan.fan_curve?.rpm_per_percent ?? 24).toFixed(1)} per %. ${plan.fan_curve?.learned ? "The curve is learned from your unit." : "The curve is the HCH5 default until the Pi has learned your unit (needs readings on at least three levels)."} The duct ratio of the air balance (${(plan.duct_ratio ?? 1).toFixed(2)}) splits the air between supply and extract. Duct pressure is not included, so measured airflows from the commissioning report are always better – enter them below.`}</p>}
+        <div className="settings-table-wrap"><table className="settings-table"><thead><tr><th>{t(T.level)}</th><th>{lang === "da" ? "Indblæsning" : "Supply"}</th><th>{lang === "da" ? "Udsugning" : "Extract"}</th><th>{lang === "da" ? "Luftskifte" : "Air changes"}</th><th>{lang === "da" ? "Opfylder krav" : "Meets requirement"}</th><th>{lang === "da" ? "Målt indbl. · ved %" : "Measured supply · at %"}</th><th>{lang === "da" ? "Målt udsug. · ved %" : "Measured extract · at %"}</th></tr></thead>
           <tbody>{[1, 2, 3, 4, 5, 6].map(level => { const row = plan.levels?.[String(level)] ?? {}; return <tr key={level} className={level === plan.base_level ? "is-base" : undefined}>
             <td>{level}</td><td>{fmt(row.supply_m3h, lang, 0, " m³/h")}{row.measured ? "" : " *"}</td><td>{fmt(row.extract_m3h, lang, 0, " m³/h")}</td><td>{fmt(row.air_changes_per_hour, lang, 2)}</td>
             <td>{row.meets_requirement ? "✓" : row.meets_reduced ? (lang === "da" ? "Reduceret" : "Reduced") : "—"}</td>
-            <td><input aria-label={`${t(T.level)} ${level} supply`} type="number" min="10" max="1500" placeholder={row.estimate_supply_m3h === undefined ? undefined : String(row.estimate_supply_m3h)} value={airflow[level]?.supply ?? ""} onChange={e => setAirflow(level, "supply", e.target.value)}/></td>
-            <td><input aria-label={`${t(T.level)} ${level} extract`} type="number" min="10" max="1500" placeholder={row.estimate_extract_m3h === undefined ? undefined : String(row.estimate_extract_m3h)} value={airflow[level]?.extract ?? ""} onChange={e => setAirflow(level, "extract", e.target.value)}/></td>
+            <td><input aria-label={`${t(T.level)} ${level} supply`} type="number" min="10" max="1500" placeholder={row.estimate_supply_m3h === undefined ? undefined : String(row.estimate_supply_m3h)} value={airflow[level]?.supply ?? ""} onChange={e => setAirflow(level, "supply", e.target.value)}/><input className="settings-table-percent" aria-label={`${t(T.level)} ${level} supply %`} type="number" min="1" max="100" placeholder={s(runningProfiles?.[String(level)]?.supply)} value={airflow[level]?.supply_percent ?? ""} onChange={e => setAirflowPercent(level, "supply", e.target.value)}/></td>
+            <td><input aria-label={`${t(T.level)} ${level} extract`} type="number" min="10" max="1500" placeholder={row.estimate_extract_m3h === undefined ? undefined : String(row.estimate_extract_m3h)} value={airflow[level]?.extract ?? ""} onChange={e => setAirflow(level, "extract", e.target.value)}/><input className="settings-table-percent" aria-label={`${t(T.level)} ${level} extract %`} type="number" min="1" max="100" placeholder={s(runningProfiles?.[String(level)]?.extract)} value={airflow[level]?.extract_percent ?? ""} onChange={e => setAirflowPercent(level, "extract", e.target.value)}/></td>
           </tr>; })}</tbody></table></div>
-        <p className="settings-help">{lang === "da" ? "* skønnet. De grå tal i felterne er skønnet; skriv den målte værdi fra indreguleringsrapporten for at erstatte det." : "* estimated. The grey numbers in the fields are the estimate; type the measured value from the commissioning report to replace it."}</p>
+        <p className="settings-help">{lang === "da" ? "* skønnet. De grå tal i felterne er skønnet; skriv den målte værdi fra indreguleringsrapporten for at erstatte det, og ventilatorprocenten den blev målt ved. Én målt værdi pr. side er nok til at rette skønnet på alle trin, og målinger på begge sider giver luftbalancen det præcise kanalforhold." : "* estimated. The grey numbers in the fields are the estimate; type the measured value from the commissioning report to replace it, and the fan percentage it was measured at. One measured value per side corrects the estimate on every level, and values on both sides give the air balance the exact duct ratio."}</p>
       </Card>
     </>,
     air: <>
@@ -224,8 +338,28 @@ export function SettingsPage() {
         <div className="settings-grid">
           <label>{lang === "da" ? "Fugt start" : "Humidity start"}<input type="number" min="35" max="90" value={n(form.bathroom_rh_setpoint, 65)} onChange={num("bathroom_rh_setpoint")}/><span>%</span><Help>{lang === "da" ? "Badeværelser er naturligt fugtigere, så de får en højere grænse." : "Bathrooms are naturally more humid, so they get a higher limit."}</Help></label>
           <label>{lang === "da" ? "Hysterese" : "Hysteresis"}<input type="number" min="1" max="20" value={n(form.bathroom_rh_hysteresis, 5)} onChange={num("bathroom_rh_hysteresis")}/><span>%</span></label>
-          <label>{lang === "da" ? "Maks. trin" : "Maximum level"}<input type="number" min="1" max="6" value={n(form.bathroom_max_level, 4)} onChange={num("bathroom_max_level")}/><Help>{lang === "da" ? "Et bad kan højst løfte hele huset til dette trin, så et brusebad ikke giver fuld boost." : "A bathroom can raise the whole house to this level at most, so a shower does not trigger full boost."}</Help></label>
+          <label>{lang === "da" ? "Trin ved udtørring" : "Drying level"}<input type="number" min="1" max="6" value={n(form.bathroom_max_level, 6)} onChange={num("bathroom_max_level")}/><Help>{lang === "da" ? "Når fugten i badet går over grænsen – eller stiger hurtigt under et bad – starter ventilationen på dette trin og trapper ned mod normal, efterhånden som fugten falder. Slutter under grænse minus hysterese." : "When bathroom humidity passes the limit, or rises quickly during a shower, ventilation starts at this level and steps down towards normal as humidity falls. Ends below the limit minus the hysteresis."}</Help></label>
           <p className="settings-help">{lang === "da" ? "Gælder rum med rumtypen badeværelse, eller rum med navne som Bad, Bath eller Shower." : "Applies to rooms of type bathroom, or rooms named like Bad, Bath or Shower."}</p>
+        </div>
+      </Card>
+      <Card title={lang === "da" ? "Fint støv (PM2.5)" : "Fine dust (PM2.5)"} lead={lang === "da" ? "Valgfrit: rumfølere fra Home Assistant, fx IKEA-sensorer" : "Optional: room sensors from Home Assistant, e.g. IKEA sensors"} icon={Wind}>
+        <div className="settings-grid">
+          <label className="check-row"><input type="checkbox" checked={form.pm25_enabled === true} onChange={check("pm25_enabled")}/> {lang === "da" ? "Brug PM2.5 til at hæve ventilationen" : "Use PM2.5 to raise the ventilation"}</label>
+          <Help>{lang === "da" ? "Gælder Smart Auto. Madlavning, stearinlys og brændeovn giver fint støv; mere luftskifte fjerner det hurtigere. PM2.5 kan kun hæve trinnet, aldrig sænke det, og CO₂ og fugt fra samme føler bruges som før." : "Applies to Smart Auto. Cooking, candles and stoves make fine dust; more air change removes it faster. PM2.5 can only raise the level, never lower it, and CO₂ and humidity from the same sensor are used as before."}</Help>
+          <label>{lang === "da" ? "Grænse" : "Limit"}<input type="number" min="5" max="200" value={n(form.pm25_setpoint, 25)} onChange={num("pm25_setpoint")}/><span>µg/m³</span><Help>{lang === "da" ? "Over denne værdi skrues der op. WHO anbefaler under 15 µg/m³ i døgngennemsnit; 25 undgår at almindelig støv giver udslag." : "Above this value the level goes up. WHO recommends below 15 µg/m³ as a daily mean; 25 keeps ordinary dust from reacting."}</Help></label>
+          <label>{lang === "da" ? "Et trin pr." : "One level per"}<input type="number" min="2" max="100" value={n(form.pm25_step, 15)} onChange={num("pm25_step")}/><span>µg/m³</span><Help>{lang === "da" ? "Hvor meget over grænsen der skal til for hvert ekstra trin." : "How far above the limit each extra level needs."}</Help></label>
+          <label>{lang === "da" ? "Hysterese" : "Hysteresis"}<input type="number" min="1" max="50" value={n(form.pm25_hysteresis, 5)} onChange={num("pm25_hysteresis")}/><span>µg/m³</span></label>
+          <label>{lang === "da" ? "Højeste trin ved PM2.5" : "Highest level for PM2.5"}<input type="number" min="1" max="6" value={n(form.pm25_max_level, 5)} onChange={num("pm25_max_level")}/></label>
+          {(() => {
+            const smart = (controller.smart_rooms ?? {}) as Record<string, { pm25?: number }>;
+            const pmRooms = Object.entries(smart).filter(([, values]) => typeof values?.pm25 === "number");
+            const ignored = Array.isArray(form.pm25_ignored_rooms) ? form.pm25_ignored_rooms.map(String) : [];
+            if (!pmRooms.length) return <p className="settings-help">{lang === "da" ? "Ingen rum sender PM2.5 endnu. Tilføj PM2.5-føleren til rummet i Home Assistant-integrationen (samme rum som CO₂-føleren)." : "No room sends PM2.5 yet. Add the PM2.5 sensor to the room in the Home Assistant integration (same room as the CO₂ sensor)."}</p>;
+            return <div className="pm25-rooms">
+              <span>{lang === "da" ? "Rum der må styre på PM2.5" : "Rooms allowed to control on PM2.5"}</span>
+              {pmRooms.map(([name, values]) => <label key={name} className="check-row pm25-room"><input type="checkbox" checked={!ignored.includes(name)} onChange={e => set("pm25_ignored_rooms", e.target.checked ? ignored.filter(r => r !== name) : [...ignored, name])}/><em>{name}<small>{fmt(values.pm25, lang, 0, " µg/m³")}</small></em></label>)}
+            </div>;
+          })()}
         </div>
       </Card>
     </>,
@@ -259,7 +393,7 @@ export function SettingsPage() {
         <label>{lang === "da" ? "Start" : "Start"}<input type="time" value={s(form.night_start, "22:00")} onChange={e => set("night_start", e.target.value)}/></label>
         <label>{lang === "da" ? "Slut" : "End"}<input type="time" value={s(form.night_end, "06:00")} onChange={e => set("night_end", e.target.value)}/></label>
         <label>{lang === "da" ? "Nat-trin" : "Night level"}<input type="number" min="1" max="6" value={n(form.night_level, 2)} onChange={num("night_level")}/><Help>{lang === "da" ? "Trinnet om natten, når luften er god." : "The level at night when the air is good."}</Help></label>
-        <label>{lang === "da" ? "Maks. ved dårlig luft" : "Maximum with poor air"}<input type="number" min="1" max="6" value={n(form.night_air_quality_max_level, 4)} onChange={num("night_air_quality_max_level")}/><Help>{lang === "da" ? "Om natten må fugt og CO₂ højst løfte til dette trin." : "At night humidity and CO₂ may raise the level to this at most."}</Help></label>
+        <label>{lang === "da" ? "Maks. ved dårlig luft" : "Maximum with poor air"}<input type="number" min="1" max="6" value={n(form.night_air_quality_max_level, 4)} onChange={num("night_air_quality_max_level")}/><Help>{lang === "da" ? "Om natten må fugt og CO₂ højst løfte til dette trin. Udtørring af badeværelset efter et bad er undtaget og må køre fuldt op." : "At night humidity and CO₂ can raise ventilation to this level at most. Drying a bathroom out after a shower is exempt and may run at full level."}</Help></label>
       </div>
     </Card>,
     afterheat: <>
@@ -274,7 +408,7 @@ export function SettingsPage() {
         <div className="settings-grid">
           <label className="check-row"><input type="checkbox" checked={form.afterheat_room_enabled === true} onChange={check("afterheat_room_enabled")}/> {lang === "da" ? "Flyt setpunktet efter rumtemperaturen" : "Move the setpoint with the room temperature"}</label>
           <Help>{lang === "da" ? "Setpunkt = grundsetpunkt + forstærkning × (ønsket rum − målt rum). Det flyttes én grad ad gangen og holdes mellem laveste og højeste værdi. Mangler rumtemperaturen, bruges grundsetpunktet. Ventilationsluften giver kun få hundrede watt, så det er komfort og ikke opvarmning." : "Setpoint = base setpoint + gain × (wanted room − measured room). It moves one degree at a time and stays between the lowest and highest value. Without a room temperature the base setpoint is used. Ventilation air carries only a few hundred watts, so this is comfort, not heating."}</Help>
-          <label>{lang === "da" ? "Rumtemperatur fra" : "Room temperature from"}<select value={s(form.afterheat_room_source, "auto")} onChange={e => set("afterheat_room_source", e.target.value)}><option value="auto">{lang === "da" ? "Automatisk: HA-rum, ellers T3" : "Automatic: HA rooms, else T3"}</option><option value="t3">{lang === "da" ? "Udsugningsluft T3" : "Extract air T3"}</option><option value="t5">{lang === "da" ? "HRC2-rumføler T5 (upålidelig uden HCP4)" : "HRC2 room sensor T5 (unreliable without HCP4)"}</option><option value="ha_average">{lang === "da" ? "Gennemsnit af HA-rum" : "Average of HA rooms"}</option>{roomOptions(form.afterheat_room_source)}</select><Help>{lang === "da" ? "Automatisk bruger gennemsnittet af dine HA-rum med temperatur (badeværelser og brændeovns- og udeluftsfølere tæller ikke med). Tilføj rummene med dine egne temperaturfølere i HCH PassiveLink-integrationen under Smart Auto-rum, gerne med styring slået fra. Findes der ingen, bruges T3, som er udsugningsluft og også indeholder luft fra køkken og bad. T5 sidder i HRC2-fjernbetjeningen og opdateres ikke, når Pi'en har erstattet HCP4." : "Automatic uses the average of your HA rooms with a temperature (bathrooms and stove or outdoor sensors are left out). Add rooms with your own temperature sensors in the HCH PassiveLink integration under Smart Auto rooms, ideally with control turned off. Without any, T3 is used, which is extract air and includes kitchen and bathroom air. T5 sits in the HRC2 remote and is not updated once the Pi has replaced HCP4."}</Help></label>
+          <label>{lang === "da" ? "Rumtemperatur fra" : "Room temperature from"}<select value={s(form.afterheat_room_source, "auto")} onChange={e => set("afterheat_room_source", e.target.value)}><option value="auto">{lang === "da" ? "Automatisk: HA-rum, ellers T3" : "Automatic: HA rooms, else T3"}</option><option value="t3">{lang === "da" ? "Udsugningsluft T3" : "Extract air T3"}</option><option value="t5">{lang === "da" ? "HRC2-rumføler T5 (upålidelig uden HCP4)" : "HRC2 room sensor T5 (unreliable without HCP4)"}</option><option value="ha_average">{lang === "da" ? "Gennemsnit af HA-rum" : "Average of HA rooms"}</option>{roomOptions(form.afterheat_room_source)}</select><Help>{lang === "da" ? "Automatisk bruger gennemsnittet af dine HA-rum med temperatur (badeværelser og brændeovns- og udeluftsfølere tæller ikke med). Tilføj rummene med dine egne temperaturfølere i HCH5 Control-integrationen under Smart Auto-rum, gerne med styring slået fra. Findes der ingen, bruges T3, som er udsugningsluft og også indeholder luft fra køkken og bad. T5 sidder i HRC2-fjernbetjeningen og opdateres ikke, når Pi'en har erstattet HCP4." : "Automatic uses the average of your HA rooms with a temperature (bathrooms and stove or outdoor sensors are left out). Add rooms with your own temperature sensors in the HCH5 Control integration under Smart Auto rooms, ideally with control turned off. Without any, T3 is used, which is extract air and includes kitchen and bathroom air. T5 sits in the HRC2 remote and is not updated once the Pi has replaced HCP4."}</Help></label>
           <label>{lang === "da" ? "Ønsket rumtemperatur" : "Wanted room temperature"}<input type="number" min="15" max="26" step="0.5" value={n(form.afterheat_room_target, 21)} onChange={num("afterheat_room_target")}/><span>°C</span><Help>{lang === "da" ? "Sæt den lidt under radiatorernes eller gulvvarmens, så de ikke modarbejder hinanden." : "Set it slightly below the radiators or floor heating so they do not work against each other."}</Help></label>
           <label>{lang === "da" ? "Forstærkning" : "Gain"}<input type="number" min="0.5" max="5" step="0.5" value={n(form.afterheat_room_gain, 1.5)} onChange={num("afterheat_room_gain")}/><span>°C/°C</span><Help>{lang === "da" ? "Grader indblæsning pr. grad rummet afviger." : "Degrees of supply air per degree of room deviation."}</Help></label>
           <label>{lang === "da" ? "Laveste indblæsning" : "Lowest supply"}<input type="number" min="10" max="35" value={n(form.afterheat_room_min, 17)} onChange={num("afterheat_room_min")}/><span>°C</span><Help>{lang === "da" ? "Under ca. 17 °C kan indblæsningen føles som træk." : "Below about 17 °C the supply air can feel draughty."}</Help></label>
@@ -328,23 +462,29 @@ export function SettingsPage() {
       </div>
     </Card>,
     security: <Card title={t(SECTIONS[8].title)} lead={t(SECTIONS[8].lead)} icon={ShieldCheck}>
-      <div className="settings-summary">
-        <span>{lang === "da" ? "Bruger" : "User"}<strong>{auth.username ?? "—"}</strong></span>
-        <span>Login<strong>{auth.enabled === false ? (lang === "da" ? "Deaktiveret" : "Disabled") : (lang === "da" ? "Aktiveret" : "Enabled")}</strong></span>
+      <AccountPanel lang={lang}/>
+      {can("configure") && <><div className="settings-summary">
         <span>Master<strong>{s(controller.active_master, "—")}</strong></span>
         <span>{lang === "da" ? "Skrivninger" : "Writes"}<strong>{controller.hardware_writes_allowed === true ? (lang === "da" ? "Tilladt" : "Allowed") : (lang === "da" ? "Blokeret" : "Blocked")}</strong></span>
       </div>
-      <p className="settings-help">{lang === "da" ? "Pi'en skriver kun til anlægget, når den er master. Sidder HCP4-panelet på bussen, vinder det altid." : "The Pi only writes to the unit when it is master. If the HCP4 panel is on the bus, it always wins."}</p>
+      <p className="settings-help">{lang === "da" ? "Pi'en skriver kun til anlægget, når den er master. Sidder HCP4-panelet på bussen, vinder det altid." : "The Pi only writes to the unit when it is master. If the HCP4 panel is on the bus, it always wins."}</p></>}
+    </Card>,
+    users: <Card title={t(SECTIONS[10].title)} lead={lang === "da" ? "Giv familien, teknikeren og dig selv hver deres login og rolle" : "Give the family, the technician and yourself their own login and role"} icon={Users}>
+      <UsersPanel lang={lang}/>
+    </Card>,
+    mail: <Card title={t(SECTIONS[11].title)} lead={lang === "da" ? "Mail ved fejl på anlægget og link til ny adgangskode" : "Mail on unit faults and links for a new password"} icon={Mail}>
+      <MailPanel lang={lang}/>
     </Card>,
   };
 
-  const active = SECTIONS.find(item => item.id === section) ?? SECTIONS[0];
+  const visible = SECTIONS.filter(item => sectionAllowed(item.id, can));
+  const active = visible.find(item => item.id === section) ?? visible[0];
   return <section className="dashboard-overview page-enter">
     <header className="overview-heading-row"><div><span className="eyebrow">{t(T.eyebrow)}</span><h1>{t(T.title)}</h1><p>{t(T.intro)}</p></div></header>
     <div className="settings-layout">
-      <nav className="settings-nav" aria-label={t(T.eyebrow)}>{SECTIONS.map(item => { const Icon = item.icon; return <button key={item.id} type="button" aria-current={item.id === active.id ? "page" : undefined} onClick={() => setSection(item.id)}><Icon size={16}/><span><strong>{t(item.title)}</strong><small>{t(item.lead)}</small></span></button>; })}</nav>
+      <nav className="settings-nav" aria-label={t(T.eyebrow)}>{visible.map(item => { const Icon = item.icon; return <button key={item.id} type="button" aria-current={item.id === active.id ? "page" : undefined} onClick={() => setSection(item.id)}><Icon size={16}/><span><strong>{t(item.title)}</strong><small>{t(item.lead)}</small></span></button>; })}</nav>
       <div className="settings-content" data-section={active.id}>{sections[active.id]}</div>
     </div>
-    <div className="settings-savebar"><span>{notice || t(T.saveHint)}</span><button className="primary-action" disabled={busy || !csrf} onClick={() => void save()}><Save size={15}/>{busy ? t(T.saving) : t(T.save)}</button></div>
+    {!SELF_SAVING.includes(active.id) && <div className="settings-savebar"><span>{notice || t(T.saveHint)}</span><button className="primary-action" disabled={busy || !csrf} onClick={() => void save()}><Save size={15}/>{busy ? t(T.saving) : t(T.save)}</button></div>}
   </section>;
 }

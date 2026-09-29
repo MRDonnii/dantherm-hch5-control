@@ -21,7 +21,7 @@ class AirflowPlanTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         return ControllerState(Path(temp.name) / "controller.json")
 
-    def test_house_of_180_m2_needs_about_194_m3h_and_level_4(self):
+    def test_house_of_180_m2_needs_about_194_m3h_and_level_3(self):
         state = self.make_state()
         state.configure(HOUSE)
         plan = state.airflow_plan()
@@ -29,13 +29,33 @@ class AirflowPlanTests(unittest.TestCase):
         self.assertEqual(plan["supply_required_m3h"], 194)
         self.assertEqual(plan["extract_required_m3h"], 194)
         self.assertEqual(plan["wet_room_requirement_ls"], 45.0)
-        # Default profiles, 375 m3/h at 100 %: level 3 supplies 161, level 4 218.
-        self.assertEqual(plan["levels"][3]["supply_m3h"], 161)
-        self.assertFalse(plan["levels"][3]["meets_requirement"])
-        self.assertTrue(plan["levels"][4]["meets_requirement"])
-        self.assertEqual(plan["base_level"], 4)
-        self.assertEqual(plan["min_level"], 2)
+        # Default profiles, 375 m3/h at full speed, airflow following fan speed
+        # (557 rpm + 24 rpm/%): level 2 supplies 156, level 3 202.
+        self.assertEqual(plan["levels"][2]["supply_m3h"], 156)
+        self.assertEqual(plan["levels"][3]["supply_m3h"], 202)
+        self.assertFalse(plan["levels"][2]["meets_requirement"])
+        self.assertTrue(plan["levels"][3]["meets_requirement"])
+        self.assertEqual(plan["base_level"], 3)
+        self.assertEqual(plan["min_level"], 1)
         self.assertTrue(plan["estimated"])
+        self.assertFalse(plan["fan_curve"]["learned"])
+
+    def test_learned_fan_curve_replaces_the_default(self):
+        state = self.make_state()
+        state.configure(HOUSE)
+        # A unit whose fans barely turn at low percentages: airflow follows percent.
+        state.set_fan_curve({"rpm_at_0": 0.0, "rpm_per_percent": 30.0, "samples": 5})
+        plan = state.airflow_plan()
+        self.assertTrue(plan["fan_curve"]["learned"])
+        self.assertEqual(plan["levels"][3]["supply_m3h"], 161)
+        self.assertEqual(plan["base_level"], 4)
+
+    def test_fan_curve_fit_matches_the_reference_unit(self):
+        from advanced_control import fit_fan_curve
+        fitted = fit_fan_curve({28: 1228, 43: 1588, 58: 1947, 73: 2308, 88: 2668, 100: 2954})
+        self.assertAlmostEqual(fitted["rpm_at_0"], 557, delta=5)
+        self.assertAlmostEqual(fitted["rpm_per_percent"], 24.0, delta=0.2)
+        self.assertIsNone(fit_fan_curve({50: 1700, 55: 1876}))
 
     def test_wet_rooms_can_dominate_a_small_house(self):
         state = self.make_state()
@@ -77,11 +97,12 @@ class AdvancedEngineTests(unittest.TestCase):
 
     def test_sizing_sets_base_level_and_floors_night(self):
         engine = self.make_engine()
-        engine.config.configure({**HOUSE, "sizing_enabled": True, "night_enabled": True,
-                                 "night_start": "00:00", "night_end": "00:00", "night_level": 1})
+        engine.config.configure({**HOUSE, "sizing_enabled": True, "sizing_reduced_percent": 80,
+                                 "night_enabled": True, "night_start": "00:00", "night_end": "00:00",
+                                 "night_level": 1})
         engine.update_measurements(rh=40, co2=500)
         result = engine.resolve()
-        self.assertEqual(result["effective_normal_level"], 4)
+        self.assertEqual(result["effective_normal_level"], 3)
         self.assertEqual(result["effective_level"], 2)
         self.assertTrue(result["sizing_floor_active"])
 

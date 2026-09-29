@@ -38,7 +38,9 @@ HCH5 Control turns a Raspberry Pi and a USB-RS485 adapter into a local controlle
 - **History** for temperatures, water, fans, CO₂ and heat recovery, plus Raspberry Pi health.
 - **Optional 1-Wire (DS18B20) sensors:** T2 before the afterheat coil, afterheat water flow/return, loft and others.
 - **Home Assistant:** integration via HACS, raw TCP data on port `4196`, authenticated controller API on port `8080`, and a matching dashboard card.
-- **Secure by default:** first-user owner login, salted password hashes, sessions, CSRF protection, login rate limiting.
+- **Secure by default:** first-user administrator login, salted password hashes, sessions, CSRF protection, login rate limiting.
+- **Users and roles:** separate logins for the family (*Bruger*), the service technician (*Tekniker*, optionally time-limited) and administrators.
+- **Mail service (optional):** SMTP alarm mails when the unit reports a fault, and "Forgot password?" links by mail.
 - **Safe updates** from the WebUI with Stable/Beta channels, backups and automatic health checks.
 
 ## How the pieces fit together
@@ -78,7 +80,7 @@ For **active control**, disconnect the original HCP4 from the RS485 control path
 2. **Install** (replace the adapter path; omit `--enable-onewire` without DS18B20 sensors):
 
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/MRDonnii/dantherm-hch-passivelink-webui/main/install.sh \
+   curl -fsSL https://raw.githubusercontent.com/MRDonnii/dantherm-hch5-control/main/install.sh \
      | sudo bash -s -- \
          --device /dev/serial/by-id/usb-YOUR_ADAPTER \
          --enable-onewire
@@ -126,7 +128,38 @@ Temperatures, afterheat water, fans, CO₂ and heat recovery over 1 hour to 30 d
 
 ### Indstillinger
 
-Every setting explains what it does. Sections: house and airflow, air quality, moisture, night, afterheat, free cooling, fireplace, user interface, security and 1-Wire sensors.
+Every setting explains what it does. Sections: house and airflow, air quality, moisture, night, afterheat, free cooling, fireplace, user interface, security, 1-Wire sensors, users and mail.
+
+### Ugeplan
+
+A 24-hour timeline for each weekday. Click to add a period, drag to move or resize it, and set its level. A *Grundtrin* period replaces the base level (CO₂ and humidity can still lift it); a *Mindst* period is a floor. Periods can run past midnight, be copied to weekdays or the weekend, and start from templates. The same page plans holidays with a start and end date.
+
+### Indregulering
+
+For technicians: enter the rooms (type, m², ceiling height, supply/extract), get the design airflow per valve after BR18 and a recommended base level, run the unit fixed while measuring, enter l/s per valve and print or save a balancing report as PDF. Reports are kept on the Pi.
+
+### Alarm history and PM2.5
+
+*Historik* logs every alarm when it starts and clears. Smart Auto can optionally use PM2.5 from Home Assistant room sensors (for example IKEA sensors that also report CO₂); it only raises the level and each room can be left out.
+
+### Users, technicians and mail
+
+The first account created on `/setup` is the **administrator**. Under *Indstillinger → Brugere* the administrator can add more logins, each with a role:
+
+| Role | Can do |
+| --- | --- |
+| **Administrator** | Everything, including users, mail and whether login is required. |
+| **Tekniker** | Everything technical: advanced settings, sensors, Teknik, System, Diagnostik, sniffer, updates, restart/reboot and mail. Cannot manage users. |
+| **Bruger** | Daily use: mode, level, Quick Boost, bypass, free cooling, fireplace and afterheat, plus history. |
+
+A technician account can be given an expiry date, so access ends by itself after a service visit. Role changes, disabling and deletion take effect immediately, including for sessions that are already open. The server enforces every rule; the WebUI only hides what a role cannot use. Existing single-owner installations keep working and the owner becomes the administrator.
+
+Under *Indstillinger → Mail* an administrator or technician can set up an SMTP server (presets for Gmail, Outlook.com, Microsoft 365, iCloud and one.com) and send a test mail. When mail is on:
+
+- **Fault notifications** are sent to the listed recipients for the same alarms as the Diagnostik page (no RS485 connection, frost risk, low heat recovery, bypass not closing, afterheat without effect, missing 1-Wire sensor, clogged filter) and when the HCP4 panel takes over. You choose the minimum severity, whether to repeat a mail while an alarm stays active, and whether to mail when it clears.
+- **Password reset:** the login page shows *Glemt adgangskode?*. Users with an e-mail on their account receive a single-use link that is valid for 30 minutes. The administrator can also send a reset link from the user list.
+
+The SMTP password is stored only on the Pi (`/var/lib/dantherm-hch5-ha/webui-mail.json`, mode 0600) and is never sent back to the browser.
 
 ![Air-quality settings](docs/images/1.2.0/settings-air-quality.png)
 
@@ -148,10 +181,10 @@ Three parts work together. The first is enough to see the unit in Home Assistant
 
 ### 1. Install the integration and read data
 
-[![Open the integration in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=MRDonnii&repository=dantherm-hch-passivelink&category=integration)
+[![Open the integration in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=MRDonnii&repository=dantherm-hch5-control-ha&category=integration)
 
-1. Install **Dantherm HCH PassiveLink** from HACS and restart Home Assistant.
-2. **Settings → Devices & services → Add integration → Dantherm HCH PassiveLink.**
+1. Install **Dantherm HCH5 Control** from HACS and restart Home Assistant.
+2. **Settings → Devices & services → Add integration → Dantherm HCH5 Control.**
 3. Choose **RS485 over TCP**, enter the Pi's IP address and port **4196**.
 
 Home Assistant now has temperatures, fans, CO₂, humidity, bypass, filter and alarms. This data path is read-only.

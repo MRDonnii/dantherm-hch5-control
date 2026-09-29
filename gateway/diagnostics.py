@@ -15,6 +15,8 @@ Assistant show.
   reference; a rising ratio means the filter or a grille is clogging.
 - Energy: recovered heat, afterheat and the unit's own consumption are
   integrated to kWh totals that survive restarts, plus today's values.
+- Air balance: once the ducts are known (measured airflow or the learned
+  heat balance), running with more supply than extract air is reported.
 """
 from __future__ import annotations
 
@@ -38,6 +40,7 @@ ALARM_DELAYS = {
     "sensor_missing": 300,
     "bus_unhealthy": 120,
     "filter_clogging": 3600,
+    "balance_overpressure": 3600,
 }
 ALARM_TEXT = {
     "frost_risk": "Frostrisiko i veksleren: afkastluften (T4) er nær 0 °C",
@@ -48,6 +51,7 @@ ALARM_TEXT = {
     "sensor_missing": "En 1-Wire-føler med en rolle svarer ikke",
     "bus_unhealthy": "Ingen sund RS485-forbindelse til anlægget",
     "filter_clogging": "Ventilatorerne bruger mere strøm end med rent filter: filter eller rist stopper til",
+    "balance_overpressure": "Overtryk i huset: indblæsningen giver mere luft end udsugningen, så fugtig luft kan presses ud i konstruktionen. Slå luftbalancen til",
 }
 ALARM_SEVERITY = {
     "frost_risk": "warning",
@@ -58,11 +62,14 @@ ALARM_SEVERITY = {
     "sensor_missing": "warning",
     "bus_unhealthy": "critical",
     "filter_clogging": "info",
+    "balance_overpressure": "info",
 }
 FROST_WATCH_T4 = 3.0
 FROST_RISK_T4 = 0.5
 # Filter ratio against the clean reference at which the alarm is raised.
 FILTER_CLOGGING_RATIO = 1.25
+# Extract below supply by more than this (in % of supply) counts as overpressure.
+OVERPRESSURE_PERCENT = 3.0
 SAVE_EVERY = 300.0
 MAX_STEP = 60.0
 
@@ -214,6 +221,10 @@ class Diagnostics:
             "sensor_missing": missing,
             "bus_unhealthy": s.get("rs485_healthy") is False,
             "filter_clogging": filter_ratio is not None and filter_ratio >= FILTER_CLOGGING_RATIO,
+            # The fireplace function makes overpressure on purpose.
+            "balance_overpressure": s.get("fireplace") is not True and s.get("actual_fireplace") is not True
+                and _num(s.get("balance_running_excess_percent")) is not None
+                and _num(s.get("balance_running_excess_percent")) < -OVERPRESSURE_PERCENT,
         }
         for code, holds in conditions.items():
             if holds:

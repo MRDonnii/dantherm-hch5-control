@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Runtime bridge between the live PassiveLink gateway and ControllerEngine.
+"""Runtime bridge between the live HCH5 Control gateway and ControllerEngine.
 
 The Pi controller is always enabled. Hardware writes are permitted only when
 master arbitration has established Raspberry Pi as master; HCP4 always wins.
@@ -8,28 +8,25 @@ and all persistent configuration remain on the Pi.
 """
 from __future__ import annotations
 
+import json
 import logging
 import math
+import os
 import threading
 import time
 from collections import defaultdict, deque
 from pathlib import Path
 
-from advanced_control import absolute_humidity, source_room, supply_after_core, supply_air_metrics
+from advanced_control import absolute_humidity, fan_curve, fit_fan_curve, side_constants, source_room, supply_after_core, supply_air_metrics
+from air_balance import HeatBalanceLearner, adopt, balance_from_temperatures, summarize, window_record
 from onewire_extras import OneWireExtras
 from diagnostics import Diagnostics
-from controller_core import ControllerEngine, ControllerError, ControllerState, HardwareAdapter
+from controller_core import AFTERHEAT_OUTDOOR_CUTOFF_C, ControllerEngine, ControllerError, ControllerState, HardwareAdapter
 from master_arbitration import MasterArbitrator, RtuFrameStream
 from sensor_freshness import fresh_sensor_value, sensor_sample_age
 
 LOG = logging.getLogger("passivelink-controller")
 VALID_PRIORITIES = {"auto", "low", "normal", "high", "critical"}
-# HAC1 firmware lockout, confirmed by the owner 2026-09-23: the water
-# afterheat never switches on while outdoor temperature (T1, register 180)
-# is 15 C or higher, whatever the setpoint (even 35 C) and whoever is master.
-# Register 209 staying 0 above this limit is correct HAC1 behaviour, not a
-# Pi/RS485 fault - do not debug it. It is not configurable over RS485.
-AFTERHEAT_OUTDOOR_CUTOFF_C = 15.0
 # The HCH5 runs its bypass damper for about three minutes either way
 # (180 s measured on the live unit 2026-09-23) and reports no position.
 BYPASS_TRAVEL_SECONDS = 180
@@ -58,6 +55,16 @@ class ControllerRuntime:
         self.thread: threading.Thread | None = None
         self.apply_lock = threading.Lock()
         self.last_tick_at: float | None = None
+        self.change_log_path = Path(os.getenv("DANTHERM_CHANGE_LOG", "/var/lib/dantherm-hch5-ha/change-log.jsonl"))
+        self.change_log: list[dict[str, object]] = []
+        try:
+            for line in self.change_log_path.read_text(encoding="utf-8").splitlines()[-50:]:
+                self.change_log.append(json.loads(line))
+        except (OSError, ValueError):
+            pass
+        self._write_error_message: str | None = None
+        self._write_error_logged_at = 0.0
+        self._write_error_count = 0
         self.master = MasterArbitrator()
         self.master.configure(master_config)
         self.master_stream = RtuFrameStream()
@@ -67,6 +74,12 @@ class ControllerRuntime:
         self.smart_inputs_received_at: float | None = None
         self.smart_inputs_valid_for = 180
         self._room_rh_history: dict[str, deque[tuple[float, float]]] = defaultdict(deque)
+        # Bathroom drying episodes: peak RH and the RH at which the episode ends.
+        self._bathroom_episodes: dict[str, dict[str, float]] = {}
+        # Fan speed per steady percentage (both fans share one curve), for the airflow plan.
+        self._fan_points: dict[int, float] = {}
+        self._fan_steady: dict[str, tuple[int, float]] = {}
+        self._fan_curve_checked_at = 0.0
         self.smart_demand = "normal"
         self.smart_reason = "No Home Assistant room data"
         self.smart_requested_level = int(self.config.data["local_normal_level"])
@@ -89,6 +102,9 @@ class ControllerRuntime:
         self.afterheat_room_source_used: str | None = None
         # Extra 1-Wire sensors (T2 before the coil, loft, ...), read in the background.
         self.onewire = OneWireExtras(lambda: self.config.data.get("onewire_roles") or {})
+        # Heat balance of the exchanger: learns the duct ratio for the air balance.
+        learned = self.config.data.get("balance_learned") or {}
+        self.balance_learner = HeatBalanceLearner(learned.get("idle_power_w"))
 
     @staticmethod
     def _first(state: dict[str, object], *keys: str):
@@ -464,6 +480,9 @@ class ControllerRuntime:
             temp = self._measurement(raw_values, "temperature", -30, 60)
             rh = self._measurement(raw_values, "humidity", 0, 100)
             co2 = self._measurement(raw_values, "co2", 250, 10000)
+            pm25 = self._measurement(raw_values, "pm25", 0, 1000)
+            if pm25 is None:
+                pm25 = self._measurement(raw_values, "pm2_5", 0, 1000)
             if temp is not None:
                 values["temperature"] = round(temp, 2)
             if rh is not None:
@@ -474,7 +493,9 @@ class ControllerRuntime:
                     history.popleft()
             if co2 is not None:
                 values["co2"] = round(co2, 0)
-            if not any(key in values for key in ("temperature", "humidity", "co2")):
+            if pm25 is not None:
+                values["pm25"] = round(pm25, 1)
+            if not any(key in values for key in ("temperature", "humidity", "co2", "pm25")):
                 raise ControllerError(f"{name} har ingen gyldige målinger")
             sanitized[name] = values
 
@@ -492,6 +513,7 @@ class ControllerRuntime:
             requested_level=self.smart_requested_level,
             valid_for_s=valid_for,
             reason=self.smart_reason,
+            bathroom_drying=decision[4] == "humidity" and decision[3] in self._bathroom_episodes,
         )
         if self.config.data.get("mode") == "smart_auto" and self.hardware_writes_allowed():
             self.apply_once()
@@ -555,8 +577,24 @@ class ControllerRuntime:
                 adjusted = self._priority_level(raw, priority)
                 candidates.append((adjusted, raw, float(co2), name, "co2", f"CO2 {name} {float(co2):.0f} ({priority})"))
 
+            pm25 = values.get("pm25")
+            if d.get("pm25_enabled") and isinstance(pm25, (int, float)) and name not in (d.get("pm25_ignored_rooms") or []):
+                raw = self._metric_level(
+                    float(pm25), float(d["pm25_setpoint"]), float(d["pm25_step"]),
+                    float(d["pm25_hysteresis"]), normal,
+                )
+                # Fine dust may lift the level (cooking, candles) but never lower it
+                # below what CO2/humidity want, and is capped on its own.
+                raw = min(int(d["pm25_max_level"]), raw) if raw > normal else normal
+                adjusted = self._priority_level(raw, priority)
+                candidates.append((adjusted, raw, float(pm25), name, "pm25", f"PM2.5 {name} {float(pm25):.0f} µg/m³ ({priority})"))
+
             humidity = values.get("humidity")
-            if isinstance(humidity, (int, float)) and name not in dry_rooms:
+            if bathroom and isinstance(humidity, (int, float)) and name not in dry_rooms:
+                candidate = self._bathroom_candidate(name, values, float(humidity), now, normal)
+                if candidate is not None:
+                    candidates.append(candidate)
+            elif isinstance(humidity, (int, float)) and name not in dry_rooms:
                 rh_setpoint = float(values.get("rh_setpoint") or (d["bathroom_rh_setpoint"] if bathroom else d["rh_setpoint"]))
                 rh_hysteresis = float(values.get("rh_hysteresis") or (d["bathroom_rh_hysteresis"] if bathroom else d["rh_hysteresis"]))
                 raw = self._metric_level(
@@ -574,6 +612,8 @@ class ControllerRuntime:
             values = rooms[name]
             if not values.get("enabled", True) or not values.get("control", True):
                 continue
+            if self._is_bathroom(name, values):
+                continue
             fresh = [(ts, value) for ts, value in history if now - ts <= 600]
             if len(fresh) >= 2:
                 rise = fresh[-1][1] - fresh[0][1]
@@ -588,12 +628,56 @@ class ControllerRuntime:
                         f"RH rise {name} +{rise:.1f}%/10m ({priority})",
                     ))
 
+        for name in list(self._bathroom_episodes):
+            if name not in rooms:
+                del self._bathroom_episodes[name]
         if not candidates:
             return normal, "normal", "No enabled control measurements", None, None
         adjusted, _raw, _value, room, metric, reason = max(candidates)
         adjusted = min(int(d["local_max_level"]), max(int(d["local_min_level"]), adjusted))
         demand = "low" if adjusted <= 2 else "normal" if adjusted == 3 else "high" if adjusted <= 5 else "boost"
         return adjusted, demand, reason, room, metric
+
+    def _bathroom_candidate(
+        self, name: str, values: dict[str, object], humidity: float, now: float, normal: int,
+    ) -> tuple[int, int, float, str, str, str] | None:
+        """Dry a bathroom out: start at its maximum level, then step down as RH falls.
+
+        An episode starts when RH passes the bathroom setpoint or rises 7 %-points
+        within 10 minutes (a shower). It remembers the peak RH, runs at the maximum
+        level at the peak and steps down in proportion as RH falls towards the end
+        point (setpoint minus hysteresis), where normal ventilation takes over.
+        """
+        d = self.config.data
+        setpoint = float(values.get("rh_setpoint") or d["bathroom_rh_setpoint"])
+        hysteresis = float(values.get("rh_hysteresis") or d["bathroom_rh_hysteresis"])
+        top = max(normal, min(6, int(values.get("max_level") or d["bathroom_max_level"])))
+        end = setpoint - hysteresis
+        episode = self._bathroom_episodes.get(name)
+        if episode is None:
+            fresh = [value for ts, value in self._room_rh_history.get(name, ()) if now - ts <= 600]
+            rising = len(fresh) >= 2 and fresh[-1] - fresh[0] >= 7.0
+            if humidity > setpoint:
+                episode = {"peak": humidity, "end": end}
+            elif rising:
+                # A shower caught before RH reaches the setpoint ends a little above
+                # where the rise started instead of at the (higher) setpoint end point.
+                episode = {"peak": humidity, "end": min(end, fresh[0] + hysteresis / 2)}
+            else:
+                return None
+            self._bathroom_episodes[name] = episode
+        if humidity <= episode["end"]:
+            del self._bathroom_episodes[name]
+            return None
+        episode["peak"] = max(episode["peak"], humidity)
+        span = max(0.1, episode["peak"] - episode["end"])
+        share = (humidity - episode["end"]) / span
+        level = min(top, normal + math.ceil((top - normal) * share - 1e-9))
+        level = max(level, min(top, normal + 1))
+        return (
+            level, level, humidity, name, "humidity",
+            f"Badeværelse RH {name} {humidity:.1f}% · udtørring (top {episode['peak']:.0f}%, slut {episode['end']:.0f}%)",
+        )
 
     def _room_air_dries(self, values: dict[str, object]) -> bool:
         temperature = values.get("temperature")
@@ -623,6 +707,7 @@ class ControllerRuntime:
             requested_level=self.smart_requested_level,
             valid_for_s=self.smart_inputs_valid_for,
             reason=self.smart_reason,
+            bathroom_drying=decision[4] == "humidity" and decision[3] in self._bathroom_episodes,
         )
 
     def _smart_input_snapshot(self) -> dict[str, object]:
@@ -665,8 +750,137 @@ class ControllerRuntime:
             },
         }
 
+    FAN_STEADY_SECONDS = 30.0
+    FAN_CURVE_INTERVAL_SECONDS = 600.0
+
+    def _learn_fan_curve(self, now: float | None = None) -> None:
+        """Learn rpm per fan percentage from steady readings and store the fitted line."""
+        now = time.time() if now is None else now
+        for fan in ("supply", "extract"):
+            percent = self._first(self.gateway_state, f"fan_{fan}_percent", f"{fan}_fan_percent")
+            rpm = self._first(self.gateway_state, f"fan_{fan}_rpm", f"{fan}_fan_rpm")
+            if not isinstance(percent, (int, float)) or not isinstance(rpm, (int, float)) or rpm <= 0:
+                continue
+            percent = int(round(percent))
+            steady = self._fan_steady.get(fan)
+            if steady is None or steady[0] != percent:
+                self._fan_steady[fan] = (percent, now)
+                continue
+            if now - steady[1] < self.FAN_STEADY_SECONDS:
+                continue
+            old = self._fan_points.get(percent)
+            self._fan_points[percent] = float(rpm) if old is None else 0.95 * old + 0.05 * float(rpm)
+        if now - self._fan_curve_checked_at < self.FAN_CURVE_INTERVAL_SECONDS:
+            return
+        self._fan_curve_checked_at = now
+        fitted = fit_fan_curve(self._fan_points)
+        if fitted is None:
+            return
+        stored = self.config.data.get("fan_curve") or {}
+        try:
+            unchanged = (abs(float(stored["rpm_at_0"]) - fitted["rpm_at_0"]) < 10
+                         and abs(float(stored["rpm_per_percent"]) - fitted["rpm_per_percent"]) < 0.25)
+        except (KeyError, TypeError, ValueError):
+            unchanged = False
+        if not unchanged:
+            before = {"profiles": json.loads(json.dumps(self.config.data["profiles"]))}
+            if self.config.set_fan_curve({**fitted, "samples": len(self._fan_points)}):
+                self._record_change(before, {"profiles": None}, "luftbalance")
+
+    def _unit_power(self, now: float | None = None) -> float | None:
+        now = time.time() if now is None else now
+        fresh = self.unit_power_until is not None and now <= self.unit_power_until
+        return self.unit_power_w if fresh else None
+
+    def _observe_balance(self, now: float | None = None) -> None:
+        """Feed the heat-balance learner and keep what it finds."""
+        now = time.time() if now is None else now
+        state = self.gateway_state
+        d = self.config.data
+        supply_rpm = self._safe_number(self._first(state, "fan_supply_rpm", "supply_fan_rpm"), 0, 6000) or 0.0
+        extract_rpm = self._safe_number(self._first(state, "fan_extract_rpm", "extract_fan_rpm"), 0, 6000) or 0.0
+        k = side_constants(d)
+        blocked = None
+        if d.get("fireplace") or self._first(state, "fireplace") is True:
+            blocked = "Pejsefunktionen er aktiv"
+        sample = {
+            "t1": self._safe_number(self._first(state, "outdoor_temp", "outdoor_temperature"), -50, 60),
+            "t2": self.onewire.by_role("t2"),
+            "t3": self._safe_number(self._first(state, "extract_temp", "extract_temperature"), -30, 60),
+            "t4": self._safe_number(self._first(state, "exhaust_temp", "exhaust_temperature"), -50, 60),
+            "rh": self.engine.measurements.get("rh"),
+            "supply_percent": self._first(state, "fan_supply_percent", "supply_fan_percent"),
+            "extract_percent": self._first(state, "fan_extract_percent", "extract_fan_percent"),
+            "supply_rpm": supply_rpm,
+            "extract_rpm": extract_rpm,
+            "supply_m3h": float(k["supply"]) * supply_rpm,
+            "extract_m3h": float(k["extract"]) * extract_rpm,
+            "power_w": self._unit_power(now),
+            "bypass": self._first(state, "bypass_active") is True,
+            "blocked": blocked,
+        }
+        verdict = self.balance_learner.observe(sample, now)
+        if verdict is not None:
+            self._store_balance_verdict(verdict, now)
+
+    def _store_balance_verdict(self, verdict: dict[str, object], now: float) -> None:
+        learned = dict(self.config.data.get("balance_learned") or {})
+        windows = list(learned.get("windows") or [])
+        if verdict.get("accepted"):
+            windows.append(window_record(verdict))
+        summary = summarize(windows, now)
+        in_use = learned.get("ratio_in_use")
+        if summary["confidence"] == "ok" and summary["ratio"] is not None:
+            in_use = adopt(in_use, float(summary["ratio"]))
+        learned.update(summary)
+        learned.update(
+            ratio_in_use=in_use, updated_at=now, idle_power_w=self.balance_learner.idle_power_w,
+            last={key: verdict.get(key) for key in ("t", "accepted", "reason", "delta_t", "duct_ratio", "airflow_ratio",
+                                                     "supply_percent", "extract_percent")},
+        )
+        before = {"profiles": json.loads(json.dumps(self.config.data["profiles"]))}
+        if self.config.set_balance_learned(learned):
+            self._record_change(before, {"profiles": None}, "luftbalance")
+            LOG.info("Air balance moved the supply with duct ratio %.3f", in_use or 0.0)
+
+    def _balance_live(self) -> dict[str, object]:
+        """Learner state plus the heat balance right now (indicative, not steady)."""
+        live = dict(self.balance_learner.status)
+        state = self.gateway_state
+        t1 = self._safe_number(self._first(state, "outdoor_temp", "outdoor_temperature"), -50, 60)
+        t3 = self._safe_number(self._first(state, "extract_temp", "extract_temperature"), -30, 60)
+        t4 = self._safe_number(self._first(state, "exhaust_temp", "exhaust_temperature"), -50, 60)
+        t2 = self.onewire.by_role("t2")
+        supply_rpm = self._safe_number(self._first(state, "fan_supply_rpm", "supply_fan_rpm"), 0, 6000)
+        extract_rpm = self._safe_number(self._first(state, "fan_extract_rpm", "extract_fan_rpm"), 0, 6000)
+        k = side_constants(self.config.data)
+        now_result = None
+        if None not in (t1, t2, t3, t4, supply_rpm, extract_rpm) and t3 - t1 >= 3 and self._first(state, "bypass_active") is not True:
+            now_result = balance_from_temperatures(
+                t1, t2, t3, t4, supply_rpm=supply_rpm, extract_rpm=extract_rpm,
+                supply_m3h=float(k["supply"]) * supply_rpm, extract_m3h=float(k["extract"]) * extract_rpm,
+                power_w=self._unit_power(), idle_w=self.balance_learner.idle_power_w,
+            )
+        live["delta_t_now"] = round(t3 - t1, 1) if t1 is not None and t3 is not None else None
+        live["excess_now_percent"] = round((1.0 / float(now_result["airflow_ratio"]) - 1.0) * 100.0, 1) if now_result else None
+        live["duct_ratio_now"] = round(float(now_result["duct_ratio"]), 3) if now_result else None
+        live["last"] = self.balance_learner.last_result
+        return live
+
+    def _running_excess(self) -> float | None:
+        """Extract over supply in % for the fans as they run, when the ducts are known."""
+        k = side_constants(self.config.data)
+        if k["source"] not in ("measured", "learned"):
+            return None
+        supply_rpm = self._safe_number(self._first(self.gateway_state, "fan_supply_rpm", "supply_fan_rpm"), 300, 6000)
+        extract_rpm = self._safe_number(self._first(self.gateway_state, "fan_extract_rpm", "extract_fan_rpm"), 300, 6000)
+        if supply_rpm is None or extract_rpm is None:
+            return None
+        return round((float(k["extract"]) * extract_rpm / (float(k["supply"]) * supply_rpm) - 1.0) * 100.0, 1)
+
     def snapshot(self) -> dict[str, object]:
         self.refresh_measurements()
+        self._learn_fan_curve()
         self._expire_smart_lease()
         self._evaluate_master()
         result = self.engine.resolve()
@@ -741,11 +955,16 @@ class ControllerRuntime:
             "afterheat_room_source_used": self.afterheat_room_source_used,
         })
         extract = self._safe_number(self._first(self.gateway_state, "extract_temp", "extract_temperature"), -30, 60)
-        supply_m3h = self._supply_airflow(result.get("effective_level"))
+        # Standby and bonfire stop both fans: no air, so no air-side power.
+        fans_stopped = result.get("standby_active") is True or result.get("bonfire_active") is True
+        supply_m3h = 0.0 if fans_stopped else self._supply_airflow(result.get("effective_level"))
         result["supply_airflow_estimate_m3h"] = supply_m3h
+        result["balance_live"] = self._balance_live()
+        result["balance_running_excess_percent"] = None if fans_stopped else self._running_excess()
         fresh_power = self.unit_power_until is not None and time.time() <= self.unit_power_until
         result["unit_power_w"] = self.unit_power_w if fresh_power else None
         result.update(self.diagnostics.result)
+        result["change_log"] = list(reversed(self.change_log[-50:]))
         fresh_energy = self.energy_signals_until is not None and time.time() <= self.energy_signals_until
         for field in ("unit_energy_measured_today_kwh", "electricity_price_dkk_kwh", "heat_price_dkk_kwh"):
             result[field] = self.energy_signals.get(field) if fresh_energy else None
@@ -756,11 +975,23 @@ class ControllerRuntime:
         return result
 
     def _supply_airflow(self, level: object) -> float | None:
-        """Supply airflow for the running level: measured if entered, else from the fan profile."""
+        """Supply airflow for the running level, corrected by the real fan speed.
+
+        The level's planned airflow (measured if entered, else from the fan
+        profile) is scaled by actual/expected supply rpm (fan law), so boost,
+        fireplace or a slow fan are reflected instead of the nominal level.
+        """
         try:
-            return float(self.config.airflow_plan()["levels"][int(level)]["supply_m3h"])
+            planned = float(self.config.airflow_plan()["levels"][int(level)]["supply_m3h"])
+            percent = float(self.config.data["profiles"][int(level)]["supply"])
         except (KeyError, TypeError, ValueError):
             return None
+        rpm = self._safe_number(self._first(self.gateway_state, "fan_supply_rpm", "supply_fan_rpm"), 1, 5000)
+        curve = fan_curve(self.config.data)
+        expected = float(curve["rpm_at_0"]) + float(curve["rpm_per_percent"]) * percent
+        if rpm is None or expected <= 0:
+            return planned
+        return round(planned * rpm / expected, 1)
 
     def _before_heater_estimate(self) -> float | None:
         """T2 estimate from T1, T3 and the recovery measured on the extract side."""
@@ -774,10 +1005,33 @@ class ControllerRuntime:
             recovery = share if 0 <= share <= 105 else None
         return _round1(supply_after_core(t1, t3, recovery, bypass))
 
-    def configure(self, patch: dict[str, object], *, apply: bool = True) -> dict[str, object]:
+    def _record_change(self, before: dict[str, object], patch: dict[str, object], source: str) -> None:
+        """Keep who changed which setting from what to what (never breaks control)."""
+        after = self.config.data
+        changes = {
+            key: [before.get(key), after.get(key)]
+            for key in patch
+            if key in after and before.get(key) != after.get(key)
+        }
+        if not changes:
+            return
+        event = {"timestamp": time.time(), "source": source, "changes": changes}
+        self.change_log.append(event)
+        del self.change_log[:-50]
+        try:
+            self.change_log_path.parent.mkdir(parents=True, exist_ok=True)
+            with self.change_log_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(event, ensure_ascii=False, default=str) + "\n")
+        except OSError:
+            pass
+        LOG.info("Setting changed by %s: %s", source, changes)
+
+    def configure(self, patch: dict[str, object], *, apply: bool = True, source: str = "api") -> dict[str, object]:
         if "enabled" in patch:
             raise ControllerError("Pi-controlleren kan ikke slås fra; HCP4 master-detektion styrer automatisk overtagelse")
+        before = json.loads(json.dumps(self.config.data, default=str))
         self.config.configure(patch)
+        self._record_change(before, patch, source)
         self.config.data["enabled"] = True
         fireplace_off = patch.get("fireplace") is False or patch.get("fireplace_minutes") in (0, "0")
         if fireplace_off and self.fireplace_auto_active:
@@ -818,6 +1072,10 @@ class ControllerRuntime:
 
     def tick(self) -> None:
         self.refresh_measurements()
+        try:
+            self._observe_balance()
+        except Exception as error:  # measuring must never stop the controller
+            LOG.warning("Heat balance update failed: %s", error)
         self._update_fireplace_auto()
         self._expire_smart_lease()
         if self.config.data.get("mode") == "smart_auto" and self._smart_inputs_fresh():
@@ -830,7 +1088,16 @@ class ControllerRuntime:
         try:
             self.apply_once()
         except Exception as error:
-            LOG.error("Controller write failed: %s", error)
+            # A missed ack is retried on the next refresh; one line per
+            # 15 minutes keeps the journal readable.
+            message = str(error)
+            now = time.time()
+            if message != self._write_error_message or now - self._write_error_logged_at >= 900:
+                suffix = f" (x{self._write_error_count + 1} since last log)" if self._write_error_count else ""
+                LOG.error("Controller write failed: %s%s", message, suffix)
+                self._write_error_message, self._write_error_logged_at, self._write_error_count = message, now, 0
+            else:
+                self._write_error_count += 1
             self.last_tick_at = time.time()
 
     def _run(self) -> None:

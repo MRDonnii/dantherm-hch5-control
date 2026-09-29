@@ -37,7 +37,7 @@ ls -l /dev/serial/by-id/
 Installér (udskift stien; udelad `--enable-onewire` uden DS18B20-følere):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MRDonnii/dantherm-hch-passivelink-webui/main/install.sh \
+curl -fsSL https://raw.githubusercontent.com/MRDonnii/dantherm-hch5-control/main/install.sh \
   | sudo bash -s -- \
       --device /dev/serial/by-id/usb-DIN_ADAPTER \
       --enable-onewire
@@ -60,7 +60,7 @@ Kontrollér derefter på **Overblik**:
 
 Gå så til **Indstillinger** og tag disse i rækkefølge:
 
-1. **Hus og luftmængde** – boligens størrelse giver grundtrinnet.
+1. **Hus og luftmængde** – boligens størrelse giver grundtrinnet. Slå **Luftbalance** på *Auto*, så udsugningen altid er lidt større end indblæsningen (5 % i m³/h) på alle trin. Har du en T2-føler før eftervarmen, lærer Pi'en selv, hvor meget luft kanalerne giver pr. omdrejning.
 2. **Luftkvalitet** – normaltrin og grænser for fugt og CO₂.
 3. **Nat**, **Frikøling**, **Pejs og brændeovn** efter behov.
 4. **Eftervarme** – eftervarmefladens type (el eller vand) og sommerstop.
@@ -82,8 +82,8 @@ Eftervarmen styres med termostaten i højre side: træk i skiven eller brug − 
 
 ## 5. Home Assistant: se anlægget
 
-1. Installér **Dantherm HCH PassiveLink** i HACS: [åbn i HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=MRDonnii&repository=dantherm-hch-passivelink&category=integration). Genstart Home Assistant.
-2. **Indstillinger → Enheder og tjenester → Tilføj integration → Dantherm HCH PassiveLink.**
+1. Installér **Dantherm HCH5 Control** i HACS: [åbn i HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=MRDonnii&repository=dantherm-hch5-control-ha&category=integration). Genstart Home Assistant.
+2. **Indstillinger → Enheder og tjenester → Tilføj integration → Dantherm HCH5 Control.**
 3. Vælg **RS485 over TCP**, skriv Pi'ens IP og port **4196**.
 
 Nu har Home Assistant temperaturer, blæsere, CO₂, fugt, bypass, filter og alarmer.

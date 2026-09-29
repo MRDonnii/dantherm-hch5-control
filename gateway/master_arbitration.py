@@ -36,7 +36,10 @@ def write_signature(frame: bytes):
     fn = frame[1]
     if fn == 6 and len(frame) == 8:
         return (6, frame[0], int.from_bytes(frame[2:4], "big"), int.from_bytes(frame[4:6], "big"))
-    if fn == 16:
+    # An 8-byte FC16 frame is the slave's acknowledgement, never a write: a
+    # late HAC1 ack of our own block was counted as a foreign write and made
+    # the Pi hand the bus to HCP4 (2026-09-27, ~10 times a day).
+    if fn == 16 and len(frame) > 8:
         return (16, frame[0], int.from_bytes(frame[2:4], "big"), int.from_bytes(frame[4:6], "big"))
     return None
 

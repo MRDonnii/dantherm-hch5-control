@@ -214,9 +214,9 @@ export function UpdatesPage() {
         <div className="section-head compact"><div><span className="eyebrow">HOME ASSISTANT</span><h2>Integration og dashboardkort</h2></div><ExternalLink size={22}/></div>
         <p>Home Assistant opdaterer integrationen og kortet via HACS. Åbn dem på den enhed, hvor du er logget ind i Home Assistant.</p>
         <div className="update-ha-links">
-          <a className="primary-action" href="https://my.home-assistant.io/redirect/hacs_repository/?owner=MRDonnii&repository=dantherm-hch-passivelink&category=integration" target="_blank" rel="noopener noreferrer">Åbn HA-integrationen i HACS <ExternalLink size={16}/></a>
+          <a className="primary-action" href="https://my.home-assistant.io/redirect/hacs_repository/?owner=MRDonnii&repository=dantherm-hch5-control-ha&category=integration" target="_blank" rel="noopener noreferrer">Åbn HA-integrationen i HACS <ExternalLink size={16}/></a>
           <a className="primary-action" href="https://my.home-assistant.io/redirect/hacs_repository/?owner=MRDonnii&repository=ha-smart-home-cards&category=plugin" target="_blank" rel="noopener noreferrer">Åbn dashboardkort i HACS <ExternalLink size={16}/></a>
-          <a href="https://github.com/MRDonnii/dantherm-hch-passivelink-webui/blob/main/docs/kom-godt-i-gang.da.md" target="_blank" rel="noopener noreferrer">Guide: kom godt i gang <ExternalLink size={16}/></a>
+          <a href="https://github.com/MRDonnii/dantherm-hch5-control/blob/main/docs/kom-godt-i-gang.da.md" target="_blank" rel="noopener noreferrer">Guide: kom godt i gang <ExternalLink size={16}/></a>
         </div>
       </article>
     </section>

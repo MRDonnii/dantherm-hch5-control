@@ -1,5 +1,124 @@
 # Changelog
 
+## 1.3.0
+
+Stable release. Everything from 1.2.1-beta.1 to 1.2.1-beta.13 (the details are in the beta notes below):
+
+- **Users and roles:** several logins with the roles *Administrator*, *Tekniker* (everything technical, optionally time-limited) and *Bruger* (daily controls). Rules are enforced by the Pi on every request; the existing owner becomes administrator.
+- **Mail service:** SMTP with provider presets and a test mail, fault mails for diagnostics alarms (severity, repeat and resolved mails) and *Glemt adgangskode?* links from the login page.
+- **Ugeplan:** a week planner with several periods per day, drag to move and resize, *Grundtrin* periods that can lower the base level and *Mindst* periods as a floor, templates, copy to weekdays/weekend and holiday with a planned start and end.
+- **Indregulering:** rooms with type, m², ceiling height and supply/extract; design airflow per valve after BR18 balanced against extract; recommended level; measuring mode with l/s per valve and deviation; a printable A4 report saved on the Pi.
+- **Alarm history:** alarms and HCP4 takeovers logged when they start and clear, plus sign-ins and user changes for administrators.
+- **PM2.5 (optional):** Smart Auto can raise the level on fine dust from Home Assistant room sensors, with a limit, step, maximum level and per-room opt-out.
+- **Overview:** compact and symmetric, controls on the right and information on the left, one *Funktioner* card; *OFF* with presets, *Bål i haven* and afterheat changes confirmed in a popup.
+- **Air balance:** extract a chosen share above supply in m³/h, a duct ratio learned from the exchanger heat balance, airflow following real fan speed, and an overpressure alarm.
+- **Control and bus:** the Pi no longer hands the bus to HCP4 by mistake, the HAC1 connection no longer flickers, the temperature block to HAC1 keeps going, afterheat off while the unit is off, bathroom drying at night and stronger bathroom drying, and every setting change logged with who made it.
+- **Larger text** in the whole WebUI, a neutral weather picker without a default location, and the project renamed to Dantherm HCH5 Control.
+- Changes by Claude AI.
+
+## 1.2.1-beta.13
+
+- **Ugeplan (new page):** draw the week on a 24-hour timeline per day. Click a day to add a period, drag it to move it, drag its edges to change the length (15-minute steps), and click it to edit name, time, level and type. Up to 8 periods per day, and a period may run past midnight (for example Friday 21:00–01:00).
+- **Two kinds of period:** *Grundtrin* replaces the normal base level, so "Ude · trin 1" can lower the ventilation while CO₂ and humidity can still lift it. *Mindst* is a floor that automation can only go above (what the old schedule did). Where periods overlap, the highest level wins; night reduction and the house minimum still apply.
+- Copy a period or a whole day to weekdays, weekend or all days, or start from a template (*Arbejdsdage ude*, *Hjemmearbejde*). Changes are a draft until **Gem ugeplan**; **Fortryd** throws them away.
+- The page shows what the schedule does right now, when it next changes and to which level, the night reduction as a hatched band and a line for the current time.
+- **Holiday with a planned start:** choose from/to (or start now), the holiday level and quick lengths (3 days to 3 weeks). A planned holiday waits for its start and ends by itself.
+- A plain *Bruger* may edit the week plan and holiday. The old single window per day keeps working until the week plan is saved.
+- On phones the menu stays on one row whatever the role shows.
+- **Alarm history (Historik):** every diagnostics alarm and HCP4 takeover is logged when it starts and when it clears, with how long it lasted, also when mail is off. Active alarms are shown at the top. Administrators also see sign-ins, failed sign-ins and user changes. The log keeps the latest 500 events on the Pi and survives restarts without logging an active alarm twice.
+- **Indregulering (new page for technicians and administrators):** four steps.
+  1. *Rum:* each room with name, type (living room, bedroom, office, kitchen, bath, separate WC, utility room, hallway, other), m², ceiling height and whether it has supply and/or extract; the type fills in sensible defaults.
+  2. *Beregning:* design airflow per room after BR18 §447 (0.3 l/s per m²; kitchen 20, bath 15, WC and utility room 10 l/s extract). Supply is balanced against extract with the controller's air-balance setting and shared by floor area. Shows totals, air change rate and the lowest fan level that covers it, and can transfer area, ceiling height and wet rooms to Hus og luftmængde.
+  3. *Måling:* run the unit fixed on the chosen level, enter measured l/s and the valve setting per valve, and see the deviation (±10 % OK, ±20 % adjust), totals and balance. The measured totals can be stored as measured airflow for that level.
+  4. *Rapport:* site, address, owner, technician, company, instrument and notes; a report that prints on A4 or saves as PDF, with verdict, room table and signature lines. Reports can be saved on the Pi and printed again later.
+- **PM2.5 (optional):** rooms from Home Assistant can send `pm25` (or `pm2_5`) in µg/m³ next to CO₂, humidity and temperature, as IKEA air-quality sensors report them. With *Brug PM2.5* on (Indstillinger → Luftkvalitet), Smart Auto raises the level above a limit (default 25 µg/m³, one level per 15 µg/m³, highest level 5). PM2.5 only raises the level, and each room can be left out.
+- **Larger text in the whole WebUI:** labels, help text, inputs, buttons, tables and cards were 7–11 px and are now roughly 11.5–15 px (settings fields 13–14 px). Cards with several buttons (fireplace, Bål i haven) put the buttons on their own row, and the afterheat dial stacks above its readings when the card is narrow. The unit drawing is unchanged.
+- **Compact, symmetric overview:** controls on the right and information on the left, in two columns that end at the same height. Quick Boost, bypass, free cooling, fireplace and Bål i haven are one *Funktioner* card with a row each instead of five separate cards. The decision box under the fan level is hidden on wide screens, where the drawing already shows *Styring nu*. The left holds the unit drawing, indoor climate, diagnostics, energy and the values calculated from a measured T2. On medium screens the right column is wider so the afterheat dial sits beside its readings, and the tiles adapt to the column width. The top bar wraps instead of scrolling sideways on narrow screens. At 2000 px the page went from about 1480 to 1150 px high.
+- Changes by Claude AI.
+
+## 1.2.1-beta.12
+
+- **Users and roles:** several WebUI logins, each with a role. *Administrator* can do everything, including users and mail. *Tekniker* gets everything technical (advanced settings, sensors, Teknik, System, Home Assistant, Diagnostik, sniffer, updates, restart and mail) but not user management. *Bruger* gets the daily controls on the overview (mode, level, OFF, Quick Boost, bypass, free cooling, fireplace, Bål i haven, afterheat) and history. Users are managed under Indstillinger → Brugere.
+- A technician account can get an **expiry date**, so access ends by itself after a service visit. Accounts can be disabled or deleted; role changes apply to open sessions immediately. The last active administrator cannot be removed.
+- The server checks the role on every request; the menu and settings only show what the role may use. The existing owner becomes administrator, and the old login file is only rewritten the next time a user is changed or someone signs in.
+- Top bar shows who is signed in, with the role and a log-out button. Indstillinger → Sikkerhed lets every user change their own e-mail, username and password.
+- **Mail service (Indstillinger → Mail):** SMTP with presets for Gmail, Outlook.com, Microsoft 365, iCloud and one.com, and a test mail. The SMTP password stays on the Pi and is never sent to the browser.
+- **Fault mails** to a list of recipients for the diagnostics alarms (no RS485 connection, frost risk, low recovery, bypass not closing, afterheat without effect, missing 1-Wire sensor, filter, overpressure) and when HCP4 takes over. Choose the minimum severity, a repeat interval while the alarm stays active and whether to mail when it clears.
+- **Forgot password:** the login page shows *Glemt adgangskode?* and mails a single-use link valid for 30 minutes to users with an e-mail on their account. Administrators can also send a reset link from the user list.
+- Changes by Claude AI.
+
+## 1.2.1-beta.11
+
+- **Air balance (Hus og luftmængde → Luftbalance):** with *Auto* every level keeps its extract percentage and the controller works out the supply percentage so extract is a chosen share (default 5 %, 0–20 %) above supply **in m³/h**, not in percent. The HCH5 fans turn at about 550 rpm at 0 %, so the old fixed 12-point gap gave about 30 % more extract at level 1 but only a few percent at level 6. The balanced percentages are written into the level profiles, so the engine, the house-size plan and Home Assistant all use them. While Auto is on, supply is set by the balance (changing it is refused with an explanation); switching to *Manuel* keeps the last balanced values.
+- **Duct ratio:** supply and extract ducts rarely move the same air per rpm. The ratio comes from airflow measured at the valves when both sides are entered, else from the **heat balance of the exchanger** (below), else from a fixed value (1.00 = alike ducts).
+- **Heat balance learning:** with a 1-Wire T2 sensor before the afterheat, the Pi compares the extract temperature drop (T3 − T4) with the supply temperature rise (T2 − T1). Only calm, cold periods count: the same fan pair for 30 minutes, then 15-minute windows with at least 8 K between inside and outside, no bypass, fireplace, frost or condensation in the core (dew point from the unit's humidity). Half of the fans' heat (from the power meter in Home Assistant, else a fan model) is taken out and counted as uncertainty. The learned ratio is used once at least 8 windows from two nights agree, follows new windows in small steps and survives summers without cold nights. *Nulstil læring* starts it over.
+- **Measured airflow keeps its fan percentage:** a value from the commissioning report is tied to the percentage it was measured at ("ved %"), so the balance can change the level without misusing it. One measured value per side now corrects the airflow estimate on every level.
+- **Overpressure alarm:** once the ducts are known (measured or learned), running with more supply than extract for an hour raises an info alarm, except in fireplace mode.
+- Settings on a phone: wide tables scroll inside their card instead of widening the page.
+- Changes by Claude AI.
+
+## 1.2.1-beta.10
+
+- **New name: Dantherm HCH5 Control.** The project is no longer only passive, so the repository is now `MRDonnii/dantherm-hch5-control` (the old URL redirects, so existing installations keep updating) and the Home Assistant integration is `MRDonnii/dantherm-hch5-control-ha`. Install paths on the Pi are unchanged.
+- **Pi no longer hands the bus to HCP4 by mistake:** a late HAC1 acknowledgement of the Pi's own write was counted as a foreign write, which paused control about ten times a day. An 8-byte FC16 frame is now always treated as a response.
+- **HAC1 connection no longer flickers:** the Pi's own T2 feed (register 146 = 3) was read as "HAC1 disconnected".
+- **Temperature block to HAC1 keeps going:** if reading HAC1's T5 word fails once, the last value (up to 10 minutes old) is used instead of skipping the whole T1–T5 block. The error is logged at most every 15 minutes.
+- **Airflow follows the real fan speed:** the air-side afterheat power and recovered heat scale the level's airflow by the actual supply rpm.
+- **Who changed what:** every setting change is logged with its source (WebUI user or Home Assistant) and old → new value, shown under Historik.
+- Changes by Claude AI.
+
+## 1.2.1-beta.9
+
+- The afterheat confirmation is now a popup over the thermostat card: old and new value, its own −/+ and Fortryd/Bekræft.
+- Changes by Claude AI.
+
+## 1.2.1-beta.8
+
+- **Confirm afterheat changes:** +/-, the dial and the power button on the afterheat thermostat only change a draft. A box asks "Skift eftervarme fra 20 °C til 25 °C?" and nothing is sent before **Bekræft** is pressed; **Fortryd** keeps the current setting. A change is no longer sent by itself after a pause.
+- Changes by Claude AI.
+
+## 1.2.1-beta.7
+
+- **Afterheat off while the unit is off:** standby and "Bål i haven" now also switch the afterheat off, so the water coil does not heat still air. The previous setting returns when the unit starts again.
+- **Afterheat refreshed every 4 seconds again:** the beta.6 exception for outdoor temperatures of 15 °C or more is removed. HAC1 was seen heating at 17.7 °C outdoor, so the 15 °C summer stop is not reliable.
+- A missing HAC1 acknowledgement is now logged at most once every 15 minutes, with a count, instead of a traceback on every attempt.
+- The air-side afterheat power and recovered heat are 0 while the fans are stopped.
+- Changes by Claude AI.
+
+## 1.2.1-beta.6
+
+- **No afterheat writes during the summer stop:** when the outdoor temperature is 15 °C or higher, HAC1 cannot switch the water afterheat on, so the Pi no longer rewrites the afterheat setpoint every 4 seconds. It writes only when the setpoint changes, and the 4-second refresh resumes by itself when it is colder than 15 °C. This removes the repeated "missing FC16 acknowledgement for register 185" errors in the log. The outdoor temperature block (register 180) is still sent so HAC1 keeps seeing the outdoor temperature.
+- Changes by Claude AI.
+
+## 1.2.1-beta.5
+
+- **OFF in the level row:** "Ventilatorniveau" now has an OFF button. It opens a popup with presets: 1, 4 or 8 hours, until tomorrow at 07:00, or permanently until switched on again. Pressing a level switches the unit on at that level. The separate "Sluk anlæg" card from beta.4 is gone.
+- Popups on the overview (OFF and the temperature history) are centred on the screen again.
+- Changes by Claude AI.
+
+## 1.2.1-beta.4
+
+- **Sluk anlæg:** a new card (and in Home Assistant) switches the unit off for 1, 4, 8 or 24 hours or until switched on again. It uses the standby pattern of the HRC2/HCP4 controllers (the verified fireplace sequence with both fans at 0 %), rewritten every second, and restores the previous state when switched on. Boost, bonfire and fireplace cannot start while the unit is off.
+- **Bål i haven switches the unit off** for the chosen time instead of running the fans at minimum, and starts it again by itself.
+- Changes by Claude AI.
+
+## 1.2.1-beta.3
+
+- **Bål i haven:** a new card under the fireplace function (and in Home Assistant) runs both fans at the lowest speed (extract 11 %, supply 10 %) for 30 minutes to 3 hours (10–480 minutes via the API), closes the bypass, pauses free cooling and boost, and stops by itself. The fireplace function keeps priority.
+- **Better airflow calculation:** airflow now follows fan speed (fan law) instead of the fan percentage. On the HCH5 the speed is about 557 rpm at 0 % plus 24 rpm per %, so the low levels move far more air than before. The Pi learns the exact curve of the unit from steady readings. For a 179 m² house, level 3 now covers the requirement, so the house-sized base level becomes 3 and the lowest level 1.
+- Changes by Claude AI.
+
+## 1.2.1-beta.2
+
+- Bathroom drying is allowed at night: night mode no longer caps it at the night air-quality level. It still steps down as humidity falls. CO₂ and other rooms stay capped at night as before.
+- Changes by Claude AI.
+
+## 1.2.1-beta.1
+
+- Bathroom drying: when bathroom humidity passes its limit, or rises 7 %-points within 10 minutes during a shower, Smart Auto starts at the bathroom's drying level (default 6, the highest) and steps down in proportion as humidity falls from its peak. Normal ventilation takes over below the limit minus the hysteresis. Previously a bathroom only added one level per 5 % RH and was capped at level 4.
+- The bathroom setting is renamed "Trin ved udtørring" and explains the behaviour.
+- Changes by Claude AI.
+
 ## 1.2.0
 
 First stable release of the controller line. Compared with 1.0.1 (passive data bridge), HCH5 Control is now a local controller:

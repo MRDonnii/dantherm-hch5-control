@@ -37,6 +37,23 @@ class ControllerRuntimeTests(unittest.TestCase):
                 self.assertIs(snapshot["actual_afterheat_outdoor_lockout"], expected)
                 self.assertEqual(snapshot["afterheat_outdoor_cutoff"], 15.0)
 
+    def test_setting_changes_are_logged_with_source(self):
+        import os
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        log = Path(temp.name) / "change-log.jsonl"
+        os.environ["DANTHERM_CHANGE_LOG"] = str(log)
+        self.addCleanup(os.environ.pop, "DANTHERM_CHANGE_LOG", None)
+        runtime = self.make_runtime()
+        runtime.configure({"afterheat_setpoint": 25}, apply=False, source="webui:john")
+        runtime.configure({"afterheat_setpoint": 25}, apply=False, source="home_assistant")
+        self.assertEqual(len(runtime.change_log), 1)
+        event = runtime.change_log[0]
+        self.assertEqual(event["source"], "webui:john")
+        self.assertEqual(event["changes"]["afterheat_setpoint"], [20, 25])
+        self.assertEqual(log.read_text(encoding="utf-8").count("\n"), 1)
+        self.assertEqual(runtime.snapshot()["change_log"][0]["source"], "webui:john")
+
     def test_energy_signals_are_read_only_and_expire(self):
         runtime = self.make_runtime()
         applied = []
@@ -143,12 +160,12 @@ class ControllerRuntimeTests(unittest.TestCase):
         # A bathroom can be humid without immediately forcing full boost.
         self.assertLessEqual(self.decision(runtime, {"Bath": {"humidity": 58}}), 4)
         self.assertEqual(self.decision(runtime, {"Bath": {"humidity": 78}}), 4)
-        # A shower-like fast rise is still recognised, but remains capped.
+        # A shower-like fast rise starts drying, still at the configured level.
         runtime = self.make_runtime()
         runtime.config.configure({"bathroom_max_level": 4})
         runtime._room_rh_history["Bath"].append((time.time() - 300, 48.0))
-        self.assertLessEqual(self.decision(runtime, {"Bath": {"humidity": 68}}), 4)
-        self.assertEqual(runtime.smart_controlling_metric, "rh_rise")
+        self.assertEqual(self.decision(runtime, {"Bath": {"humidity": 58}}), 4)
+        self.assertEqual(runtime.smart_controlling_metric, "humidity")
 
     def test_normal_room_rh_keeps_global_policy(self):
         runtime = self.make_runtime()
@@ -217,3 +234,4 @@ class ControllerRuntimeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

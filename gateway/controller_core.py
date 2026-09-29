@@ -2,30 +2,60 @@
 """Local controller for HCH5/HAC1 with modern automation and HCP4 arbitration."""
 from __future__ import annotations
 
+import copy
 import json
 import math
 import os
 import tempfile
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
+import week_schedule
 from onewire_extras import clean_roles
 from advanced_control import (
+    BALANCE_EXCESS_DEFAULT,
+    BALANCE_RATIO_MODES,
     HCH5_MAX_AIRFLOW_M3H,
     absolute_humidity,
     afterheat_room_target,
     airflow_plan,
+    balanced_profiles,
+    rpm_at_percent,
+    fan_curve,
+    side_constants,
     valid_source,
 )
+
+# HAC1 firmware lockout, confirmed by the owner 2026-09-23: the water
+# afterheat never switches on while outdoor temperature (T1, register 180)
+# is 15 C or higher, whatever the setpoint (even 35 C) and whoever is master.
+# Register 209 staying 0 above this limit is correct HAC1 behaviour, not a
+# Pi/RS485 fault - do not debug it. It is not configurable over RS485.
+# NOT a guarantee: on 2026-09-27 HAC1 opened the water valve at 17.7 C
+# outdoor (setpoint 35, fans stopped by bonfire). Only show it as a hint;
+# never skip or relax afterheat control because of it.
+AFTERHEAT_OUTDOOR_CUTOFF_C = 15.0
 
 VALID_MODES = {"local_auto", "smart_auto", "manual"}
 VALID_DEMANDS = {"low", "normal", "high", "boost"}
 VALID_BYPASS = {"off", "on"}
 VALID_QUICK_BOOST_MINUTES = {0, 15, 30, 60}
 VALID_AFTERHEAT_COILS = {"electric", "water"}
+# Bonfire in the garden: the unit is switched off (standby pattern) for the
+# chosen time so no smoke is drawn in, then starts again by itself.
+BONFIRE_PROFILE = {"extract": 0, "supply": 0, "name": "Bål"}
+BONFIRE_MINUTES_RANGE = (10, 480)
+# Unit off (standby): both fans stopped with the HRC2/HCP4 standby pattern.
+# -1 = until switched on again; otherwise 10 minutes to 7 days.
+STANDBY_UNTIL_ON = -1
+# -2 = until tomorrow morning at STANDBY_MORNING_HOUR (local time of the Pi).
+STANDBY_UNTIL_MORNING = -2
+STANDBY_MORNING_HOUR = 7
+STANDBY_MINUTES_RANGE = (10, 7 * 24 * 60)
+STANDBY_PROFILE = {"extract": 0, "supply": 0, "name": "Slukket"}
 
 DEFAULT_PROFILES = {
     1: {"extract": 25, "supply": 13, "name": "Lav"},
@@ -46,6 +76,15 @@ DEFAULT_SCHEDULE["6"] = {"enabled": True, "start": "08:00", "end": "22:00", "lev
 
 class ControllerError(ValueError):
     pass
+
+
+def _next_morning(now: float, hour: int) -> float:
+    """Epoch of the next local HH:00: this morning after midnight, else tomorrow."""
+    local = datetime.fromtimestamp(now).astimezone()
+    target = local.replace(hour=hour, minute=0, second=0, microsecond=0)
+    if target <= local:
+        target = (local + timedelta(days=1)).replace(hour=hour, minute=0, second=0, microsecond=0)
+    return target.timestamp()
 
 
 def _copy_profiles(profiles: dict | None = None) -> dict[int, dict[str, object]]:
@@ -83,6 +122,14 @@ def validate_profile(extract: int, supply: int) -> None:
         raise ControllerError("Udsugning skal være højere end indblæsning")
     if extract - supply > 35:
         raise ControllerError("Forskellen mellem udsugning og indblæsning er for stor")
+
+
+def validate_ladder(profiles: dict[int, dict[str, object]]) -> None:
+    for values in profiles.values():
+        validate_profile(int(values["extract"]), int(values["supply"]))
+    for level in range(2, 7):
+        if profiles[level]["extract"] <= profiles[level - 1]["extract"] or profiles[level]["supply"] <= profiles[level - 1]["supply"]:
+            raise ControllerError("Niveauerne skal stige i både udsugning og indblæsning")
 
 
 def _validate_time(value: object, label: str) -> str:
@@ -144,11 +191,13 @@ class HardwareAdapter:
         set_bypass: Callable[[str], object] | None = None,
         set_fireplace: Callable[[bool], object] | None = None,
         set_afterheat_setpoint: Callable[[int | None], object] | None = None,
+        set_standby: Callable[[bool], object] | None = None,
     ) -> None:
         self.write_fan_pair = write_fan_pair
         self.set_bypass = set_bypass
         self.set_fireplace = set_fireplace
         self.set_afterheat_setpoint = set_afterheat_setpoint
+        self.set_standby = set_standby
 
 
 class ControllerState:
@@ -189,6 +238,8 @@ class ControllerState:
         "t3_setpoint": None,
         "t5_setpoint": None,
         "schedule_enabled": False,
+        # Week planner periods; None = use the old single window per day.
+        "schedule_periods": None,
         "night_enabled": False,
         "night_start": "22:00",
         "night_end": "06:00",
@@ -196,13 +247,19 @@ class ControllerState:
         "night_air_quality_max_level": 4,
         "bathroom_rh_setpoint": 65.0,
         "bathroom_rh_hysteresis": 5.0,
-        "bathroom_max_level": 4,
+        "bathroom_max_level": 6,
         "vacation_enabled": False,
         "vacation_level": 1,
         "vacation_until": None,
+        "vacation_from": None,
         "quick_boost_until": None,
         "quick_boost_level": 6,
         "quick_boost_minutes": 0,
+        "bonfire_until": None,
+        "bonfire_minutes": 0,
+        "standby": False,
+        "standby_until": None,
+        "standby_minutes": 0,
         "cooling_enabled": False,
         "cooling_room_setpoint": 23.0,
         "cooling_hysteresis": 0.5,
@@ -221,7 +278,18 @@ class ControllerState:
         "house_utility_rooms": 1,
         "airflow_max_m3h": HCH5_MAX_AIRFLOW_M3H,
         "airflow_measured": {},
+        # Learned fan speed curve (rpm = rpm_at_0 + rpm_per_percent x %), set by the runtime.
+        "fan_curve": None,
         "sizing_reduced_percent": 50,
+        # Air balance: each level keeps its extract percentage and supply is
+        # solved so extract stays this share above supply in m3/h.
+        "balance_enabled": False,
+        "balance_extract_excess_percent": BALANCE_EXCESS_DEFAULT,
+        # "auto": duct ratio learned from the heat balance once trusted, else the fixed value.
+        "balance_ratio_mode": "auto",
+        "balance_duct_ratio": 1.0,
+        # Heat-balance windows and the learned duct ratio (air_balance.py), set by the runtime.
+        "balance_learned": None,
         # Afterheat setpoint follows the room temperature.
         "afterheat_room_enabled": False,
         "afterheat_room_target": 21.0,
@@ -244,6 +312,13 @@ class ControllerState:
         "dry_protection_enabled": False,
         "dry_rh_limit": 30.0,
         "dry_max_level": 2,
+        # Fine dust (PM2.5) from Home Assistant room sensors; off until chosen.
+        "pm25_enabled": False,
+        "pm25_setpoint": 25.0,
+        "pm25_step": 15.0,
+        "pm25_hysteresis": 5.0,
+        "pm25_max_level": 5,
+        "pm25_ignored_rooms": [],
         # Extra DS18B20 sensors on the Pi's 1-Wire bus: {sensor_id: {"role", "name"}}.
         "onewire_roles": {},
         "effective_source": "local_auto",
@@ -255,6 +330,7 @@ class ControllerState:
     def __init__(self, path: str | Path | None = None) -> None:
         self.path = Path(path or os.getenv("DANTHERM_CONTROLLER_STATE", "/var/lib/dantherm-hch5-ha/controller.json"))
         self.lock = threading.RLock()
+        self.balance_error: str | None = None
         self.data = dict(self.DEFAULTS)
         self.data["profiles"] = _copy_profiles()
         self.data["schedule"] = _copy_schedule()
@@ -275,8 +351,7 @@ class ControllerState:
             try:
                 profiles = _copy_profiles(saved["profiles"])
                 if set(profiles) == set(range(1, 7)):
-                    for values in profiles.values():
-                        validate_profile(int(values["extract"]), int(values["supply"]))
+                    validate_ladder(profiles)
                     self.data["profiles"] = profiles
             except (ControllerError, KeyError, TypeError, ValueError):
                 pass
@@ -286,6 +361,7 @@ class ControllerState:
             except (TypeError, ValueError):
                 pass
         self._sanitize()
+        self._rebalance()
 
     def _sanitize(self) -> None:
         if self.data["mode"] not in VALID_MODES:
@@ -296,7 +372,7 @@ class ControllerState:
             ("manual_level", 3), ("local_normal_level", 3),
             ("local_min_level", 1), ("local_max_level", 6),
             ("ha_requested_level", 3), ("night_level", 2),
-            ("night_air_quality_max_level", 4), ("bathroom_max_level", 4),
+            ("night_air_quality_max_level", 4), ("bathroom_max_level", 6),
             ("vacation_level", 1), ("quick_boost_level", 6), ("cooling_level", 4),
         ):
             try:
@@ -356,6 +432,15 @@ class ControllerState:
         except ControllerError:
             self.data["vacation_until"] = None
         try:
+            _parse_until(self.data.get("vacation_from"), "Ferie start")
+        except ControllerError:
+            self.data["vacation_from"] = None
+        if self.data.get("schedule_periods") is not None:
+            try:
+                self.data["schedule_periods"] = week_schedule.normalize(self.data["schedule_periods"])
+            except week_schedule.ScheduleError:
+                self.data["schedule_periods"] = None
+        try:
             quick_boost_until = _parse_until(self.data.get("quick_boost_until"), "Quick Boost slut")
         except ControllerError:
             quick_boost_until = None
@@ -369,6 +454,24 @@ class ControllerState:
         else:
             self.data["quick_boost_until"] = quick_boost_until
             self.data["quick_boost_minutes"] = quick_boost_minutes
+        try:
+            bonfire_until = _parse_until(self.data.get("bonfire_until"), "Bål slut")
+        except ControllerError:
+            bonfire_until = None
+        if not bonfire_until or bonfire_until <= time.time():
+            self.data["bonfire_until"] = None
+            self.data["bonfire_minutes"] = 0
+        else:
+            self.data["bonfire_until"] = bonfire_until
+        try:
+            standby_until = _parse_until(self.data.get("standby_until"), "Standby slut")
+        except ControllerError:
+            standby_until = None
+        self.data["standby"] = self.data.get("standby") is True
+        if not self.data["standby"] or (standby_until is not None and standby_until <= time.time()):
+            self.data["standby"], self.data["standby_until"], self.data["standby_minutes"] = False, None, 0
+        else:
+            self.data["standby_until"] = standby_until
         for key, default, low, high in (
             ("bathroom_rh_setpoint", 65.0, 35.0, 90.0),
             ("bathroom_rh_hysteresis", 5.0, 1.0, 20.0),
@@ -403,10 +506,15 @@ class ControllerState:
         self.data["schedule"] = schedule
         self._sanitize_advanced()
 
+    BOOL_KEYS = ("sizing_enabled", "afterheat_room_enabled", "fireplace_auto_enabled",
+                 "humidity_smart_enabled", "dry_protection_enabled", "balance_enabled", "pm25_enabled")
+
     def _sanitize_advanced(self) -> None:
-        for key in ("sizing_enabled", "afterheat_room_enabled", "fireplace_auto_enabled",
-                    "humidity_smart_enabled", "dry_protection_enabled"):
+        for key in self.BOOL_KEYS:
             self.data[key] = bool(self.data.get(key, False))
+        if self.data.get("balance_ratio_mode") not in BALANCE_RATIO_MODES:
+            self.data["balance_ratio_mode"] = "auto"
+        self.data["balance_learned"] = self._clean_learned(self.data.get("balance_learned"))
         for key, low, high in self.ADVANCED_FLOATS:
             try:
                 self.data[key] = min(high, max(low, float(self.data.get(key, self.DEFAULTS[key]))))
@@ -431,31 +539,67 @@ class ControllerState:
             except ValueError:
                 self.data[key] = default
         try:
-            self.data["airflow_measured"] = self._clean_airflow(self.data.get("airflow_measured"))
+            self.data["airflow_measured"] = self._stamp_airflow(self._clean_airflow(self.data.get("airflow_measured")))
         except ControllerError:
             self.data["airflow_measured"] = {}
         try:
             self.data["onewire_roles"] = clean_roles(self.data.get("onewire_roles"))
         except ValueError:
             self.data["onewire_roles"] = {}
+        try:
+            self.data["pm25_ignored_rooms"] = self._clean_room_names(self.data.get("pm25_ignored_rooms"))
+        except ControllerError:
+            self.data["pm25_ignored_rooms"] = []
 
     ADVANCED_FLOATS = (
         ("house_area_m2", 20.0, 1000.0), ("ceiling_height_m", 1.8, 6.0),
         ("afterheat_room_target", 15.0, 26.0), ("afterheat_room_gain", 0.5, 5.0),
         ("fireplace_auto_on_temp", 15.0, 400.0), ("fireplace_auto_off_temp", 10.0, 399.0),
         ("humidity_margin_gm3", 0.0, 3.0), ("dry_rh_limit", 15.0, 45.0),
+        ("balance_extract_excess_percent", 0.0, 20.0), ("balance_duct_ratio", 0.7, 1.5),
+        ("pm25_setpoint", 5.0, 200.0), ("pm25_step", 2.0, 100.0), ("pm25_hysteresis", 1.0, 50.0),
     )
     ADVANCED_INTS = (
         ("house_bathrooms", 0, 10), ("house_utility_rooms", 0, 10),
         ("airflow_max_m3h", 100, 1500), ("sizing_reduced_percent", 30, 100),
         ("afterheat_room_min", 10, 35), ("afterheat_room_max", 10, 35),
         ("afterheat_room_step_minutes", 2, 60), ("fireplace_afterrun_minutes", 0, 120),
-        ("fireplace_max_hours", 1, 24), ("dry_max_level", 1, 6),
+        ("fireplace_max_hours", 1, 24), ("dry_max_level", 1, 6), ("pm25_max_level", 1, 6),
     )
 
     @staticmethod
+    def _clean_learned(value: object) -> dict[str, object] | None:
+        """Heat-balance windows and the learned duct ratio; anything odd is dropped."""
+        if not isinstance(value, dict):
+            return None
+        windows = []
+        for window in value.get("windows") or []:
+            try:
+                windows.append({**window, "t": float(window["t"]), "duct_ratio": float(window["duct_ratio"]),
+                                "delta_t": float(window["delta_t"])})
+            except (KeyError, TypeError, ValueError):
+                continue
+        cleaned: dict[str, object] = {"windows": windows[-60:]}
+        for key in ("ratio", "ratio_in_use", "spread", "idle_power_w", "updated_at"):
+            try:
+                cleaned[key] = None if value.get(key) is None else float(value[key])
+            except (TypeError, ValueError):
+                cleaned[key] = None
+        ratio = cleaned["ratio_in_use"]
+        if ratio is not None and not 0.7 <= ratio <= 1.5:
+            cleaned["ratio_in_use"] = None
+        for key in ("count", "nights"):
+            try:
+                cleaned[key] = int(value.get(key) or 0)
+            except (TypeError, ValueError):
+                cleaned[key] = 0
+        cleaned["confidence"] = value.get("confidence") if value.get("confidence") in ("none", "low", "ok") else "none"
+        cleaned["last"] = value.get("last") if isinstance(value.get("last"), dict) else None
+        return cleaned
+
+    @staticmethod
     def _clean_airflow(value: object) -> dict[str, dict[str, int]]:
-        """Measured airflow per level (m3/h) from the commissioning report."""
+        """Measured airflow per level (m3/h), each at the fan percentage it was measured at."""
         if value in (None, ""):
             return {}
         if not isinstance(value, dict):
@@ -480,12 +624,126 @@ class ControllerState:
                 if not 10 <= number <= 1500:
                     raise ControllerError("Luftmængde skal være 10..1500 m³/h")
                 entry[side] = number
+                percent = values.get(f"{side}_percent")
+                if percent not in (None, ""):
+                    try:
+                        percent = int(round(float(percent)))
+                    except (TypeError, ValueError) as error:
+                        raise ControllerError("Målt ved skal være en procent") from error
+                    if not 1 <= percent <= 100:
+                        raise ControllerError("Målt ved skal være 1..100 %")
+                    entry[f"{side}_percent"] = percent
             if entry:
                 cleaned[str(level)] = entry
         return cleaned
 
+    def _stamp_airflow(self, measured: dict[str, dict[str, int]], previous: dict | None = None) -> dict[str, dict[str, int]]:
+        """Tie each measured value to a fan percentage.
+
+        A value keeps the percentage it had; a new or changed value without one
+        belongs to the percentage the level runs now.
+        """
+        previous = previous if previous is not None else self.data.get("airflow_measured") or {}
+        for level, entry in measured.items():
+            old = previous.get(level) if isinstance(previous.get(level), dict) else {}
+            profile = self.data["profiles"].get(int(level)) or {}
+            for side in ("supply", "extract"):
+                key = f"{side}_percent"
+                if side not in entry or key in entry:
+                    continue
+                if old.get(side) == entry[side] and old.get(key) is not None:
+                    entry[key] = int(old[key])
+                elif profile.get(side) is not None:
+                    entry[key] = int(profile[side])
+        return measured
+
     def airflow_plan(self) -> dict[str, object]:
         return airflow_plan(self.data, self.data["profiles"])
+
+    def set_fan_curve(self, curve: dict[str, object]) -> bool:
+        """Store the fan speed curve learned from the unit (not user-settable).
+
+        Returns True when the balance moved a supply percentage.
+        """
+        with self.lock:
+            self.data["fan_curve"] = dict(curve)
+            changed = self._rebalance()
+            self.save()
+            return changed
+
+    def set_balance_learned(self, learned: dict[str, object]) -> bool:
+        """Store the heat-balance windows and duct ratio (runtime only).
+
+        Returns True when the balance moved a supply percentage.
+        """
+        with self.lock:
+            self.data["balance_learned"] = self._clean_learned(learned)
+            changed = self._rebalance()
+            self.save()
+            return changed
+
+    def _rebalance(self, *, strict: bool = False) -> bool:
+        """Write the balanced supply percentages into the level profiles.
+
+        The profiles stay what the unit runs, so the engine, the airflow plan
+        and Home Assistant need no second set. Returns True when a supply
+        percentage changed. strict raises when no valid ladder comes out
+        (a user change); otherwise the profiles are left as they were.
+        """
+        if not self.data.get("balance_enabled"):
+            self.balance_error = None
+            return False
+        profiles = _copy_profiles(self.data["profiles"])
+        for level, values in balanced_profiles(self.data, profiles).items():
+            profiles[level]["supply"] = int(values["supply"])
+        try:
+            validate_ladder(profiles)
+        except ControllerError as error:
+            self.balance_error = f"Luftbalancen kan ikke lave gyldige trin: {error}"
+            if strict:
+                raise ControllerError(self.balance_error) from error
+            return False
+        self.balance_error = None
+        changed = profiles != self.data["profiles"]
+        self.data["profiles"] = profiles
+        return changed
+
+    def balance_status(self) -> dict[str, object]:
+        """Air balance per level: what the balance gives and what runs now."""
+        curve = fan_curve(self.data)
+        k = side_constants(self.data)
+        levels = balanced_profiles(self.data, self.data["profiles"])
+        for level, values in levels.items():
+            running = self.data["profiles"][level]
+            extract_flow = float(k["extract"]) * rpm_at_percent(int(running["extract"]), curve)
+            supply_flow = float(k["supply"]) * rpm_at_percent(int(running["supply"]), curve)
+            values["current_supply"] = int(running["supply"])
+            values["current_excess_percent"] = round((extract_flow / supply_flow - 1.0) * 100.0, 1)
+        learned = self.data.get("balance_learned") or {}
+        return {
+            "enabled": self.data.get("balance_enabled") is True,
+            "target_excess_percent": float(self.data["balance_extract_excess_percent"]),
+            "duct_ratio": round(float(k["ratio"]), 3),
+            "duct_ratio_source": k["source"],
+            "measured_sides": k["measured"],
+            "levels": levels,
+            "learned": {key: learned.get(key) for key in (
+                "ratio", "ratio_in_use", "spread", "count", "nights", "confidence", "updated_at", "last", "idle_power_w")},
+            "error": self.balance_error,
+        }
+
+    def schedule_periods(self) -> dict[str, list[dict[str, object]]]:
+        periods = self.data.get("schedule_periods")
+        return periods if periods is not None else week_schedule.from_legacy(self.data.get("schedule"))
+
+    def vacation_running(self, now: float | None = None) -> bool:
+        if not self.data.get("vacation_enabled"):
+            return False
+        try:
+            start = _parse_until(self.data.get("vacation_from"), "Ferie start")
+        except ControllerError:
+            start = None
+        return start is None or start <= (now or time.time())
 
     def normal_level(self) -> int:
         """Base level: from the house size when sizing is on, else the user's."""
@@ -511,6 +769,15 @@ class ControllerState:
 
     def configure(self, patch: dict[str, object]) -> dict[str, object]:
         with self.lock:
+            backup = copy.deepcopy(self.data)
+            try:
+                return self._configure(patch)
+            except Exception:
+                self.data = backup
+                raise
+
+    def _configure(self, patch: dict[str, object]) -> dict[str, object]:
+        with self.lock:
             allowed = {
                 "mode", "manual_level", "local_normal_level", "local_min_level", "local_max_level",
                 "rh_setpoint", "rh_hysteresis", "co2_setpoint", "co2_hysteresis", "co2_offset",
@@ -520,8 +787,8 @@ class ControllerState:
                 "schedule", "night_enabled", "night_start", "night_end", "night_level",
                 "night_air_quality_max_level", "bathroom_rh_setpoint",
                 "bathroom_rh_hysteresis", "bathroom_max_level",
-                "vacation_enabled", "vacation_level", "vacation_until",
-                "quick_boost_minutes", "quick_boost_level", "cooling_enabled",
+                "vacation_enabled", "vacation_level", "vacation_until", "vacation_from", "schedule_periods",
+                "quick_boost_minutes", "quick_boost_level", "bonfire_minutes", "standby_minutes", "cooling_enabled",
                 "cooling_room_setpoint", "cooling_hysteresis", "cooling_outdoor_min",
                 "cooling_min_delta", "cooling_level", "cooling_start_delay_seconds",
                 "cooling_min_on_seconds", "cooling_min_off_seconds", "cooling_transition_timeout_seconds",
@@ -580,14 +847,63 @@ class ControllerState:
                 value = patch["vacation_until"]
                 _parse_until(value, "Ferie slut")
                 self.data["vacation_until"] = str(value)[:40] if value else None
+            if "vacation_from" in patch:
+                value = patch["vacation_from"]
+                _parse_until(value, "Ferie start")
+                self.data["vacation_from"] = str(value)[:40] if value else None
+            if self.data.get("vacation_from") and self.data.get("vacation_until"):
+                if _parse_until(self.data["vacation_until"], "Ferie slut") <= _parse_until(self.data["vacation_from"], "Ferie start"):
+                    raise ControllerError("Ferie slut skal ligge efter ferie start")
+            if "schedule_periods" in patch:
+                try:
+                    self.data["schedule_periods"] = (
+                        None if patch["schedule_periods"] is None else week_schedule.normalize(patch["schedule_periods"]))
+                except week_schedule.ScheduleError as error:
+                    raise ControllerError(str(error)) from error
             if "quick_boost_minutes" in patch:
                 minutes = int(patch["quick_boost_minutes"])
                 if minutes not in VALID_QUICK_BOOST_MINUTES:
                     raise ControllerError("Quick Boost skal være 0, 15, 30 eller 60 minutter")
                 if minutes and self.data.get("fireplace"):
                     raise ControllerError("Quick Boost kan ikke startes under pejsefunktion")
+                if minutes and self.data.get("standby"):
+                    raise ControllerError("Anlægget er slukket; tænd det først")
                 self.data["quick_boost_minutes"] = minutes
                 self.data["quick_boost_until"] = time.time() + minutes * 60 if minutes else None
+                if minutes:
+                    self.data["bonfire_until"] = None
+                    self.data["bonfire_minutes"] = 0
+            if "standby_minutes" in patch:
+                minutes = int(patch["standby_minutes"])
+                low, high = STANDBY_MINUTES_RANGE
+                if minutes not in (0, STANDBY_UNTIL_ON, STANDBY_UNTIL_MORNING) and not low <= minutes <= high:
+                    raise ControllerError(f"Standby skal være {low}..{high} minutter, til i morgen eller indtil tændt")
+                self.data["standby"] = minutes != 0
+                self.data["standby_minutes"] = minutes
+                if minutes == STANDBY_UNTIL_MORNING:
+                    self.data["standby_until"] = _next_morning(time.time(), STANDBY_MORNING_HOUR)
+                else:
+                    self.data["standby_until"] = time.time() + minutes * 60 if minutes > 0 else None
+                if minutes:
+                    # Off means off: temporary functions end.
+                    self.data["quick_boost_until"], self.data["quick_boost_minutes"] = None, 0
+                    self.data["bonfire_until"], self.data["bonfire_minutes"] = None, 0
+                    self.data["fireplace"], self.data["fireplace_until"] = False, None
+                    self.data["fireplace_duration_minutes"] = 0
+            if "bonfire_minutes" in patch:
+                minutes = int(patch["bonfire_minutes"])
+                low, high = BONFIRE_MINUTES_RANGE
+                if minutes and not low <= minutes <= high:
+                    raise ControllerError(f"Bål skal vare {low}..{high} minutter")
+                if minutes and self.data.get("fireplace"):
+                    raise ControllerError("Bål kan ikke startes under pejsefunktion")
+                if minutes and self.data.get("standby"):
+                    raise ControllerError("Anlægget er slukket; tænd det først")
+                self.data["bonfire_minutes"] = minutes
+                self.data["bonfire_until"] = time.time() + minutes * 60 if minutes else None
+                if minutes:
+                    self.data["quick_boost_until"] = None
+                    self.data["quick_boost_minutes"] = 0
             if "schedule" in patch:
                 incoming = patch["schedule"]
                 if not isinstance(incoming, dict):
@@ -619,6 +935,8 @@ class ControllerState:
                 if not isinstance(patch["fireplace"], bool):
                     raise ControllerError("fireplace skal være boolean")
                 minutes = 15 if patch["fireplace"] else 0
+                if minutes and self.data.get("standby"):
+                    raise ControllerError("Anlægget er slukket; tænd det først")
                 if minutes and self.data["bypass"] == "on":
                     raise ControllerError("Pejsefunktion kan ikke aktiveres mens bypass er tændt")
                 self.data["fireplace"] = minutes > 0
@@ -627,10 +945,14 @@ class ControllerState:
                 if minutes:
                     self.data["quick_boost_until"] = None
                     self.data["quick_boost_minutes"] = 0
+                    self.data["bonfire_until"] = None
+                    self.data["bonfire_minutes"] = 0
             if "fireplace_minutes" in patch:
                 minutes = int(patch["fireplace_minutes"])
                 if minutes not in (0, 15, 30):
                     raise ControllerError("Pejsetid skal være 0, 15 eller 30 minutter")
+                if minutes and self.data.get("standby"):
+                    raise ControllerError("Anlægget er slukket; tænd det først")
                 if minutes and self.data["bypass"] == "on":
                     raise ControllerError("Pejsefunktion kan ikke aktiveres mens bypass er tændt")
                 self.data["fireplace"] = minutes > 0
@@ -639,6 +961,8 @@ class ControllerState:
                 if minutes:
                     self.data["quick_boost_until"] = None
                     self.data["quick_boost_minutes"] = 0
+                    self.data["bonfire_until"] = None
+                    self.data["bonfire_minutes"] = 0
             if "afterheat_setpoint" in patch:
                 value = int(patch["afterheat_setpoint"])
                 if not 10 <= value <= 35:
@@ -659,6 +983,8 @@ class ControllerState:
                 incoming = patch["profiles"]
                 if not isinstance(incoming, dict):
                     raise ControllerError("profiles skal være et objekt")
+                balance_was_on = self.data.get("balance_enabled") is True
+                balance_on = patch.get("balance_enabled", balance_was_on) is True
                 profiles = _copy_profiles(self.data["profiles"])
                 for raw_level, values in incoming.items():
                     level = int(raw_level)
@@ -666,19 +992,32 @@ class ControllerState:
                         raise ControllerError("Kun niveau 1..6 understøttes")
                     extract = int(values.get("extract", profiles[level]["extract"]))
                     supply = int(values.get("supply", profiles[level]["supply"]))
-                    validate_profile(extract, supply)
-                    profiles[level].update(extract=extract, supply=supply)
+                    if balance_on:
+                        # The balance solves supply from extract; resending the
+                        # current value (a form saving every field) is fine.
+                        if balance_was_on and supply != profiles[level]["supply"]:
+                            raise ControllerError("Indblæsningen styres af luftbalancen. Ændr udsugningen, eller slå luftbalancen fra for at sætte indblæsningen selv")
+                        if not 11 <= extract <= 100:
+                            raise ControllerError("Udsugning skal være 11..100 %")
+                        profiles[level]["extract"] = extract
+                    else:
+                        validate_profile(extract, supply)
+                        profiles[level].update(extract=extract, supply=supply)
                     if "name" in values:
                         name = str(values["name"]).strip()
                         if not name or len(name) > 24:
                             raise ControllerError("Profilnavn skal være 1..24 tegn")
                         profiles[level]["name"] = name
-                for level in range(2, 7):
-                    if profiles[level]["extract"] <= profiles[level - 1]["extract"] or profiles[level]["supply"] <= profiles[level - 1]["supply"]:
-                        raise ControllerError("Niveauerne skal stige i både udsugning og indblæsning")
+                if balance_on:
+                    for level in range(2, 7):
+                        if profiles[level]["extract"] <= profiles[level - 1]["extract"]:
+                            raise ControllerError("Udsugningen skal stige fra trin til trin")
+                else:
+                    validate_ladder(profiles)
                 self.data["profiles"] = profiles
             self._configure_advanced(patch)
             self._sanitize()
+            self._rebalance(strict=True)
             self.data["updated_at"] = time.time()
             self.save()
             return self.snapshot()
@@ -686,13 +1025,16 @@ class ControllerState:
     ADVANCED_KEYS = (
         "sizing_enabled", "house_area_m2", "ceiling_height_m", "house_bathrooms",
         "house_utility_rooms", "airflow_max_m3h", "airflow_measured", "sizing_reduced_percent",
+        "balance_enabled", "balance_extract_excess_percent", "balance_ratio_mode", "balance_duct_ratio",
+        "balance_learning_reset",
         "afterheat_room_enabled", "afterheat_room_target", "afterheat_room_gain",
         "afterheat_room_min", "afterheat_room_max", "afterheat_room_step_minutes",
         "afterheat_room_source", "fireplace_auto_enabled", "fireplace_auto_source",
         "fireplace_auto_on_temp", "fireplace_auto_off_temp", "fireplace_afterrun_minutes",
         "fireplace_max_hours", "humidity_smart_enabled", "outdoor_humidity_source",
         "humidity_margin_gm3", "dry_protection_enabled", "dry_rh_limit", "dry_max_level",
-        "onewire_roles",
+        "onewire_roles", "pm25_enabled", "pm25_setpoint", "pm25_step", "pm25_hysteresis",
+        "pm25_max_level", "pm25_ignored_rooms",
     )
     ADVANCED_LABELS = {
         "house_area_m2": "Boligareal", "ceiling_height_m": "Loftshøjde",
@@ -705,15 +1047,27 @@ class ControllerState:
         "fireplace_afterrun_minutes": "Efterløb", "fireplace_max_hours": "Maks. varighed",
         "humidity_margin_gm3": "Fugtmargin", "dry_rh_limit": "Tør luft-grænse",
         "dry_max_level": "Maks. trin ved tør luft",
+        "balance_extract_excess_percent": "Udsugning over indblæsning", "balance_duct_ratio": "Kanalforhold",
+        "pm25_setpoint": "PM2.5-grænse", "pm25_step": "PM2.5 pr. trin", "pm25_hysteresis": "PM2.5-hysterese",
+        "pm25_max_level": "Maks. trin ved PM2.5",
     }
 
     def _configure_advanced(self, patch: dict[str, object]) -> None:
-        for key in ("sizing_enabled", "afterheat_room_enabled", "fireplace_auto_enabled",
-                    "humidity_smart_enabled", "dry_protection_enabled"):
+        for key in self.BOOL_KEYS:
             if key in patch:
                 if not isinstance(patch[key], bool):
                     raise ControllerError(f"{key} skal være boolean")
                 self.data[key] = patch[key]
+        if "balance_ratio_mode" in patch:
+            if patch["balance_ratio_mode"] not in BALANCE_RATIO_MODES:
+                raise ControllerError("balance_ratio_mode skal være auto eller fixed")
+            self.data["balance_ratio_mode"] = patch["balance_ratio_mode"]
+        if patch.get("balance_learning_reset") is True:
+            # Start the heat-balance learning over; the standby draw is kept.
+            learned = self.data.get("balance_learned") or {}
+            self.data["balance_learned"] = {"windows": [], "idle_power_w": learned.get("idle_power_w")}
+        elif "balance_learning_reset" in patch and patch["balance_learning_reset"] is not False:
+            raise ControllerError("balance_learning_reset skal være true")
         for key, low, high in self.ADVANCED_FLOATS:
             if key in patch:
                 try:
@@ -746,14 +1100,24 @@ class ControllerState:
                 except ValueError as error:
                     raise ControllerError(f"{key}: ugyldig målekilde") from error
         if "airflow_measured" in patch:
-            self.data["airflow_measured"] = self._clean_airflow(patch["airflow_measured"])
+            self.data["airflow_measured"] = self._stamp_airflow(self._clean_airflow(patch["airflow_measured"]))
         if "onewire_roles" in patch:
             try:
                 self.data["onewire_roles"] = clean_roles(patch["onewire_roles"])
             except ValueError as error:
                 raise ControllerError(str(error)) from error
+        if "pm25_ignored_rooms" in patch:
+            self.data["pm25_ignored_rooms"] = self._clean_room_names(patch["pm25_ignored_rooms"])
 
-    def heartbeat(self, demand: str = "normal", *, requested_level: int | None = None, valid_for_s: int | None = None, reason: str | None = None) -> dict[str, object]:
+    @staticmethod
+    def _clean_room_names(value: object) -> list[str]:
+        if value in (None, ""):
+            return []
+        if not isinstance(value, list) or len(value) > 32:
+            raise ControllerError("Rumlisten skal være en liste med højst 32 rum")
+        return sorted({str(name).strip()[:64] for name in value if str(name).strip()})
+
+    def heartbeat(self, demand: str = "normal", *, requested_level: int | None = None, valid_for_s: int | None = None, reason: str | None = None, bathroom_drying: bool = False) -> dict[str, object]:
         if demand not in VALID_DEMANDS:
             raise ControllerError("Ugyldigt HA-demand")
         if requested_level is not None and not 1 <= int(requested_level) <= 6:
@@ -769,6 +1133,7 @@ class ControllerState:
                 self.data["ha_valid_for_seconds"] = int(valid_for_s)
             if reason is not None:
                 self.data["ha_reason"] = str(reason)[:256]
+            self.data["ha_bathroom_drying"] = bool(bathroom_drying)
             return self.snapshot()
 
     def _expire_fireplace(self, now: float | None = None) -> None:
@@ -792,6 +1157,7 @@ class ControllerState:
         if until is not None and until <= now:
             self.data["vacation_enabled"] = False
             self.data["vacation_until"] = None
+            self.data["vacation_from"] = None
             self.data["updated_at"] = now
             self.save()
 
@@ -810,12 +1176,43 @@ class ControllerState:
             self.data["updated_at"] = now
             self.save()
 
+    def _expire_bonfire(self, now: float | None = None) -> None:
+        now = now or time.time()
+        until = self.data.get("bonfire_until")
+        if until is None:
+            return
+        try:
+            active_until = float(until)
+        except (TypeError, ValueError):
+            active_until = 0.0
+        if active_until <= now:
+            self.data["bonfire_until"] = None
+            self.data["bonfire_minutes"] = 0
+            self.data["updated_at"] = now
+            self.save()
+
+    def _expire_standby(self, now: float | None = None) -> None:
+        now = now or time.time()
+        until = self.data.get("standby_until")
+        if not self.data.get("standby") or until is None:
+            return
+        try:
+            active_until = float(until)
+        except (TypeError, ValueError):
+            active_until = 0.0
+        if active_until <= now:
+            self.data["standby"], self.data["standby_until"], self.data["standby_minutes"] = False, None, 0
+            self.data["updated_at"] = now
+            self.save()
+
     def snapshot(self) -> dict[str, object]:
         with self.lock:
             now = time.time()
+            self._expire_standby(now)
             self._expire_fireplace(now)
             self._expire_vacation(now)
             self._expire_quick_boost(now)
+            self._expire_bonfire(now)
             result = dict(self.data)
             result["profiles"] = _copy_profiles(self.data["profiles"])
             result["schedule"] = _copy_schedule(self.data["schedule"])
@@ -827,12 +1224,36 @@ class ControllerState:
             result["fireplace_remaining_seconds"] = max(0, int(float(until) - now)) if until else 0
             boost_until = result.get("quick_boost_until")
             result["quick_boost_remaining_seconds"] = max(0, int(float(boost_until) - now)) if boost_until else 0
+            bonfire_until = result.get("bonfire_until")
+            result["bonfire_remaining_seconds"] = max(0, int(float(bonfire_until) - now)) if bonfire_until else 0
+            result["bonfire_active"] = bool(result["bonfire_remaining_seconds"])
+            standby_until = result.get("standby_until")
+            result["standby_active"] = result.get("standby") is True
+            result["standby_remaining_seconds"] = max(0, int(float(standby_until) - now)) if standby_until else None
             vacation_until = _parse_until(result.get("vacation_until"), "Ferie slut") if result.get("vacation_until") else None
             result["vacation_remaining_seconds"] = max(0, int(vacation_until - now)) if vacation_until else None
+            vacation_from = _parse_until(result.get("vacation_from"), "Ferie start") if result.get("vacation_from") else None
+            result["vacation_pending"] = bool(result.get("vacation_enabled")) and not self.vacation_running(now)
+            result["vacation_starts_in_seconds"] = max(0, int(vacation_from - now)) if vacation_from and vacation_from > now else None
+            periods = self.schedule_periods()
+            local_now = datetime.fromtimestamp(now).astimezone()
+            planned = week_schedule.effect(periods, local_now)
+            result["schedule_periods"] = periods
+            result["schedule_source"] = "periods" if self.data.get("schedule_periods") is not None else "legacy"
+            result["schedule_now"] = None if planned is None else {
+                **planned["period"], "set_level": planned["set_level"], "min_level": planned["min_level"]}
+            result["schedule_next_change"] = week_schedule.next_change(periods, local_now)
             level = result.get("effective_level")
             result["effective_profile"] = result["profiles"].get(int(level)) if level else None
+            if result["bonfire_active"] and not result.get("fireplace"):
+                result["effective_profile"] = dict(BONFIRE_PROFILE)
+            if result["standby_active"]:
+                result["effective_profile"] = dict(STANDBY_PROFILE)
             result["airflow_plan"] = self.airflow_plan()
             result["effective_normal_level"] = self.normal_level()
+            result["balance"] = self.balance_status()
+            # The windows stay on the Pi; the summary is in balance.learned.
+            result["balance_learned"] = {key: value for key, value in (result.get("balance_learned") or {}).items() if key != "windows"} or None
             return result
 
 
@@ -972,7 +1393,7 @@ class ControllerEngine:
         flags = {"schedule_active": False, "night_active": False, "vacation_active": False, "quick_boost_active": False, "cooling_active": False}
         effective_bypass = "on" if d["bypass"] == "on" else "off"
 
-        if d.get("vacation_enabled"):
+        if self.config.vacation_running(now_ts):
             flags["vacation_active"] = True
             level = int(d["vacation_level"])
             source = "vacation"
@@ -980,13 +1401,19 @@ class ControllerEngine:
             self._stop_cooling(now_ts, "vacation")
         elif d["mode"] != "manual":
             if d.get("schedule_enabled"):
-                entry = d["schedule"].get(str(now.weekday()))
-                if entry and entry.get("enabled") and _time_window_active(now, str(entry["start"]), str(entry["end"])):
+                planned = week_schedule.effect(self.config.schedule_periods(), now)
+                if planned:
                     flags["schedule_active"] = True
-                    scheduled = int(entry["level"])
-                    if level < scheduled:
-                        level = scheduled
-                    reason = f"{reason}; ugeskema {entry['start']}–{entry['end']}"
+                    period = planned["period"]
+                    name = period["label"] or f"{period['start']}–{period['end']}"
+                    if planned["set_level"] is not None:
+                        # The period replaces the base level; air-quality demand above
+                        # the normal base level may still lift it.
+                        wanted = max(int(d["local_min_level"]), int(planned["set_level"]))
+                        level = max(level, wanted) if level > self.config.normal_level() else wanted
+                    if planned["min_level"] is not None:
+                        level = max(level, int(planned["min_level"]))
+                    reason = f"{reason}; ugeplan {name} · trin {planned['set_level'] or planned['min_level']}"
             if d.get("night_enabled") and _time_window_active(now, str(d["night_start"]), str(d["night_end"])):
                 flags["night_active"] = True
                 rh, co2 = self.measurements.get("rh"), self.measurements.get("co2")
@@ -999,7 +1426,12 @@ class ControllerEngine:
                 # configurable ceiling. This prevents a humid bathroom from repeatedly
                 # forcing full boost while night mode simultaneously tries to reduce it.
                 ha_urgent = source == "ha_smart" and level > int(d["night_level"])
-                if local_urgent or ha_urgent:
+                if source == "ha_smart" and d.get("ha_bathroom_drying"):
+                    # Drying a bathroom out after a shower is allowed at night too;
+                    # it steps down by itself as humidity falls.
+                    flags["night_active"] = True
+                    reason = f"{reason}; nat: badeværelse tørres ud"
+                elif local_urgent or ha_urgent:
                     night_cap = max(int(d["night_level"]), int(d["night_air_quality_max_level"]))
                     if level > night_cap:
                         level = night_cap
@@ -1106,6 +1538,28 @@ class ControllerEngine:
         if d.get("fireplace"):
             effective_bypass = "off"
         level = min(int(d["local_max_level"]), max(int(d["local_min_level"]), int(level)))
+        standby_until = d.get("standby_until")
+        flags["standby_active"] = d.get("standby") is True and (standby_until is None or float(standby_until) > now_ts)
+        if flags["standby_active"]:
+            flags["quick_boost_active"] = False
+            flags["cooling_active"] = False
+            self._stop_cooling(now_ts, "standby")
+            left = f" · ca. {max(1, math.ceil((float(standby_until) - now_ts) / 60))} min tilbage" if standby_until else " · indtil det tændes"
+            flags["bonfire_active"] = False
+            return level, "standby", f"Anlæg slukket (standby){left}", "off", flags
+        bonfire_until = d.get("bonfire_until")
+        flags["bonfire_active"] = False
+        if not d.get("fireplace") and bonfire_until and float(bonfire_until) > now_ts:
+            # Smoke outside: the unit is switched off by the standby pattern in apply().
+            flags["bonfire_active"] = True
+            flags["quick_boost_active"] = False
+            flags["cooling_active"] = False
+            self._stop_cooling(now_ts, "bonfire")
+            effective_bypass = "off"
+            level = 1
+            source = "bonfire"
+            remaining = max(1, math.ceil((float(bonfire_until) - now_ts) / 60))
+            reason = f"Bål i haven · anlæg slukket · ca. {remaining} min tilbage"
         return level, source, reason, effective_bypass, flags
 
     def _dry_air(self, d: dict) -> bool:
@@ -1189,6 +1643,10 @@ class ControllerEngine:
             d["effective_reason"] = reason
             d["updated_at"] = now
             profile = d["profiles"].get(level) if level else None
+            if flags.get("bonfire_active"):
+                profile = dict(BONFIRE_PROFILE)
+            if flags.get("standby_active"):
+                profile = dict(STANDBY_PROFILE)
             start_delay = int(d["cooling_start_delay_seconds"])
             qualifying_remaining = None
             if self.cooling_reason == "qualifying" and self.cooling_qualifying_since is not None:
@@ -1273,6 +1731,15 @@ class ControllerEngine:
     def apply(self) -> dict[str, object]:
         """Apply only changed desired values; arbitration is enforced below this layer."""
         snapshot = self.resolve()
+        # Standby and bonfire both switch the unit off with the standby pattern.
+        standby = snapshot.get("standby_active") is True or snapshot.get("bonfire_active") is True
+        previous_standby = self.last_applied.get("standby")
+        if standby or previous_standby is True:
+            # The standby pattern replaces the fan pair; leaving it restores the
+            # previous pair in the gateway, then the wanted pair is written again.
+            self._call("standby", standby, self.hardware.set_standby, standby)
+            if previous_standby is True and not standby:
+                self.last_applied.pop("fan_pair", None)
         fireplace = bool(snapshot["fireplace"])
         previous_fireplace = self.last_applied.get("fireplace")
         self._call("fireplace", fireplace, self.hardware.set_fireplace, fireplace)
@@ -1282,12 +1749,14 @@ class ControllerEngine:
         if self.hardware.set_bypass is not None:
             self._call("bypass", bypass, self.hardware.set_bypass, bypass)
         profile = snapshot.get("effective_profile")
-        if profile:
+        if profile and not standby:
             pair = (int(profile["extract"]), int(profile["supply"]))
             self._call("fan_pair", pair, self.hardware.write_fan_pair, *pair)
         enabled = bool(snapshot["afterheat_enabled"])
         setpoint = int(snapshot.get("afterheat_effective_setpoint") or snapshot["afterheat_setpoint"])
-        command = setpoint if enabled else None
+        # With the fans stopped (standby or bonfire) the water coil would heat
+        # still air, so the afterheat is switched off and restored afterwards.
+        command = setpoint if enabled and not standby else None
         self._call(
             "afterheat_setpoint",
             command,

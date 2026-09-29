@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Optional read-only DS18B20 HTTP service for PassiveLink."""
+"""Optional read-only DS18B20 HTTP service for HCH5 Control."""
 
 from __future__ import annotations
 

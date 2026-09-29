@@ -309,7 +309,7 @@ class BypassAndDiscoveryTests(unittest.TestCase):
         self.assertEqual(gateway.write_afterheat_setpoint(serial, 22), 22)
         self.assertEqual(len(writes), 1)
         self.assertEqual(arbitrator.master, arbitrator.PI)
-        self.assertEqual(arbitrator.own_echo_count, 1)
+        # The 8-byte ack is a response, not a write.
         self.assertEqual(arbitrator.foreign_write_count, 0)
 
     def test_discovery_is_stable_during_fallback_and_never_deletes_entities(self):

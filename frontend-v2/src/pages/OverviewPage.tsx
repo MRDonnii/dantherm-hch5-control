@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, Flame, Gauge, House, Leaf, Snowflake, Wind, X, Zap } from "lucide-react";
+import { createPortal } from "react-dom";
+import { ArrowRight, CloudFog, Flame, Gauge, House, Leaf, Power, Snowflake, Wind, X, Zap } from "lucide-react";
 import { Hch5UnitDiagram } from "../components/Hch5UnitDiagram";
 import { AfterheatThermostat } from "../components/AfterheatThermostat";
 import { describeControl } from "../lib/control";
@@ -13,9 +14,6 @@ import "../styles/history.css";
 type Data = Record<string, unknown>;
 type AfterheatValue = number | "off";
 type AuthState = { csrf?: string | null };
-// +/- only move a local draft; one command is sent once the user has stopped
-// pressing, so each step does not wait for a save and RS485 round trip.
-const AFTERHEAT_SEND_DELAY_MS = 1200;
 const SENSOR_HISTORY: Record<string, { title: string; key: string; color: HistorySeries["color"]; unit?: string }> = {
   outdoor: { title: "Udeluft · T1", key: "outdoor_temp", color: "blue" },
   extract: { title: "Udsugning · T3", key: "extract_temp", color: "orange" },
@@ -51,6 +49,15 @@ function temp(value: number | null) {
 function whole(value: number | null) {
   return value === null ? "—" : Math.round(value).toLocaleString("da-DK");
 }
+const BONFIRE_CHOICES: [number, string][] = [[30, "30 min"], [60, "1 t"], [120, "2 t"], [180, "3 t"]];
+// Presets in the OFF popup; -2 = until 07:00, -1 = until switched on again.
+const STANDBY_CHOICES: [number, string, string][] = [
+  [60, "1 time", "Tænder selv om en time"],
+  [240, "4 timer", "Tænder selv om fire timer"],
+  [480, "8 timer", "Tænder selv om otte timer"],
+  [-2, "Til i morgen", "Tænder selv kl. 07:00"],
+  [-1, "Permanent", "Slukket, til du tænder igen"],
+];
 function energy(value: number | null) {
   return value === null ? "—" : value.toLocaleString("da-DK", { maximumFractionDigits: 2 });
 }
@@ -89,12 +96,13 @@ export function OverviewPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const { setNotice } = useTopbarNotice();
   const [afterheatDraft, setAfterheatDraft] = useState<AfterheatValue | null>(null);
-  const afterheatTimer = useRef<number | null>(null);
-  const afterheatPending = useRef<{ target: AfterheatValue; seq: number } | null>(null);
+  // A confirmed value shown while it is being saved; not a draft needing confirmation.
+  const [afterheatSent, setAfterheatSent] = useState<AfterheatValue | null>(null);
   const afterheatSeq = useRef(0);
   // Setpoint to return to when the power button turns the afterheat back on.
   const lastAfterheatOn = useRef(20);
   const [activeSensor, setActiveSensor] = useState<string | null>(null);
+  const [standbyDialog, setStandbyDialog] = useState(false);
   const [historySamples, setHistorySamples] = useState<HistorySample[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
@@ -168,22 +176,9 @@ export function OverviewPage() {
       target === "off" ? { afterheat_enabled: false } : { afterheat_setpoint: target },
       target === "off" ? "Eftervarmen er sat til OFF." : `Eftervarmen er sat til ${target} °C.`,
     );
-    // A newer press may have started another draft while this one was saving.
-    if (afterheatSeq.current === seq) setAfterheatDraft(null);
+    if (afterheatSeq.current === seq) setAfterheatSent(null);
   }, [command]);
 
-  const flushAfterheat = useCallback(() => {
-    if (afterheatTimer.current !== null) window.clearTimeout(afterheatTimer.current);
-    afterheatTimer.current = null;
-    const pending = afterheatPending.current;
-    afterheatPending.current = null;
-    if (pending) void sendAfterheat(pending.target, pending.seq);
-  }, [sendAfterheat]);
-
-  // Leaving the page must not drop a change that is still waiting to be sent.
-  const flushAfterheatRef = useRef(flushAfterheat);
-  flushAfterheatRef.current = flushAfterheat;
-  useEffect(() => () => flushAfterheatRef.current(), []);
 
   const outdoor = first(unit, "outdoor_temp", "outdoor_temperature");
   const extract = first(unit, "extract_temp", "extract_temperature");
@@ -224,11 +219,14 @@ export function OverviewPage() {
   const afterheatCutoff = number(controller.afterheat_outdoor_cutoff) ?? 15;
   const afterheatStatus = heating ? "Aktiv" : afterheatLockout ? "Spærret af sommerstop" : heatKnown ? "Inaktiv" : "Ukendt";
   const fireplace = controller.actual_fireplace === true || unit.fireplace === true;
+  const bonfireActive = controller.bonfire_active === true;
+  const standbyActive = controller.standby_active === true;
   const mode = String(controller.mode ?? "local_auto");
   const level = number(controller.effective_level) ?? 3;
   const afterheatSetpoint = number(controller.afterheat_setpoint) ?? 20;
   const afterheatEnabled = controller.afterheat_enabled !== false;
-  const shownAfterheat: AfterheatValue = afterheatDraft ?? (afterheatEnabled ? afterheatSetpoint : "off");
+  const committedAfterheat: AfterheatValue = afterheatSent ?? (afterheatEnabled ? afterheatSetpoint : "off");
+  const shownAfterheat: AfterheatValue = afterheatDraft ?? committedAfterheat;
   if (typeof afterheatSetpoint === "number") lastAfterheatOn.current = afterheatSetpoint;
   const actualAfterheatSelectionNumber = number(controller.actual_afterheat_selection);
   const actualAfterheatSelection = controller.actual_afterheat_selection === "off"
@@ -247,14 +245,28 @@ export function OverviewPage() {
 
   const levelPatch = mode === "manual" ? "manual_level" : "local_normal_level";
   // Remote-style range: OFF - 10 - 11 ... 35. Minus below 10 selects OFF.
+  // +/-, the dial and the power button only move a draft; nothing is sent
+  // before the user confirms, so a slip cannot change the afterheat.
   const setAfterheatTarget = (next: AfterheatValue) => {
     if (next !== "off") lastAfterheatOn.current = next;
-    const seq = ++afterheatSeq.current;
-    setAfterheatDraft(next);
-    afterheatPending.current = { target: next, seq };
-    if (afterheatTimer.current !== null) window.clearTimeout(afterheatTimer.current);
-    afterheatTimer.current = window.setTimeout(flushAfterheat, AFTERHEAT_SEND_DELAY_MS);
+    setAfterheatDraft(next === committedAfterheat ? null : next);
   };
+  const confirmAfterheat = () => {
+    if (afterheatDraft === null) return;
+    const seq = ++afterheatSeq.current;
+    setAfterheatSent(afterheatDraft);
+    setAfterheatDraft(null);
+    void sendAfterheat(afterheatDraft, seq);
+  };
+
+  const afterheatCard = (
+    <article className="surface afterheat-setpoint-card">
+      <AfterheatThermostat value={shownAfterheat} onChange={setAfterheatTarget} heating={heating} lockout={afterheatLockout}
+        cutoff={afterheatCutoff} outdoor={outdoor} airBefore={number(controller.actual_supply_before_heater_temperature)} airAfter={afterHeater}
+        registered={actualAfterheatSelection} lastOn={lastAfterheatOn.current}
+        current={committedAfterheat} onConfirm={confirmAfterheat} onCancel={() => setAfterheatDraft(null)} busy={busy !== null}/>
+    </article>
+  );
 
   return (
     <section className="dashboard-overview page-enter">
@@ -278,114 +290,139 @@ export function OverviewPage() {
       </div>}
 
       <div className="dashboard-main-grid">
-        <article className="surface pro-air-card">
-          <div className="pro-card-head">
-            <div><h2>Luftstrømme og temperaturer</h2><p>Live luftveje gennem HCH5 med aktuelle temperaturer og fysisk status.</p></div>
-            <span className={`status-chip${online ? "" : " muted"}`}><span className="live-dot"/>{online ? "Live" : "Afventer"}</span>
-          </div>
-          <Hch5UnitDiagram
-            onTemperatureClick={setActiveSensor}
-            outdoor={outdoor} extract={extract} exhaust={exhaust} afterHeater={afterHeater} beforeHeater={number(controller.actual_supply_before_heater_temperature)} beforeHeaterEstimate={number(controller.actual_supply_before_heater_estimate)}
-            frost={frost} flowWater={flowWater} returnWater={returnWater}
-            supplyRpm={supplyRpm} extractRpm={extractRpm} supplyPercent={supplyPercent} extractPercent={extractPercent}
-            bypassActual={bypassActual} bypassRequest={bypassRequest} heating={heating} recovery={recovery}
-            busActive={busHealthy} bypassRaw={bypassRaw} afterheatLockout={afterheatLockout} afterheatCoil={controller.afterheat_coil === "water" ? "water" : "electric"}
-            bypassTravelDirection={bypassTravelDirection} bypassTravelSeconds={bypassTravelSeconds} bypassTravelTotal={bypassTravelTotal}
-            control={online ? describeControl(controller) : null}
-          />
-        </article>
-
-        <aside className="pro-control-column">
-          <article className="surface pro-control-card">
-            <div className="pro-card-head compact"><div><h2>Drift og styring</h2><p>Daglige funktioner</p></div><Gauge size={22}/></div>
-            <label className="control-label">Ventilationstilstand</label>
-            <div className="pro-segment three">
-              {["local_auto", "smart_auto", "manual"].map(value => (
-                <button key={value} className={mode === value ? "active" : ""} disabled={busy !== null} onClick={() => void command(`mode-${value}`, { mode: value }, `${modeLabel(value)} valgt.`)}>{modeLabel(value)}</button>
-              ))}
+        {/* Two independent columns, so a tall card on one side never stretches the other. */}
+        <div className="dashboard-col dashboard-col-main">
+          <article className="surface pro-air-card">
+            <div className="pro-card-head">
+              <div><h2>Luftstrømme og temperaturer</h2><p>Live luftveje gennem HCH5 med aktuelle temperaturer og fysisk status.</p></div>
+              <span className={`status-chip${online ? "" : " muted"}`}><span className="live-dot"/>{online ? "Live" : "Afventer"}</span>
             </div>
-            <label className="control-label">Ventilatorniveau</label>
-            <div className="pro-levels">
-              {[1,2,3,4,5,6].map(value => <button key={value} className={level === value ? "active" : ""} disabled={busy !== null} onClick={() => void command(`level-${value}`, { [levelPatch]: value }, `Ventilation sat til trin ${value}.`)}>{value}</button>)}
-            </div>
-            <div className="active-decision"><span>Aktiv beslutning</span><strong>Trin {whole(level)} · {text(controller.effective_source).replaceAll("_", " ")}</strong><small>{text(controller.effective_reason, "Afventer controllerens beslutning")}</small></div>
+            <Hch5UnitDiagram
+              onTemperatureClick={setActiveSensor}
+              outdoor={outdoor} extract={extract} exhaust={exhaust} afterHeater={afterHeater} beforeHeater={number(controller.actual_supply_before_heater_temperature)} beforeHeaterEstimate={number(controller.actual_supply_before_heater_estimate)}
+              frost={frost} flowWater={flowWater} returnWater={returnWater}
+              supplyRpm={supplyRpm} extractRpm={extractRpm} supplyPercent={supplyPercent} extractPercent={extractPercent}
+              bypassActual={bypassActual} bypassRequest={bypassRequest} heating={heating} recovery={recovery}
+              busActive={busHealthy} bypassRaw={bypassRaw} afterheatLockout={afterheatLockout} afterheatCoil={controller.afterheat_coil === "water" ? "water" : "electric"}
+              bypassTravelDirection={bypassTravelDirection} bypassTravelSeconds={bypassTravelSeconds} bypassTravelTotal={bypassTravelTotal}
+              control={online ? describeControl(controller) : null}
+            />
           </article>
-
-          <div className="pro-control-pair">
-            <article className="surface mini-control">
-              <div className="mini-control-title"><Wind size={20}/><strong>Hurtig boost</strong></div>
-              <div className="mini-buttons three">
-                {[15,30,60].map(minutes => <button key={minutes} className={quickBoostActive && number(controller.quick_boost_minutes) === minutes ? "active" : ""} disabled={busy !== null || fireplace} onClick={() => void command(`boost-${minutes}`, { quick_boost_minutes: minutes }, `Quick Boost ${minutes} min startet.`)}>{minutes} min</button>)}
-              </div>
-              {quickBoostActive && <button className="text-action" onClick={() => void command("boost-stop", { quick_boost_minutes: 0 }, "Quick Boost stoppet.")}>{remaining(controller.quick_boost_remaining_seconds)} · stop</button>}
-            </article>
-
-            <article className="surface mini-control">
-              <div className="mini-control-title"><ArrowRight size={20}/><strong>Bypass-styring</strong></div>
-              <div className="mini-buttons two">
-                <button className={String(controller.bypass ?? "off") === "off" ? "active" : ""} disabled={busy !== null || bypassMoving} onClick={() => void command("bypass-auto", { bypass: "off" }, "Bypass sat til Auto.")}>Auto</button>
-                <button className={String(controller.bypass) === "on" ? "active" : ""} disabled={busy !== null || fireplace || bypassMoving} onClick={() => void command("bypass-on", { bypass: "on" }, "Bypass ønskes åben.")}>On</button>
-              </div>
-              <small className="control-footnote">Faktisk: {bypassActualLabel}</small>
-            </article>
-          </div>
-
-          <div className="pro-control-pair">
-            <article className="surface status-action-card">
-              <div className="status-action-icon"><Snowflake size={24}/></div>
-              <div><span>Frikøling</span><strong>{coolingLabel(controller.cooling_state)}</strong><small>{controller.cooling_enabled === true ? "Automatik aktiv" : "Deaktiveret"}</small></div>
-              <button disabled={busy !== null} onClick={() => void command("cooling", { cooling_enabled: controller.cooling_enabled !== true }, controller.cooling_enabled === true ? "Frikøling deaktiveret." : "Frikøling aktiveret.")}><ArrowRight size={17}/></button>
-            </article>
-            <article className="surface status-action-card">
-              <div className="status-action-icon flame"><Flame size={24}/></div>
-              <div><span>Pejsefunktion</span><strong>{fireplace ? "Aktiv" : "Ikke aktiv"}</strong><small>{fireplace ? remaining(controller.fireplace_remaining_seconds) : "15 eller 30 min"}</small></div>
-              <div className="fireplace-actions">
-                {fireplace ? <button onClick={() => void command("fireplace-stop", { fireplace_minutes: 0 }, "Pejsefunktion stoppet.")}>Stop</button> : <><button onClick={() => void command("fireplace-15", { fireplace_minutes: 15 }, "Pejsefunktion startet i 15 min.")}>15</button><button onClick={() => void command("fireplace-30", { fireplace_minutes: 30 }, "Pejsefunktion startet i 30 min.")}>30</button></>}
-              </div>
-            </article>
-          </div>
-        </aside>
-
-        <article className="surface climate-panel">
-          <div className="pro-card-head compact"><div><h2>Indeklimadata</h2><p>Aktuelle værdier</p></div></div>
-          <div className="climate-metrics">
-            <div className="climate-metric green"><Leaf size={21}/><span>CO₂</span><strong>{whole(co2)} <small>ppm</small></strong><em>{co2 === null ? "Ukendt" : co2 < 800 ? "God" : co2 < 1200 ? "Moderat" : "Høj"}</em><i style={{ width: `${co2 === null ? 0 : Math.min(100, Math.max(5, co2 / 16))}%` }}/></div>
-            <div className="climate-metric blue"><span className="metric-drop">●</span><span>Luftfugtighed</span><strong>{whole(humidity)} <small>%</small></strong><em>{humidity === null ? "Ukendt" : humidity < 60 ? "Normal" : "Høj"}</em><i style={{ width: `${humidity ?? 0}%` }}/></div>
-            <div className="climate-metric cyan"><span className="metric-filter">▧</span><span>Filter</span><strong>{whole(filterLife)} <small>%</small></strong><em>{filterLife === null ? "Ukendt" : filterLife > 40 ? "OK" : filterLife > 15 ? "Snart skift" : "Skift filter"}</em><i style={{ width: `${Math.max(0, Math.min(100, filterLife ?? 0))}%` }}/></div>
-            <div className="climate-metric neutral"><span className="metric-heat">≋</span><span>Eftervarme setpunkt</span><strong>{shownAfterheat === "off" ? "OFF" : temp(shownAfterheat)}</strong><em>{afterheatStatus}</em><i style={{ width: `${shownAfterheat === "off" ? 0 : ((shownAfterheat - 10) / 25) * 100}%` }}/></div>
-          </div>
-          <div className="pro-card-head compact air-calc-head"><div><h2>Diagnose og energi i dag</h2><p>{controller.diagnostics_status === "ok" || !controller.diagnostics_status ? "Ingen advarsler" : `${controller.diagnostics_alarm_count} advarsel${controller.diagnostics_alarm_count === 1 ? "" : "er"}`}</p></div></div>
-          <div className="climate-metrics metrics-5">
-            <div className="climate-metric cyan"><Snowflake size={21}/><span>Frost i veksler</span><strong>{({ ok: "OK", watch: "Hold øje", risk: "Risiko", unknown: "—" } as Record<string, string>)[String(controller.frost_state ?? "unknown")] ?? "—"}</strong><em>Afkast T4 {temp(exhaust)}</em><i style={{ width: controller.frost_state === "risk" ? "100%" : controller.frost_state === "watch" ? "50%" : "5%" }}/></div>
-            <div className="climate-metric neutral"><Gauge size={21}/><span>Filter · strøm</span><strong>{number(controller.filter_power_ratio) === null ? "—" : `${Math.round((number(controller.filter_power_ratio)! - 1) * 100)} %`}</strong><em>{number(controller.specific_fan_power) === null ? "Kræver effektmåler" : `SFP ${whole(number(controller.specific_fan_power))} W/(m³/s) · over rent filter`}</em><i style={{ width: `${Math.min(100, Math.max(0, ((number(controller.filter_power_ratio) ?? 1) - 1) * 400))}%` }}/></div>
-            <div className="climate-metric green"><Leaf size={21}/><span>Genvundet i dag</span><strong>{energy(number(controller.recovered_energy_today_kwh))} <small>kWh</small></strong><em>Teoretisk varmeværdi ca. {cost(number(controller.recovered_energy_today_kwh), number(controller.heat_price_dkk_kwh))}</em><i style={{ width: `${Math.min(100, (number(controller.recovered_energy_today_kwh) ?? 0) * 5)}%` }}/></div>
-            <div className="climate-metric neutral"><Zap size={21}/><span>Strøm i dag{number(controller.unit_energy_measured_today_kwh) !== null ? " · målt" : " · anslået"}</span><strong>{energy(number(controller.unit_energy_measured_today_kwh) ?? number(controller.unit_energy_today_kwh))} <small>kWh</small></strong><em>Ca. {cost(number(controller.unit_energy_measured_today_kwh) ?? number(controller.unit_energy_today_kwh), number(controller.electricity_price_dkk_kwh))} ved aktuel elpris</em><i style={{ width: `${Math.min(100, (number(controller.unit_energy_measured_today_kwh) ?? number(controller.unit_energy_today_kwh) ?? 0) * 50)}%` }}/></div>
-            <div className="climate-metric neutral"><Flame size={21}/><span>Eftervarme i dag · anslået</span><strong>{energy(number(controller.afterheat_energy_today_kwh))} <small>kWh</small></strong><em>Ca. {cost(number(controller.afterheat_energy_today_kwh), number(controller.heat_price_dkk_kwh))} ved aktuel varmepris</em><i style={{ width: `${Math.min(100, (number(controller.afterheat_energy_today_kwh) ?? 0) * 50)}%` }}/></div>
-          </div>
-        </article>
-
-        <article className="surface afterheat-setpoint-card">
-          <AfterheatThermostat value={shownAfterheat} onChange={setAfterheatTarget} heating={heating} lockout={afterheatLockout}
-            cutoff={afterheatCutoff} outdoor={outdoor} airBefore={number(controller.actual_supply_before_heater_temperature)} airAfter={afterHeater}
-            registered={actualAfterheatSelection} lastOn={lastAfterheatOn.current}/>
-          {/* Only with a measured T2 before the afterheat coil (1-Wire role "t2"). */}
-          {number(controller.actual_supply_before_heater_temperature) !== null && <>
-            <div className="pro-card-head compact air-calc-head"><div><h2>Beregnet fra målt T2</h2><p>Luftmængde anslået for aktuelt trin{number(controller.supply_airflow_estimate_m3h) === null ? "" : ` · ${whole(number(controller.supply_airflow_estimate_m3h))} m³/h`}</p></div></div>
-            <div className="climate-metrics metrics-2">
-              <div className="climate-metric green"><Leaf size={21}/><span>Genvinding · indblæsning</span><strong>{whole(number(controller.supply_recovery_percent))} <small>%</small></strong><em>(T2 − T1) / (T3 − T1)</em><i style={{ width: `${Math.max(0, Math.min(100, number(controller.supply_recovery_percent) ?? 0))}%` }}/></div>
-              <div className="climate-metric cyan"><Wind size={21}/><span>Genvundet varme</span><strong>{whole(number(controller.recovered_heat_w))} <small>W</small></strong><em>Veksler → indblæsning</em><i style={{ width: `${Math.min(100, (number(controller.recovered_heat_w) ?? 0) / 30)}%` }}/></div>
-              <div className="climate-metric neutral"><span className="metric-heat">≋</span><span>Eftervarme løft</span><strong>{temp(number(controller.afterheat_lift))}</strong><em>T2AH − T2</em><i style={{ width: `${Math.max(0, Math.min(100, (number(controller.afterheat_lift) ?? 0) * 10))}%` }}/></div>
-              <div className="climate-metric neutral"><Flame size={21}/><span>Eftervarme effekt</span><strong>{whole(number(controller.afterheat_power_w))} <small>W</small></strong><em>Varme tilført luften</em><i style={{ width: `${Math.min(100, (number(controller.afterheat_power_w) ?? 0) / 20)}%` }}/></div>
+          <article className="surface climate-panel">
+            <div className="pro-card-head compact"><div><h2>Indeklimadata</h2><p>Aktuelle værdier</p></div></div>
+            <div className="climate-metrics">
+              <div className="climate-metric green"><Leaf size={21}/><span>CO₂</span><strong>{whole(co2)} <small>ppm</small></strong><em>{co2 === null ? "Ukendt" : co2 < 800 ? "God" : co2 < 1200 ? "Moderat" : "Høj"}</em><i style={{ width: `${co2 === null ? 0 : Math.min(100, Math.max(5, co2 / 16))}%` }}/></div>
+              <div className="climate-metric blue"><span className="metric-drop">●</span><span>Luftfugtighed</span><strong>{whole(humidity)} <small>%</small></strong><em>{humidity === null ? "Ukendt" : humidity < 60 ? "Normal" : "Høj"}</em><i style={{ width: `${humidity ?? 0}%` }}/></div>
+              <div className="climate-metric cyan"><span className="metric-filter">▧</span><span>Filter</span><strong>{whole(filterLife)} <small>%</small></strong><em>{filterLife === null ? "Ukendt" : filterLife > 40 ? "OK" : filterLife > 15 ? "Snart skift" : "Skift filter"}</em><i style={{ width: `${Math.max(0, Math.min(100, filterLife ?? 0))}%` }}/></div>
+              <div className="climate-metric neutral"><span className="metric-heat">≋</span><span>Eftervarme setpunkt</span><strong>{shownAfterheat === "off" ? "OFF" : temp(shownAfterheat)}</strong><em>{afterheatStatus}</em><i style={{ width: `${shownAfterheat === "off" ? 0 : ((shownAfterheat - 10) / 25) * 100}%` }}/></div>
             </div>
-          </>}
-        </article>
+            <div className="pro-card-head compact air-calc-head"><div><h2>Diagnose og energi i dag</h2><p>{controller.diagnostics_status === "ok" || !controller.diagnostics_status ? "Ingen advarsler" : `${controller.diagnostics_alarm_count} advarsel${controller.diagnostics_alarm_count === 1 ? "" : "er"}`}</p></div></div>
+            <div className="climate-metrics metrics-5">
+              <div className="climate-metric cyan"><Snowflake size={21}/><span>Frost i veksler</span><strong>{({ ok: "OK", watch: "Hold øje", risk: "Risiko", unknown: "—" } as Record<string, string>)[String(controller.frost_state ?? "unknown")] ?? "—"}</strong><em>Afkast T4 {temp(exhaust)}</em><i style={{ width: controller.frost_state === "risk" ? "100%" : controller.frost_state === "watch" ? "50%" : "5%" }}/></div>
+              <div className="climate-metric neutral"><Gauge size={21}/><span>Filter · strøm</span><strong>{number(controller.filter_power_ratio) === null ? "—" : `${Math.round((number(controller.filter_power_ratio)! - 1) * 100)} %`}</strong><em>{number(controller.specific_fan_power) === null ? "Kræver effektmåler" : `SFP ${whole(number(controller.specific_fan_power))} W/(m³/s) · over rent filter`}</em><i style={{ width: `${Math.min(100, Math.max(0, ((number(controller.filter_power_ratio) ?? 1) - 1) * 400))}%` }}/></div>
+              <div className="climate-metric green"><Leaf size={21}/><span>Genvundet i dag</span><strong>{energy(number(controller.recovered_energy_today_kwh))} <small>kWh</small></strong><em>Teoretisk varmeværdi ca. {cost(number(controller.recovered_energy_today_kwh), number(controller.heat_price_dkk_kwh))}</em><i style={{ width: `${Math.min(100, (number(controller.recovered_energy_today_kwh) ?? 0) * 5)}%` }}/></div>
+              <div className="climate-metric neutral"><Zap size={21}/><span>Strøm i dag{number(controller.unit_energy_measured_today_kwh) !== null ? " · målt" : " · anslået"}</span><strong>{energy(number(controller.unit_energy_measured_today_kwh) ?? number(controller.unit_energy_today_kwh))} <small>kWh</small></strong><em>Ca. {cost(number(controller.unit_energy_measured_today_kwh) ?? number(controller.unit_energy_today_kwh), number(controller.electricity_price_dkk_kwh))} ved aktuel elpris</em><i style={{ width: `${Math.min(100, (number(controller.unit_energy_measured_today_kwh) ?? number(controller.unit_energy_today_kwh) ?? 0) * 50)}%` }}/></div>
+              <div className="climate-metric neutral"><Flame size={21}/><span>Eftervarme i dag · anslået</span><strong>{energy(number(controller.afterheat_energy_today_kwh))} <small>kWh</small></strong><em>Ca. {cost(number(controller.afterheat_energy_today_kwh), number(controller.heat_price_dkk_kwh))} ved aktuel varmepris</em><i style={{ width: `${Math.min(100, (number(controller.afterheat_energy_today_kwh) ?? 0) * 50)}%` }}/></div>
+            </div>
+            {/* Only with a measured T2 before the afterheat coil (1-Wire role "t2"). */}
+            {number(controller.actual_supply_before_heater_temperature) !== null && <>
+              <div className="pro-card-head compact air-calc-head"><div><h2>Genvinding og eftervarme · målt T2</h2><p>Luftmængde anslået for aktuelt trin{number(controller.supply_airflow_estimate_m3h) === null ? "" : ` · ${whole(number(controller.supply_airflow_estimate_m3h))} m³/h`}</p></div></div>
+              <div className="climate-metrics">
+                <div className="climate-metric green"><Leaf size={21}/><span>Genvinding · indblæsning</span><strong>{whole(number(controller.supply_recovery_percent))} <small>%</small></strong><em>(T2 − T1) / (T3 − T1)</em><i style={{ width: `${Math.max(0, Math.min(100, number(controller.supply_recovery_percent) ?? 0))}%` }}/></div>
+                <div className="climate-metric cyan"><Wind size={21}/><span>Genvundet varme</span><strong>{whole(number(controller.recovered_heat_w))} <small>W</small></strong><em>Veksler → indblæsning</em><i style={{ width: `${Math.min(100, (number(controller.recovered_heat_w) ?? 0) / 30)}%` }}/></div>
+                <div className="climate-metric neutral"><span className="metric-heat">≋</span><span>Eftervarme løft</span><strong>{temp(number(controller.afterheat_lift))}</strong><em>T2AH − T2</em><i style={{ width: `${Math.max(0, Math.min(100, (number(controller.afterheat_lift) ?? 0) * 10))}%` }}/></div>
+                <div className="climate-metric neutral"><Flame size={21}/><span>Eftervarme effekt</span><strong>{whole(number(controller.afterheat_power_w))} <small>W</small></strong><em>Varme tilført luften</em><i style={{ width: `${Math.min(100, (number(controller.afterheat_power_w) ?? 0) / 20)}%` }}/></div>
+              </div>
+            </>}
+          </article>
+        </div>
+        <div className="dashboard-col dashboard-col-side">
+          <aside className="pro-control-column">
+            <article className="surface pro-control-card">
+              <div className="pro-card-head compact"><div><h2>Drift og styring</h2><p>Daglige funktioner</p></div><Gauge size={22}/></div>
+              <label className="control-label">Ventilationstilstand</label>
+              <div className="pro-segment three">
+                {["local_auto", "smart_auto", "manual"].map(value => (
+                  <button key={value} className={mode === value ? "active" : ""} disabled={busy !== null} onClick={() => void command(`mode-${value}`, { mode: value }, `${modeLabel(value)} valgt.`)}>{modeLabel(value)}</button>
+                ))}
+              </div>
+              <label className="control-label">Ventilatorniveau</label>
+              <div className="pro-levels with-off">
+                {[1,2,3,4,5,6].map(value => <button key={value} className={!standbyActive && level === value ? "active" : ""} disabled={busy !== null} onClick={() => void command(`level-${value}`, standbyActive ? { standby_minutes: 0, [levelPatch]: value } : { [levelPatch]: value }, standbyActive ? `Anlægget er tændt på trin ${value}.` : `Ventilation sat til trin ${value}.`)}>{value}</button>)}
+                <button className={`level-off${standbyActive ? " active" : ""}`} aria-haspopup="dialog" aria-pressed={standbyActive} disabled={busy !== null} onClick={() => setStandbyDialog(true)}>OFF</button>
+              </div>
+              <div className="active-decision"><span>Aktiv beslutning</span><strong>{standbyActive ? "OFF · anlæg slukket" : `Trin ${whole(level)} · ${text(controller.effective_source).replaceAll("_", " ")}`}</strong><small>{text(controller.effective_reason, "Afventer controllerens beslutning")}</small></div>
+            </article>
+
+            <article className="surface functions-card">
+              <div className="pro-card-head compact"><div><h2>Funktioner</h2><p>Midlertidige funktioner og bypass</p></div></div>
+              <div className="function-rows">
+                <div className={`function-row${quickBoostActive ? " active" : ""}`}>
+                  <span className="function-icon boost"><Wind size={18}/></span>
+                  <div className="function-text"><strong>Hurtig boost</strong><small>{quickBoostActive ? `Aktiv · ${remaining(controller.quick_boost_remaining_seconds)}` : fireplace ? "Ikke under pejsefunktion" : "Højeste trin i kort tid"}</small></div>
+                  <div className="function-buttons">
+                    {[15,30,60].map(minutes => <button key={minutes} className={quickBoostActive && number(controller.quick_boost_minutes) === minutes ? "active" : ""} disabled={busy !== null || fireplace} onClick={() => void command(`boost-${minutes}`, { quick_boost_minutes: minutes }, `Quick Boost ${minutes} min startet.`)}>{minutes} min</button>)}
+                    {quickBoostActive && <button className="stop" onClick={() => void command("boost-stop", { quick_boost_minutes: 0 }, "Quick Boost stoppet.")}>Stop</button>}
+                  </div>
+                </div>
+                <div className={`function-row${String(controller.bypass) === "on" ? " active" : ""}`}>
+                  <span className="function-icon bypass"><ArrowRight size={18}/></span>
+                  <div className="function-text"><strong>Bypass</strong><small>Faktisk: {bypassActualLabel}</small></div>
+                  <div className="function-buttons">
+                    <button className={String(controller.bypass ?? "off") === "off" ? "active" : ""} disabled={busy !== null || bypassMoving} onClick={() => void command("bypass-auto", { bypass: "off" }, "Bypass sat til Auto.")}>Auto</button>
+                    <button className={String(controller.bypass) === "on" ? "active" : ""} disabled={busy !== null || fireplace || bypassMoving} onClick={() => void command("bypass-on", { bypass: "on" }, "Bypass ønskes åben.")}>On</button>
+                  </div>
+                </div>
+                <div className={`function-row${controller.cooling_enabled === true ? " active" : ""}`}>
+                  <span className="function-icon cooling"><Snowflake size={18}/></span>
+                  <div className="function-text"><strong>Frikøling</strong><small>{coolingLabel(controller.cooling_state)} · {controller.cooling_enabled === true ? "automatik til" : "slået fra"}</small></div>
+                  <div className="function-buttons">
+                    <button className={controller.cooling_enabled === true ? "active" : ""} disabled={busy !== null} onClick={() => controller.cooling_enabled !== true && void command("cooling", { cooling_enabled: true }, "Frikøling aktiveret.")}>Til</button>
+                    <button className={controller.cooling_enabled !== true ? "active" : ""} disabled={busy !== null} onClick={() => controller.cooling_enabled === true && void command("cooling", { cooling_enabled: false }, "Frikøling deaktiveret.")}>Fra</button>
+                  </div>
+                </div>
+                <div className={`function-row${fireplace ? " active" : ""}`}>
+                  <span className="function-icon flame"><Flame size={18}/></span>
+                  <div className="function-text"><strong>Pejsefunktion</strong><small>{fireplace ? `Aktiv · ${remaining(controller.fireplace_remaining_seconds)}` : "Overtryk mens der fyres"}</small></div>
+                  <div className="function-buttons">
+                    {fireplace
+                      ? <button className="stop" onClick={() => void command("fireplace-stop", { fireplace_minutes: 0 }, "Pejsefunktion stoppet.")}>Stop</button>
+                      : <><button disabled={busy !== null} onClick={() => void command("fireplace-15", { fireplace_minutes: 15 }, "Pejsefunktion startet i 15 min.")}>15 min</button><button disabled={busy !== null} onClick={() => void command("fireplace-30", { fireplace_minutes: 30 }, "Pejsefunktion startet i 30 min.")}>30 min</button></>}
+                  </div>
+                </div>
+                <div className={`function-row${bonfireActive ? " active" : ""}`}>
+                  <span className="function-icon smoke"><CloudFog size={18}/></span>
+                  <div className="function-text"><strong>Bål i haven</strong><small>{bonfireActive ? `Anlæg slukket · ${remaining(controller.bonfire_remaining_seconds)}` : fireplace ? "Ikke under pejsefunktion" : standbyActive ? "Anlægget er slukket" : "Slukker anlægget, starter selv"}</small></div>
+                  <div className="function-buttons">
+                    {bonfireActive
+                      ? <button className="stop" onClick={() => void command("bonfire-stop", { bonfire_minutes: 0 }, "Bål-tilstand stoppet.")}>Stop</button>
+                      : BONFIRE_CHOICES.map(([minutes, label]) => <button key={minutes} disabled={busy !== null || fireplace || standbyActive} onClick={() => void command(`bonfire-${minutes}`, { bonfire_minutes: minutes }, `Bål-tilstand startet i ${label}.`)}>{label}</button>)}
+                  </div>
+                </div>
+              </div>
+            </article>
+          </aside>
+          {afterheatCard}
+        </div>
       </div>
-      {activeSensor && SENSOR_HISTORY[activeSensor] && <div className="sensor-history-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setActiveSensor(null); }}>
+      {standbyDialog && createPortal(<div className="sensor-history-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setStandbyDialog(false); }}>
+        <section className="standby-dialog surface" role="dialog" aria-modal="true" aria-labelledby="standby-dialog-title">
+          <div className="sensor-history-heading"><div><span className="eyebrow">VENTILATION</span><h2 id="standby-dialog-title">{standbyActive ? "Anlægget er slukket" : "Sluk anlægget"}</h2></div><button type="button" aria-label="Luk" onClick={() => setStandbyDialog(false)}><X size={20}/></button></div>
+          <p className="standby-dialog-lead">{standbyActive
+            ? (controller.standby_remaining_seconds == null ? "Begge ventilatorer står stille, til du tænder igen." : `Begge ventilatorer står stille · ${remaining(controller.standby_remaining_seconds)}.`)
+            : "Begge ventilatorer stopper. Pejs, bål og boost kan ikke startes, mens anlægget er slukket."}</p>
+          <div className="standby-choices">
+            {STANDBY_CHOICES.map(([minutes, label, hint]) => <button key={minutes} type="button" className={standbyActive && number(controller.standby_minutes) === minutes ? "active" : ""} disabled={busy !== null} onClick={() => { setStandbyDialog(false); void command(`standby-${minutes}`, { standby_minutes: minutes }, minutes === -1 ? "Anlægget er slukket, til du tænder igen." : minutes === -2 ? "Anlægget er slukket til i morgen kl. 07:00." : `Anlægget er slukket i ${label}.`); }}><strong>{label}</strong><small>{hint}</small></button>)}
+          </div>
+          {standbyActive && <button type="button" className="standby-on-action" disabled={busy !== null} onClick={() => { setStandbyDialog(false); void command("standby-stop", { standby_minutes: 0 }, "Anlægget er tændt igen."); }}>Tænd anlægget igen</button>}
+        </section>
+      </div>, document.body)}
+      {activeSensor && SENSOR_HISTORY[activeSensor] && createPortal(<div className="sensor-history-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setActiveSensor(null); }}>
         <section className="sensor-history-dialog surface" role="dialog" aria-modal="true" aria-labelledby="sensor-history-title">
           <div className="sensor-history-heading"><div><span className="eyebrow">SENESTE 24 TIMER</span><h2 id="sensor-history-title">{SENSOR_HISTORY[activeSensor].title}</h2></div><button ref={closeHistoryRef} type="button" aria-label="Luk temperaturgraf" onClick={() => setActiveSensor(null)}><X size={20}/></button></div>
           {historyError ? <p className="sensor-history-message" role="alert">{historyError}</p> : historyLoading ? <div className="history-chart-empty" style={{ height: 230 }}>Henter historik…</div> : <HistoryChart height={230} unit={SENSOR_HISTORY[activeSensor].unit ?? "°C"} samples={historySamples} series={[{ key: SENSOR_HISTORY[activeSensor].key, label: SENSOR_HISTORY[activeSensor].title, color: SENSOR_HISTORY[activeSensor].color }]}/>}
         </section>
-      </div>}
+      </div>, document.body)}
     </section>
   );
 }

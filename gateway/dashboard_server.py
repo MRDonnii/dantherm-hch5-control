@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only PassiveLink dashboard, asset server and bounded history store."""
+"""Read-only HCH5 Control dashboard, asset server and bounded history store."""
 from __future__ import annotations
 import hmac, importlib.util, json, logging, os, platform, shutil, socket, sqlite3, subprocess, threading, time, urllib.error, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
