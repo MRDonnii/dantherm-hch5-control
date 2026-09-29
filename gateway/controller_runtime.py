@@ -480,6 +480,9 @@ class ControllerRuntime:
             temp = self._measurement(raw_values, "temperature", -30, 60)
             rh = self._measurement(raw_values, "humidity", 0, 100)
             co2 = self._measurement(raw_values, "co2", 250, 10000)
+            pm25 = self._measurement(raw_values, "pm25", 0, 1000)
+            if pm25 is None:
+                pm25 = self._measurement(raw_values, "pm2_5", 0, 1000)
             if temp is not None:
                 values["temperature"] = round(temp, 2)
             if rh is not None:
@@ -490,7 +493,9 @@ class ControllerRuntime:
                     history.popleft()
             if co2 is not None:
                 values["co2"] = round(co2, 0)
-            if not any(key in values for key in ("temperature", "humidity", "co2")):
+            if pm25 is not None:
+                values["pm25"] = round(pm25, 1)
+            if not any(key in values for key in ("temperature", "humidity", "co2", "pm25")):
                 raise ControllerError(f"{name} har ingen gyldige målinger")
             sanitized[name] = values
 
@@ -571,6 +576,18 @@ class ControllerRuntime:
                 )
                 adjusted = self._priority_level(raw, priority)
                 candidates.append((adjusted, raw, float(co2), name, "co2", f"CO2 {name} {float(co2):.0f} ({priority})"))
+
+            pm25 = values.get("pm25")
+            if d.get("pm25_enabled") and isinstance(pm25, (int, float)) and name not in (d.get("pm25_ignored_rooms") or []):
+                raw = self._metric_level(
+                    float(pm25), float(d["pm25_setpoint"]), float(d["pm25_step"]),
+                    float(d["pm25_hysteresis"]), normal,
+                )
+                # Fine dust may lift the level (cooking, candles) but never lower it
+                # below what CO2/humidity want, and is capped on its own.
+                raw = min(int(d["pm25_max_level"]), raw) if raw > normal else normal
+                adjusted = self._priority_level(raw, priority)
+                candidates.append((adjusted, raw, float(pm25), name, "pm25", f"PM2.5 {name} {float(pm25):.0f} µg/m³ ({priority})"))
 
             humidity = values.get("humidity")
             if bathroom and isinstance(humidity, (int, float)) and name not in dry_rooms:

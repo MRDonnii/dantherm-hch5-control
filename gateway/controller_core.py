@@ -312,6 +312,13 @@ class ControllerState:
         "dry_protection_enabled": False,
         "dry_rh_limit": 30.0,
         "dry_max_level": 2,
+        # Fine dust (PM2.5) from Home Assistant room sensors; off until chosen.
+        "pm25_enabled": False,
+        "pm25_setpoint": 25.0,
+        "pm25_step": 15.0,
+        "pm25_hysteresis": 5.0,
+        "pm25_max_level": 5,
+        "pm25_ignored_rooms": [],
         # Extra DS18B20 sensors on the Pi's 1-Wire bus: {sensor_id: {"role", "name"}}.
         "onewire_roles": {},
         "effective_source": "local_auto",
@@ -500,7 +507,7 @@ class ControllerState:
         self._sanitize_advanced()
 
     BOOL_KEYS = ("sizing_enabled", "afterheat_room_enabled", "fireplace_auto_enabled",
-                 "humidity_smart_enabled", "dry_protection_enabled", "balance_enabled")
+                 "humidity_smart_enabled", "dry_protection_enabled", "balance_enabled", "pm25_enabled")
 
     def _sanitize_advanced(self) -> None:
         for key in self.BOOL_KEYS:
@@ -539,6 +546,10 @@ class ControllerState:
             self.data["onewire_roles"] = clean_roles(self.data.get("onewire_roles"))
         except ValueError:
             self.data["onewire_roles"] = {}
+        try:
+            self.data["pm25_ignored_rooms"] = self._clean_room_names(self.data.get("pm25_ignored_rooms"))
+        except ControllerError:
+            self.data["pm25_ignored_rooms"] = []
 
     ADVANCED_FLOATS = (
         ("house_area_m2", 20.0, 1000.0), ("ceiling_height_m", 1.8, 6.0),
@@ -546,13 +557,14 @@ class ControllerState:
         ("fireplace_auto_on_temp", 15.0, 400.0), ("fireplace_auto_off_temp", 10.0, 399.0),
         ("humidity_margin_gm3", 0.0, 3.0), ("dry_rh_limit", 15.0, 45.0),
         ("balance_extract_excess_percent", 0.0, 20.0), ("balance_duct_ratio", 0.7, 1.5),
+        ("pm25_setpoint", 5.0, 200.0), ("pm25_step", 2.0, 100.0), ("pm25_hysteresis", 1.0, 50.0),
     )
     ADVANCED_INTS = (
         ("house_bathrooms", 0, 10), ("house_utility_rooms", 0, 10),
         ("airflow_max_m3h", 100, 1500), ("sizing_reduced_percent", 30, 100),
         ("afterheat_room_min", 10, 35), ("afterheat_room_max", 10, 35),
         ("afterheat_room_step_minutes", 2, 60), ("fireplace_afterrun_minutes", 0, 120),
-        ("fireplace_max_hours", 1, 24), ("dry_max_level", 1, 6),
+        ("fireplace_max_hours", 1, 24), ("dry_max_level", 1, 6), ("pm25_max_level", 1, 6),
     )
 
     @staticmethod
@@ -1021,7 +1033,8 @@ class ControllerState:
         "fireplace_auto_on_temp", "fireplace_auto_off_temp", "fireplace_afterrun_minutes",
         "fireplace_max_hours", "humidity_smart_enabled", "outdoor_humidity_source",
         "humidity_margin_gm3", "dry_protection_enabled", "dry_rh_limit", "dry_max_level",
-        "onewire_roles",
+        "onewire_roles", "pm25_enabled", "pm25_setpoint", "pm25_step", "pm25_hysteresis",
+        "pm25_max_level", "pm25_ignored_rooms",
     )
     ADVANCED_LABELS = {
         "house_area_m2": "Boligareal", "ceiling_height_m": "Loftshøjde",
@@ -1035,6 +1048,8 @@ class ControllerState:
         "humidity_margin_gm3": "Fugtmargin", "dry_rh_limit": "Tør luft-grænse",
         "dry_max_level": "Maks. trin ved tør luft",
         "balance_extract_excess_percent": "Udsugning over indblæsning", "balance_duct_ratio": "Kanalforhold",
+        "pm25_setpoint": "PM2.5-grænse", "pm25_step": "PM2.5 pr. trin", "pm25_hysteresis": "PM2.5-hysterese",
+        "pm25_max_level": "Maks. trin ved PM2.5",
     }
 
     def _configure_advanced(self, patch: dict[str, object]) -> None:
@@ -1091,6 +1106,16 @@ class ControllerState:
                 self.data["onewire_roles"] = clean_roles(patch["onewire_roles"])
             except ValueError as error:
                 raise ControllerError(str(error)) from error
+        if "pm25_ignored_rooms" in patch:
+            self.data["pm25_ignored_rooms"] = self._clean_room_names(patch["pm25_ignored_rooms"])
+
+    @staticmethod
+    def _clean_room_names(value: object) -> list[str]:
+        if value in (None, ""):
+            return []
+        if not isinstance(value, list) or len(value) > 32:
+            raise ControllerError("Rumlisten skal være en liste med højst 32 rum")
+        return sorted({str(name).strip()[:64] for name in value if str(name).strip()})
 
     def heartbeat(self, demand: str = "normal", *, requested_level: int | None = None, valid_for_s: int | None = None, reason: str | None = None, bathroom_drying: bool = False) -> dict[str, object]:
         if demand not in VALID_DEMANDS:

@@ -17,6 +17,8 @@ from urllib.parse import parse_qs, urlparse
 
 from controller_core import ControllerError
 from dashboard_server import ASSET_TYPES, DashboardHttpServer, WEBUI_CSP
+from balancing_store import BalancingError, BalancingStore
+from event_log import ALARM_KINDS, EventLog
 from webui_auth import ROLE_LABELS
 from webui_mail import AlarmMailer, MailError, MailService
 from webui_permissions import admin_action_allowed, can, capabilities, config_allowed
@@ -40,7 +42,11 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
         self.controller_token = os.getenv("DANTHERM_CONTROLLER_TOKEN")
         self.mail = MailService(os.getenv(
             "DANTHERM_WEBUI_MAIL_FILE", str(self.auth.path.with_name("webui-mail.json"))))
-        self.alarm_mailer = AlarmMailer(self.mail, controller_runtime.snapshot)
+        self.events = EventLog(os.getenv(
+            "DANTHERM_WEBUI_EVENTS_FILE", str(self.auth.path.with_name("webui-events.json"))))
+        self.balancing = BalancingStore(os.getenv(
+            "DANTHERM_WEBUI_BALANCING_FILE", str(self.auth.path.with_name("webui-balancing.json"))))
+        self.alarm_mailer = AlarmMailer(self.mail, controller_runtime.snapshot, events=self.events)
 
     def reset_base_url(self) -> str:
         configured = self.mail.load().get("base_url")
@@ -73,7 +79,7 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
 
             def _read_json(self):
                 try:
-                    length = min(int(self.headers.get("Content-Length", "0")), 131072)
+                    length = min(int(self.headers.get("Content-Length", "0")), 262144)
                     payload = json.loads(self.rfile.read(length) or b"{}")
                     return payload if isinstance(payload, dict) else None
                 except (ValueError, TypeError, json.JSONDecodeError):
@@ -169,6 +175,26 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                     if self._require("users") is None:
                         return
                     self._json({"users": dashboard.auth.list_users(), "roles": ROLE_LABELS})
+                elif parsed.path == "/api/events":
+                    session = self._require_auth()
+                    if session is None:
+                        return
+                    # Sign-ins and user changes are for administrators only.
+                    kinds = None if can(session.get("role", "user"), "users") else ALARM_KINDS
+                    try:
+                        limit = max(1, min(500, int(parse_qs(parsed.query).get("limit", ["200"])[0])))
+                    except ValueError:
+                        limit = 200
+                    self._json({"events": dashboard.events.list(kinds=kinds, limit=limit),
+                                "active": dashboard.events.active_alarms()})
+                elif parsed.path == "/api/balancing":
+                    if self._require("configure") is not None:
+                        self._json(dashboard.balancing.state())
+                elif parsed.path == "/api/balancing/report":
+                    if self._require("configure") is None:
+                        return
+                    report = dashboard.balancing.get_report(parse_qs(parsed.query).get("id", [""])[0])
+                    self._json(report) if report else self._json_error(404, "Rapporten findes ikke")
                 elif parsed.path == "/api/mail":
                     if self._require("mail") is None:
                         return
@@ -258,6 +284,7 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                         return self._json_error(500, "Kunne ikke læse login-konfigurationen")
                     if not verified:
                         dashboard.auth.failed(ip)
+                        dashboard.events.add("login_failed", "Mislykket login", user=str(data.get("username", ""))[:64], ip=ip)
                         return self._json_error(401, "Forkert brugernavn eller adgangskode")
                     try:
                         remember = data.get("remember") is True
@@ -266,6 +293,7 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                         LOG.exception("Could not create the WebUI login session")
                         return self._json_error(500, "Kunne ikke gemme login-sessionen")
                     dashboard.auth.record_login(data["username"])
+                    dashboard.events.add("login", "Logget ind", user=str(data["username"])[:64], ip=ip)
                     return self._login_reply(sid, csrf)
 
                 if self.path == "/api/auth/forgot":
@@ -288,7 +316,8 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                 if self.path == "/api/auth/reset":
                     data = self._read_json() or {}
                     try:
-                        dashboard.auth.reset_password(str(data.get("token", "")), str(data.get("password", "")))
+                        who = dashboard.auth.reset_password(str(data.get("token", "")), str(data.get("password", "")))
+                        dashboard.events.add("password_reset", "Adgangskode nulstillet via mail-link", user=who)
                     except PermissionError as error:
                         return self._json_error(400, str(error))
                     except (ValueError, KeyError) as error:
@@ -339,6 +368,28 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                     if not self._need(session, "users"):
                         return
                     return self._users_action(session, self._read_json() or {})
+                if self.path.startswith("/api/balancing/"):
+                    if not self._need(session, "configure"):
+                        return
+                    data = self._read_json() or {}
+                    who = session.get("username")
+                    try:
+                        if self.path == "/api/balancing/project":
+                            dashboard.balancing.save_project(data, who)
+                            return self._json(dashboard.balancing.state())
+                        if self.path == "/api/balancing/report":
+                            summary = dashboard.balancing.add_report(data, who)
+                            return self._json({"ok": True, "report": summary, **dashboard.balancing.state()})
+                        if self.path == "/api/balancing/report/delete":
+                            if not dashboard.balancing.delete_report(str(data.get("id", ""))):
+                                return self._json_error(404, "Rapporten findes ikke")
+                            return self._json(dashboard.balancing.state())
+                    except BalancingError as error:
+                        return self._json_error(400, str(error))
+                    except OSError:
+                        LOG.exception("Could not save balancing data")
+                        return self._json_error(500, "Kunne ikke gemme indreguleringen")
+                    return self.send_error(404)
                 if self.path in ("/api/mail/settings", "/api/mail/test"):
                     if not self._need(session, "mail"):
                         return
@@ -423,6 +474,7 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                     if self.path == "/api/users/create":
                         user = auth.create_user(name, str(data.get("password", "")), str(data.get("role", "user")),
                                                 data.get("email", ""), data.get("expires_at"))
+                        dashboard.events.add("user_created", f"Bruger oprettet som {user['role_label']}", user=user["username"], by=session.get("username"))
                         return self._json({"ok": True, "user": user, "users": auth.list_users()})
                     if self.path == "/api/users/update":
                         changes = {key: data[key] for key in ("role", "email", "disabled", "expires_at") if key in data}
@@ -432,11 +484,14 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                                 changes.get("role", "admin") != "admin" or changes.get("disabled")):
                             return self._json_error(400, "Du kan ikke fjerne din egen administratoradgang")
                         user = auth.update_user(name, **changes)
+                        what = ", ".join(sorted("adgangskode" if key == "password" else key for key in changes)) or "intet"
+                        dashboard.events.add("user_changed", f"Bruger ændret: {what}", user=user["username"], by=session.get("username"))
                         return self._json({"ok": True, "user": user, "users": auth.list_users()})
                     if self.path == "/api/users/delete":
                         if name.lower() == str(session.get("username", "")).lower():
                             return self._json_error(400, "Du kan ikke slette dig selv")
                         auth.delete_user(name)
+                        dashboard.events.add("user_deleted", "Bruger slettet", user=name, by=session.get("username"))
                         return self._json({"ok": True, "users": auth.list_users()})
                     if self.path == "/api/users/send-reset":
                         if not dashboard.mail.ready():

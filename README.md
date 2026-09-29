@@ -134,6 +134,14 @@ Every setting explains what it does. Sections: house and airflow, air quality, m
 
 A 24-hour timeline for each weekday. Click to add a period, drag to move or resize it, and set its level. A *Grundtrin* period replaces the base level (CO₂ and humidity can still lift it); a *Mindst* period is a floor. Periods can run past midnight, be copied to weekdays or the weekend, and start from templates. The same page plans holidays with a start and end date.
 
+### Indregulering
+
+For technicians: enter the rooms (type, m², ceiling height, supply/extract), get the design airflow per valve after BR18 and a recommended base level, run the unit fixed while measuring, enter l/s per valve and print or save a balancing report as PDF. Reports are kept on the Pi.
+
+### Alarm history and PM2.5
+
+*Historik* logs every alarm when it starts and clears. Smart Auto can optionally use PM2.5 from Home Assistant room sensors (for example IKEA sensors that also report CO₂); it only raises the level and each room can be left out.
+
 ### Users, technicians and mail
 
 The first account created on `/setup` is the **administrator**. Under *Indstillinger → Brugere* the administrator can add more logins, each with a role:

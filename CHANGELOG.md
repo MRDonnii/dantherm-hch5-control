@@ -9,6 +9,13 @@
 - **Holiday with a planned start:** choose from/to (or start now), the holiday level and quick lengths (3 days to 3 weeks). A planned holiday waits for its start and ends by itself.
 - A plain *Bruger* may edit the week plan and holiday. The old single window per day keeps working until the week plan is saved.
 - On phones the menu stays on one row whatever the role shows.
+- **Alarm history (Historik):** every diagnostics alarm and HCP4 takeover is logged when it starts and when it clears, with how long it lasted, also when mail is off. Active alarms are shown at the top. Administrators also see sign-ins, failed sign-ins and user changes. The log keeps the latest 500 events on the Pi and survives restarts without logging an active alarm twice.
+- **Indregulering (new page for technicians and administrators):** four steps.
+  1. *Rum:* each room with name, type (living room, bedroom, office, kitchen, bath, separate WC, utility room, hallway, other), m², ceiling height and whether it has supply and/or extract; the type fills in sensible defaults.
+  2. *Beregning:* design airflow per room after BR18 §447 (0.3 l/s per m²; kitchen 20, bath 15, WC and utility room 10 l/s extract). Supply is balanced against extract with the controller's air-balance setting and shared by floor area. Shows totals, air change rate and the lowest fan level that covers it, and can transfer area, ceiling height and wet rooms to Hus og luftmængde.
+  3. *Måling:* run the unit fixed on the chosen level, enter measured l/s and the valve setting per valve, and see the deviation (±10 % OK, ±20 % adjust), totals and balance. The measured totals can be stored as measured airflow for that level.
+  4. *Rapport:* site, address, owner, technician, company, instrument and notes; a report that prints on A4 or saves as PDF, with verdict, room table and signature lines. Reports can be saved on the Pi and printed again later.
+- **PM2.5 (optional):** rooms from Home Assistant can send `pm25` (or `pm2_5`) in µg/m³ next to CO₂, humidity and temperature, as IKEA air-quality sensors report them. With *Brug PM2.5* on (Indstillinger → Luftkvalitet), Smart Auto raises the level above a limit (default 25 µg/m³, one level per 15 µg/m³, highest level 5). PM2.5 only raises the level, and each room can be left out.
 - **Larger text in the whole WebUI:** labels, help text, inputs, buttons, tables and cards were 7–11 px and are now roughly 11.5–15 px (settings fields 13–14 px). Cards with several buttons (fireplace, Bål i haven) put the buttons on their own row, and the afterheat dial stacks above its readings when the card is narrow. The unit drawing is unchanged.
 - Changes by Claude AI.
 

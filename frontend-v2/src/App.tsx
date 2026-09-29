@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell, ROUTE_PERMISSIONS } from "./components/AppShell";
 import { useSession } from "./lib/session";
+import { BalancingPage } from "./pages/BalancingPage";
 import { DiagnosticsPage } from "./pages/DiagnosticsPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { HomeAssistantPage } from "./pages/HomeAssistantPage";
@@ -32,6 +33,7 @@ export function App() {
     {guarded("/system", <SystemPage/>)}
     {guarded("/home-assistant", <HomeAssistantPage/>)}
     {guarded("/diagnostics", <DiagnosticsPage/>)}
+    {guarded("/balancing", <BalancingPage/>)}
     {guarded("/updates", <UpdatesPage />)}
     <Route path="/settings" element={<SettingsPage/>}/>
     <Route path="*" element={<Navigate to="/overview" replace/>}/>

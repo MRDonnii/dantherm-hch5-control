@@ -30,3 +30,5 @@
 .settings-table{font-size:13px}.settings-table th{font-size:12px}
 .primary-action,.secondary-action,.danger-outline{min-height:40px;font-size:13px}
 .settings-savebar span{font-size:13px}
+.pm25-rooms{grid-column:1/-1;display:grid;gap:6px}.pm25-rooms>span{color:var(--muted);font-size:13px;font-weight:750}.pm25-rooms label small{color:var(--muted);font-weight:600;margin-left:6px}
+.pm25-room em{font-style:normal;color:var(--text);font-size:14px}

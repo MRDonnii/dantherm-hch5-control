@@ -239,8 +239,9 @@ class MailService:
 class AlarmMailer:
     """Watches the controller snapshot and mails new and resolved alarms."""
 
-    def __init__(self, mail: MailService, snapshot, *, interval: float = 30.0, site_name: str = "HCH5"):
+    def __init__(self, mail: MailService, snapshot, *, interval: float = 30.0, site_name: str = "HCH5", events=None):
         self.mail = mail
+        self.events = events
         self.snapshot = snapshot
         self.interval = interval
         self.site_name = site_name
@@ -270,6 +271,8 @@ class AlarmMailer:
             LOG.exception("Alarm monitor could not read controller state")
             return []
         alarms = self.current_alarms(state, now)
+        if self.events is not None:
+            self.events.sync_alarms(alarms, now)
         if not (settings.get("alerts_enabled", True) and self.mail.configured(settings) and settings.get("recipients")):
             # Nothing is delivered; start fresh once mail is switched on.
             self.known, self.sent = alarms, {}

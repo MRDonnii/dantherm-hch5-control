@@ -12,6 +12,8 @@ ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT / "gateway"))
 
 from controller_dashboard_server import ControllerDashboardHttpServer
+from balancing_store import BalancingStore
+from event_log import EventLog
 from webui_auth import AuthManager
 from webui_mail import AlarmMailer, MailService
 from webui_permissions import admin_action_allowed, config_allowed
@@ -145,6 +147,8 @@ class HttpRoleTests(unittest.TestCase):
             server.auth.path = Path(tmp) / "auth.json"
             server.auth.session_path = Path(tmp) / "sessions.json"
             server.mail = MailService(Path(tmp) / "mail.json", smtp_factory=FakeSmtp)
+            server.balancing = BalancingStore(Path(tmp) / "balancing.json")
+            server.events = EventLog(Path(tmp) / "events.json")
             server.auth.save("admin", PASSWORD, True)
             server.start(); port = server.server.server_address[1]
             base = f"http://127.0.0.1:{port}"
@@ -182,9 +186,15 @@ class HttpRoleTests(unittest.TestCase):
                 self.assertEqual(post(user, "/api/users/create", {"username": "x12", "password": PASSWORD})[0], 403)
                 self.assertEqual(post(user, "/api/mail/settings", {"host": "evil"})[0], 403)
                 self.assertEqual(post(user, "/api/admin/action", {"action": "reboot"})[0], 403)
+                self.assertEqual(post(user, "/api/balancing/project", {"rooms": []})[0], 403)
+                user_events = json.load(user[0].open(f"{base}/api/events"))
+                self.assertTrue(all(e["kind"].startswith("alarm") for e in user_events["events"]))
 
                 tech = login("tekniker")
                 self.assertEqual(post(tech, "/api/controller/config", {"co2_setpoint": 900})[0], 200)
+                self.assertEqual(post(tech, "/api/balancing/project", {"rooms": [{"name": "Bad", "type": "bathroom", "area": 6, "height": 2.4, "extract": True}]})[0], 200)
+                admin_events = json.load(admin[0].open(f"{base}/api/events"))
+                self.assertIn("login", {e["kind"] for e in admin_events["events"]})
                 self.assertEqual(post(tech, "/api/users/create", {"username": "x12", "password": PASSWORD})[0], 403)
                 status, mail = post(tech, "/api/mail/settings", {"enabled": True, "host": "smtp.example.com",
                                                                  "from_address": "hch5@example.com", "recipients": ["a@example.com"]})

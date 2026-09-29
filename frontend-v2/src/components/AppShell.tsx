@@ -11,6 +11,7 @@ import {
   LogOut,
   Moon,
   RefreshCw,
+  Ruler,
   Settings,
   Sun,
   UserRound,
@@ -30,6 +31,7 @@ const navigation = [
   ["/system", "System", Boxes, "system"],
   ["/home-assistant", "Home Assistant", Zap, "configure"],
   ["/diagnostics", "Diagnostik", Wrench, "diagnostics"],
+  ["/balancing", "Indregulering", Ruler, "configure"],
   ["/updates", "Opdateringer", RefreshCw, "system"],
   ["/settings", "Indstillinger", Settings, null],
 ] as const satisfies readonly (readonly [string, string, unknown, Permission | null])[];
@@ -47,6 +49,7 @@ const routeTitles: Record<string, [string, string]> = {
   "/system": ["System", "Raspberry Pi, services og gateway"],
   "/home-assistant": ["Home Assistant", "Integration og smart-data"],
   "/diagnostics": ["Diagnostik", "Fejlsøgning og rå systemdata"],
+  "/balancing": ["Indregulering", "Luftmængder pr. rum, måling og rapport"],
   "/updates": ["Opdateringer", "Software, kanal og failsafe-opdatering"],
   "/settings": ["Indstillinger", "Udseende, brugere, mail og lokale præferencer"],
 };

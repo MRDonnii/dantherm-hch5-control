@@ -44,6 +44,7 @@ export const CONTROLLER_KEYS = [
   "dry_protection_enabled", "dry_rh_limit", "dry_max_level",
   "fireplace_auto_enabled", "fireplace_auto_source", "fireplace_auto_on_temp", "fireplace_auto_off_temp",
   "fireplace_afterrun_minutes", "fireplace_max_hours", "onewire_roles",
+  "pm25_enabled", "pm25_setpoint", "pm25_step", "pm25_hysteresis", "pm25_max_level", "pm25_ignored_rooms",
 ] as const;
 
 const T = {
@@ -339,6 +340,26 @@ export function SettingsPage() {
           <label>{lang === "da" ? "Hysterese" : "Hysteresis"}<input type="number" min="1" max="20" value={n(form.bathroom_rh_hysteresis, 5)} onChange={num("bathroom_rh_hysteresis")}/><span>%</span></label>
           <label>{lang === "da" ? "Trin ved udtørring" : "Drying level"}<input type="number" min="1" max="6" value={n(form.bathroom_max_level, 6)} onChange={num("bathroom_max_level")}/><Help>{lang === "da" ? "Når fugten i badet går over grænsen – eller stiger hurtigt under et bad – starter ventilationen på dette trin og trapper ned mod normal, efterhånden som fugten falder. Slutter under grænse minus hysterese." : "When bathroom humidity passes the limit, or rises quickly during a shower, ventilation starts at this level and steps down towards normal as humidity falls. Ends below the limit minus the hysteresis."}</Help></label>
           <p className="settings-help">{lang === "da" ? "Gælder rum med rumtypen badeværelse, eller rum med navne som Bad, Bath eller Shower." : "Applies to rooms of type bathroom, or rooms named like Bad, Bath or Shower."}</p>
+        </div>
+      </Card>
+      <Card title={lang === "da" ? "Fint støv (PM2.5)" : "Fine dust (PM2.5)"} lead={lang === "da" ? "Valgfrit: rumfølere fra Home Assistant, fx IKEA-sensorer" : "Optional: room sensors from Home Assistant, e.g. IKEA sensors"} icon={Wind}>
+        <div className="settings-grid">
+          <label className="check-row"><input type="checkbox" checked={form.pm25_enabled === true} onChange={check("pm25_enabled")}/> {lang === "da" ? "Brug PM2.5 til at hæve ventilationen" : "Use PM2.5 to raise the ventilation"}</label>
+          <Help>{lang === "da" ? "Gælder Smart Auto. Madlavning, stearinlys og brændeovn giver fint støv; mere luftskifte fjerner det hurtigere. PM2.5 kan kun hæve trinnet, aldrig sænke det, og CO₂ og fugt fra samme føler bruges som før." : "Applies to Smart Auto. Cooking, candles and stoves make fine dust; more air change removes it faster. PM2.5 can only raise the level, never lower it, and CO₂ and humidity from the same sensor are used as before."}</Help>
+          <label>{lang === "da" ? "Grænse" : "Limit"}<input type="number" min="5" max="200" value={n(form.pm25_setpoint, 25)} onChange={num("pm25_setpoint")}/><span>µg/m³</span><Help>{lang === "da" ? "Over denne værdi skrues der op. WHO anbefaler under 15 µg/m³ i døgngennemsnit; 25 undgår at almindelig støv giver udslag." : "Above this value the level goes up. WHO recommends below 15 µg/m³ as a daily mean; 25 keeps ordinary dust from reacting."}</Help></label>
+          <label>{lang === "da" ? "Et trin pr." : "One level per"}<input type="number" min="2" max="100" value={n(form.pm25_step, 15)} onChange={num("pm25_step")}/><span>µg/m³</span><Help>{lang === "da" ? "Hvor meget over grænsen der skal til for hvert ekstra trin." : "How far above the limit each extra level needs."}</Help></label>
+          <label>{lang === "da" ? "Hysterese" : "Hysteresis"}<input type="number" min="1" max="50" value={n(form.pm25_hysteresis, 5)} onChange={num("pm25_hysteresis")}/><span>µg/m³</span></label>
+          <label>{lang === "da" ? "Højeste trin ved PM2.5" : "Highest level for PM2.5"}<input type="number" min="1" max="6" value={n(form.pm25_max_level, 5)} onChange={num("pm25_max_level")}/></label>
+          {(() => {
+            const smart = (controller.smart_rooms ?? {}) as Record<string, { pm25?: number }>;
+            const pmRooms = Object.entries(smart).filter(([, values]) => typeof values?.pm25 === "number");
+            const ignored = Array.isArray(form.pm25_ignored_rooms) ? form.pm25_ignored_rooms.map(String) : [];
+            if (!pmRooms.length) return <p className="settings-help">{lang === "da" ? "Ingen rum sender PM2.5 endnu. Tilføj PM2.5-føleren til rummet i Home Assistant-integrationen (samme rum som CO₂-føleren)." : "No room sends PM2.5 yet. Add the PM2.5 sensor to the room in the Home Assistant integration (same room as the CO₂ sensor)."}</p>;
+            return <div className="pm25-rooms">
+              <span>{lang === "da" ? "Rum der må styre på PM2.5" : "Rooms allowed to control on PM2.5"}</span>
+              {pmRooms.map(([name, values]) => <label key={name} className="check-row pm25-room"><input type="checkbox" checked={!ignored.includes(name)} onChange={e => set("pm25_ignored_rooms", e.target.checked ? ignored.filter(r => r !== name) : [...ignored, name])}/><em>{name}<small>{fmt(values.pm25, lang, 0, " µg/m³")}</small></em></label>)}
+            </div>;
+          })()}
         </div>
       </Card>
     </>,

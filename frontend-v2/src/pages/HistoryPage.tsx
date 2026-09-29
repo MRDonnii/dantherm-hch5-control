@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Activity, Fan, Leaf, Recycle, SlidersHorizontal } from "lucide-react";
+import { AlarmHistory } from "../components/AlarmHistory";
 import { HistoryChart } from "../components/HistoryChart";
 import { requestJson } from "../lib/api";
 import "../styles/history.css";
@@ -166,6 +167,8 @@ export function HistoryPage() {
             />
           )}
         </article>
+
+        <AlarmHistory/>
 
         <article className="surface history-card change-log-card">
           <div className="pro-card-head compact"><div><h2>Ændringer af indstillinger</h2><p>Hvem ændrede hvad · seneste 50</p></div><SlidersHorizontal size={20}/></div>
