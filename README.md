@@ -6,9 +6,9 @@ HCH5 Control turns a Raspberry Pi and a USB-RS485 adapter into a local controlle
 
 > **Unofficial community project.** HCH5 Control is not developed, approved, certified or supported by Dantherm Group. Installation changes the control path of the ventilation system and is performed entirely at your own risk. Keep the original HCP4 controller so the installation can be returned to its original configuration.
 
-![Dantherm HCH5 Control 1.3.2 front page with animated airflow](docs/images/1.3.2/overview-page-dark.gif)
+![Dantherm HCH5 Control 1.3.3 front page with animated airflow](docs/images/1.3.3/overview-page-dark.gif)
 
-*The animation shows the actual 1.3.2 interface with example values, not measurements from a real installation.*
+*The animation shows the actual 1.3.3 interface with example values, not measurements from a real installation.*
 
 **Why this matters:** HCH5 Control gives an older HCH5 a local, understandable controller: see why a fan level was chosen, adapt ventilation to rooms and routines, document air balancing, and receive actionable fault information. The Raspberry Pi continues controlling locally if Home Assistant or the internet is unavailable. [Explore the complete feature list](docs/FEATURES.md).
 
@@ -51,8 +51,14 @@ HCH5 / HAC1 ──RS485─┤ HCH5 Control: gateway + controller + WebUI   │�
 ```
 
 - The **Pi is the source of truth.** Modes, levels, schedules, rooms and setpoints live on the Pi and are shown both in the WebUI and in Home Assistant.
-- **Home Assistant never writes Modbus.** It sends *intent* (mode, level, setpoint) and *observations* (room CO₂/humidity/temperature, power, energy, prices) to the controller API. The Pi decides and performs only verified RS485 writes.
+- **Home Assistant never writes Modbus.** It sends *intent* (mode, level, setpoint) and *observations* (room CO₂/humidity/temperature, optional weather, power, energy, prices) to the controller API. The Pi decides and performs only verified RS485 writes.
 - Everything Home Assistant sends is **leased**: if Home Assistant stops, its room data expires and the Pi falls back to Local Auto.
+
+## Weather that can inform control
+
+The WebUI top bar displays **T1 measured by the HCH5**, so the outdoor temperature does not depend on a browser location lookup or a forecast model. Optionally, select a Home Assistant `weather.*` entity under **HCH5 Control → Configure → Sensors sent to the controller**. Its current condition appears beside T1, and the detail panel names the source and shows its temperature and humidity. A weather entity such as [Met.no](https://www.home-assistant.io/integrations/met) can provide those attributes without a separate browser API key.
+
+To let weather humidity inform ventilation, also enable humidity smart control and select **Vejr fra Home Assistant (med T1-kontrol)** as *Udeluftens fugt* in the Pi's moisture settings. The controller derives relative humidity at measured T1 from the weather entity's dew point, or from its temperature and humidity. It ignores unavailable data, data older than two hours in HA, a stopped HA feed, stale T1, and weather temperatures more than 6 °C from T1. In those cases the normal local humidity rule continues. This option does not use a forecast to set the fan level directly.
 
 ## Hardware
 
@@ -87,7 +93,7 @@ For **active control**, disconnect the original HCP4 from the RS485 control path
 
 3. **Open** `http://RASPBERRY-PI-IP:8080/` and create the owner account. There is no default password.
 
-   <img src="docs/images/1.3.2/first-user-setup.png" alt="First-user setup" width="300">
+   <img src="docs/images/1.3.3/first-user-setup.png" alt="First-user setup" width="300">
 
 4. **Check the bus:** the overview should show *Bus: Sund* and live temperatures within a few seconds.
 5. **Choose a mode** under *Drift og styring* and adjust the house and air-quality settings under **Indstillinger**.
@@ -99,13 +105,13 @@ For **active control**, disconnect the original HCP4 from the RS485 control path
 
 The overview shows the unit as an animated drawing: supply air (T1 → T2 → T2AH) and extract air (T3 → T4) through the exchanger, the afterheat coil with water flow/return, fans, bypass and who is in control. Next to it are the daily controls, the afterheat thermostat, indoor climate, diagnostics and today's energy.
 
-![Animated airflow drawing](docs/images/1.3.2/overview-animation.gif)
+![Animated airflow drawing](docs/images/1.3.3/overview-animation.gif)
 
 <p>
-  <img src="docs/images/1.3.2/overview-mobile.png" alt="Overview on mobile" width="300">
+  <img src="docs/images/1.3.3/overview-mobile.png" alt="Overview on mobile" width="300">
 </p>
 
-![Overview in light theme](docs/images/1.3.2/overview-light.png)
+![Overview in light theme](docs/images/1.3.3/overview-light.png)
 
 Click any temperature in the drawing to see its last 24 hours.
 
@@ -113,15 +119,15 @@ Click any temperature in the drawing to see its last 24 hours.
 
 Temperatures, afterheat water, fans, CO₂ and heat recovery over 1 hour to 30 days.
 
-![History](docs/images/1.3.2/history.png)
+![History](docs/images/1.3.3/history.png)
 
 ### Teknik and Diagnostik
 
 *Teknik* shows master arbitration, hardware writes, the active decision, Smart Auto input and the raw readbacks from the bus. *Diagnostik* collects bus health and services, runs a safe system test and downloads a debug report with secrets masked.
 
-![Technique](docs/images/1.3.2/technique.png)
+![Technique](docs/images/1.3.3/technique.png)
 
-![Diagnostics](docs/images/1.3.2/diagnostics.png)
+![Diagnostics](docs/images/1.3.3/diagnostics.png)
 
 ### Indstillinger
 
@@ -131,13 +137,13 @@ Every setting explains what it does. Sections: house and airflow, air quality, m
 
 A 24-hour timeline for each weekday. Click to add a period, drag to move or resize it, and set its level. A *Grundtrin* period replaces the base level (CO₂ and humidity can still lift it); a *Mindst* period is a floor. Periods can run past midnight, be copied to weekdays or the weekend, and start from templates. The same page plans holidays with a start and end date.
 
-![Visual week planner with example periods](docs/images/1.3.2/schedule.png)
+![Visual week planner with example periods](docs/images/1.3.3/schedule.png)
 
 ### Indregulering
 
 For technicians: enter the rooms (type, m², ceiling height, supply/extract), get the design airflow per valve after BR18 and a recommended base level, run the unit fixed while measuring, enter l/s per valve and print or save a balancing report as PDF. Reports are kept on the Pi.
 
-![Room-by-room balancing with example rooms](docs/images/1.3.2/balancing.png)
+![Room-by-room balancing with example rooms](docs/images/1.3.3/balancing.png)
 
 ### Alarm history and PM2.5
 
@@ -163,23 +169,23 @@ Under *Indstillinger → Mail* an administrator or technician can set up an SMTP
 The SMTP password is stored only on the Pi (`/var/lib/dantherm-hch5-ha/webui-mail.json`, mode 0600) and is never sent back to the browser.
 
 <p>
-  <img src="docs/images/1.3.2/settings-users.png" alt="User management with example account" width="48%">
-  <img src="docs/images/1.3.2/settings-mail.png" alt="SMTP configuration, unconfigured example" width="48%">
+  <img src="docs/images/1.3.3/settings-users.png" alt="User management with example account" width="48%">
+  <img src="docs/images/1.3.3/settings-mail.png" alt="SMTP configuration, unconfigured example" width="48%">
 </p>
 
-![Air-quality settings](docs/images/1.3.2/settings-air-quality.png)
+![Air-quality settings](docs/images/1.3.3/settings-air-quality.png)
 
-![Afterheat settings](docs/images/1.3.2/settings-afterheat.png)
+![Afterheat settings](docs/images/1.3.3/settings-afterheat.png)
 
-![1-Wire sensors](docs/images/1.3.2/settings-sensors.png)
+![1-Wire sensors](docs/images/1.3.3/settings-sensors.png)
 
 ### System and Opdateringer
 
 *System* shows the Pi's CPU, temperature, memory, disk, services and network, power profile and Wi-Fi setup. *Opdateringer* installs new versions and links straight to the Home Assistant integration and dashboard card in HACS.
 
-![System](docs/images/1.3.2/system.png)
+![System](docs/images/1.3.3/system.png)
 
-![Updates with Home Assistant links](docs/images/1.3.2/updates-home-assistant.png)
+![Updates with Home Assistant links](docs/images/1.3.3/updates-home-assistant.png)
 
 ## Bringing Home Assistant into the control
 
@@ -218,7 +224,7 @@ Home Assistant now has temperatures, fans, CO₂, humidity, bypass, filter and a
 
 The Pi now combines its own CO₂/humidity with the Home Assistant rooms and ventilates for the worst relevant room. Rooms named with *bad*, *bath* or *brus* get the bathroom humidity policy. Rooms with *use for control* off are shown but do not steer. The **Home Assistant** page in the WebUI shows each room's values and whether the input is fresh:
 
-![Home Assistant page in the WebUI](docs/images/1.3.2/home-assistant.png)
+![Home Assistant page in the WebUI](docs/images/1.3.3/home-assistant.png)
 
 If Home Assistant stops, the room data expires after the configured validity (default 180 s) and the Pi continues in Local Auto. Changes made in the WebUI appear in Home Assistant on the next poll, and vice versa.
 

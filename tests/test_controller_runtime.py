@@ -28,6 +28,17 @@ class ControllerRuntimeTests(unittest.TestCase):
         })
         return runtime.smart_requested_level
 
+    def test_weather_humidity_requires_fresh_bus_t1(self):
+        state = {"outdoor_temp": 15.4, "bus_traffic": True, "bus_last_frame_age": 1}
+        runtime = self.make_runtime(state)
+        runtime.external_signals({"weather": {"source": "weather.home", "condition": "cloudy",
+                                               "temperature_c": 16, "humidity_pct": 60}})
+        runtime.config.data["outdoor_humidity_source"] = "weather"
+        self.assertIsNotNone(runtime._outdoor_humidity())
+        state["bus_last_frame_age"] = 12
+        self.assertIsNone(runtime._outdoor_humidity())
+        self.assertEqual(runtime.weather_snapshot()["humidity_reason"], "T1 er ikke tilgængelig")
+
     def test_afterheat_outdoor_lockout_is_reported_at_15_c_and_above(self):
         # HAC1 never heats at 15 C outdoor or above; report it as a lockout.
         for outdoor, expected in ((14.15, False), (15.0, True), (15.63, True), (None, None)):
@@ -234,4 +245,3 @@ class ControllerRuntimeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

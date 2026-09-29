@@ -1,6 +1,6 @@
 # HCH5 Control: complete feature list
 
-HCH5 Control adds a local Raspberry Pi controller, a responsive WebUI and an optional Home Assistant connection to a Dantherm HCH5 MK1 with HAC1. The [animated overview](images/1.3.2/overview-page-dark.gif) shows version 1.3.2 with example readings.
+HCH5 Control adds a local Raspberry Pi controller, a responsive WebUI and an optional Home Assistant connection to a Dantherm HCH5 MK1 with HAC1. The [animated overview](images/1.3.3/overview-page-dark.gif) shows version 1.3.3 with example readings.
 
 Features that depend on Home Assistant, a power meter or extra sensors are marked below. The Pi's normal control continues locally when Home Assistant is unavailable.
 
@@ -18,8 +18,9 @@ Features that depend on Home Assistant, a power meter or extra sensors are marke
 
 - Adjustable CO₂ and humidity limits, step size and hysteresis; a calibration offset for the unit's CO₂ sensor.
 - Bathroom drying reacts to high or rapidly rising humidity, can reach its own drying level even during night mode, and steps back down as the room dries.
-- Outdoor humidity from an optional Home Assistant sensor can prevent a humidity boost when outdoor air would not dry the house. Dry-air protection can limit ventilation when indoor air is already dry and CO₂ is acceptable.
+- Outdoor humidity from an optional Home Assistant room sensor or selected weather entity can prevent a humidity boost when outdoor air would not dry the house. Dry-air protection can limit ventilation when indoor air is already dry and CO₂ is acceptable.
 - Optional **indoor PM2.5** from Home Assistant rooms can raise Smart Auto's level. Its threshold, step size, hysteresis, maximum level and participating rooms are configurable. It does not lower a level requested for CO₂ or humidity.
+- **Weather checked against T1:** the top bar shows measured T1; an optional HA weather entity adds conditions. Its humidity can inform the dry-air decision only when data and T1 are fresh and the weather temperature is within 6 °C of T1.
 - **Free cooling:** requests bypass and a minimum fan level when indoor and outdoor temperatures make cooling useful. Thresholds, hysteresis, start delay and minimum on/off times are configurable.
 - **Bypass Auto/On:** shows the requested setting separately from the actual damper position and travel. The animated diagram follows the physical readback.
 - **Fireplace mode:** timed manual activation or automatic activation from a Home Assistant stove temperature or external switch, with hysteresis, afterrun and maximum duration.
@@ -77,7 +78,7 @@ Features that depend on Home Assistant, a power meter or extra sensors are marke
 - Separate **Administrator**, **Tekniker** and **Bruger** logins. Technician access can expire; accounts can be disabled or removed. The server enforces roles on every request, including for sessions already open.
 - Users can manage their own account details. Administrators manage users; administrators and technicians can configure mail. Password hashes, sessions, CSRF protection and login rate limiting protect the WebUI.
 - System controls include Pi power profiles and Wi-Fi setup. The WebUI offers Stable/Beta update channels with preflight checks, backups, service health checks and rollback on failure.
-- Responsive desktop/mobile layout, dark and light themes, Danish/English settings, reduced-motion preference and optional top-bar weather/outdoor air-quality display.
+- Responsive desktop/mobile layout, dark and light themes, Danish/English settings, reduced-motion preference and optional Home Assistant weather conditions beside measured T1.
 
 ## RS485 safety boundary
 

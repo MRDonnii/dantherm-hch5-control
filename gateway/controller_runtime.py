@@ -24,6 +24,7 @@ from diagnostics import Diagnostics
 from controller_core import AFTERHEAT_OUTDOOR_CUTOFF_C, ControllerEngine, ControllerError, ControllerState, HardwareAdapter
 from master_arbitration import MasterArbitrator, RtuFrameStream
 from sensor_freshness import fresh_sensor_value, sensor_sample_age
+from weather_bridge import humidity_at_t1, validate_weather
 
 LOG = logging.getLogger("passivelink-controller")
 VALID_PRIORITIES = {"auto", "low", "normal", "high", "critical"}
@@ -94,6 +95,8 @@ class ControllerRuntime:
         self.unit_power_until: float | None = None
         self.energy_signals: dict[str, float] = {}
         self.energy_signals_until: float | None = None
+        self.weather: dict[str, object] | None = None
+        self.weather_until: float | None = None
         self.fireplace_auto_active = False
         self.fireplace_auto_by_temperature = False
         self.fireplace_auto_started_at: float | None = None
@@ -182,7 +185,7 @@ class ControllerRuntime:
         self.afterheat_room_source_used = room_source if room_temperature is not None else None
         self.engine.set_external({
             "extract_temp": extract_temp,
-            "outdoor_rh": self._source_value(self.config.data.get("outdoor_humidity_source"), "humidity"),
+            "outdoor_rh": self._outdoor_humidity(),
             "afterheat_room_temperature": room_temperature,
             "stove_temperature": self._source_value(self.config.data.get("fireplace_auto_source"), "temperature"),
             "max_room_co2": self._max_room_co2(),
@@ -206,6 +209,23 @@ class ControllerRuntime:
             return None
         value = self._fresh_ha_rooms().get(name, {}).get(kind)
         return float(value) if isinstance(value, (int, float)) else None
+
+    def weather_snapshot(self) -> dict[str, object] | None:
+        if not self.weather or not self.weather_until or time.time() >= self.weather_until:
+            return None
+        age = self.gateway_state.get("bus_last_frame_age")
+        fresh = self.gateway_state.get("bus_traffic") is True and isinstance(age, (int, float)) and not isinstance(age, bool) and 0 <= age <= 5
+        t1 = self._first(self.gateway_state, "outdoor_temp", "outdoor_temperature") if fresh else None
+        humidity, reason = humidity_at_t1(self.weather, t1)
+        return {**self.weather, "humidity_at_t1": humidity, "humidity_reason": reason,
+                "remaining_seconds": max(0, int(self.weather_until - time.time()))}
+
+    def _outdoor_humidity(self) -> float | None:
+        source = self.config.data.get("outdoor_humidity_source")
+        if source == "weather":
+            weather = self.weather_snapshot()
+            return weather.get("humidity_at_t1") if weather else None
+        return self._source_value(source, "humidity")
 
     def _ha_room_average_temperature(self) -> float | None:
         """Average of the enabled HA rooms with a temperature.
@@ -256,6 +276,12 @@ class ControllerRuntime:
             raise ControllerError("valid_for_s skal være et heltal") from error
         if not 30 <= valid_for <= 900:
             raise ControllerError("valid_for_s skal være 30..900 sekunder")
+        if "weather" in payload:
+            try:
+                self.weather = validate_weather(payload["weather"]) if payload["weather"] is not None else None
+            except ValueError as error:
+                raise ControllerError(str(error)) from error
+            self.weather_until = time.time() + valid_for if self.weather else None
         if "unit_power_w" in payload:
             power = self._safe_number(payload["unit_power_w"], 0, 5000)
             if power is None:
@@ -953,6 +979,7 @@ class ControllerRuntime:
             "stove_temperature": self.engine.external.get("stove_temperature"),
             "measurement_rooms": sorted(self.smart_rooms),
             "afterheat_room_source_used": self.afterheat_room_source_used,
+            "weather": self.weather_snapshot(),
         })
         extract = self._safe_number(self._first(self.gateway_state, "extract_temp", "extract_temperature"), -30, 60)
         # Standby and bonfire stop both fans: no air, so no air-side power.

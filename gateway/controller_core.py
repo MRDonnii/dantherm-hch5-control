@@ -535,7 +535,8 @@ class ControllerState:
             ("outdoor_humidity_source", False, ""),
         ):
             try:
-                self.data[key] = valid_source(self.data.get(key), allow_fixed=allow_fixed) or default
+                self.data[key] = valid_source(self.data.get(key), allow_fixed=allow_fixed,
+                                               allow_weather=key == "outdoor_humidity_source") or default
             except ValueError:
                 self.data[key] = default
         try:
@@ -1096,7 +1097,8 @@ class ControllerState:
         ):
             if key in patch:
                 try:
-                    self.data[key] = valid_source(patch[key], allow_fixed=allow_fixed)
+                    self.data[key] = valid_source(patch[key], allow_fixed=allow_fixed,
+                                                   allow_weather=key == "outdoor_humidity_source")
                 except ValueError as error:
                     raise ControllerError(f"{key}: ugyldig målekilde") from error
         if "airflow_measured" in patch:

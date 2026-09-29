@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.3
+
+- Show the HCH5 measured outdoor T1 in the top bar instead of an Open-Meteo browser temperature.
+- Accept an optional leased Home Assistant weather entity for condition display and, when explicitly selected, outdoor humidity control. Reject stale readings and weather temperatures that differ more than 6 °C from T1.
+- Refresh the documentation and illustrated WebUI preview.
+
 ## 1.3.2
 
 - **"Styring nu" stands straight:** the panel with the controller's current decision was part of the unit drawing, which is turned in perspective, so it leaned with it. It is now a flat label over the drawing in the same corner, with text that never gets smaller than a readable size. When the drawing is narrow (for example on a 1440 px screen, where the overview has two columns) it becomes a straight bar just under the drawing. On phones the same decision stays in the *Drift og styring* card.

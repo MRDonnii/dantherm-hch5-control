@@ -251,7 +251,8 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                 elif parsed.path == "/api/controller/state":
                     self._json({**dashboard.controller_runtime.snapshot(), **dashboard.ha_link()})
                 elif parsed.path in ("/state.json", "/api"):
-                    self._json({**dashboard.snapshot(), **dashboard.ha_link()})
+                    self._json({**dashboard.snapshot(), **dashboard.ha_link(),
+                                "weather": dashboard.controller_runtime.weather_snapshot()})
                 elif parsed.path == "/api/diagnostics/report":
                     if self._require("diagnostics") is not None:
                         self._diagnostic_report()

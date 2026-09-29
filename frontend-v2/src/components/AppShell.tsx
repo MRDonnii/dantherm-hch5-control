@@ -22,7 +22,7 @@ import { postJson, requestJson } from "../lib/api";
 import { TopbarNoticeContext } from "../lib/topbar-notice";
 import { haLinkText, readHaLink } from "../lib/haLink";
 import { ROLE_NAMES, SessionContext, sessionCan, type AuthStatus, type Permission } from "../lib/session";
-import { TopbarWeather } from "./TopbarWeather";
+import { TopbarWeather, type WeatherSummary } from "./TopbarWeather";
 
 const navigation = [
   ["/overview", "Overblik", Home, null],
@@ -92,6 +92,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   }), [auth, authLoading, refreshAuth]);
   const haLink = readHaLink(unit);
   const haInfo = haLinkText(haLink);
+  const outdoorValue = unit.outdoor_temp ?? unit.outdoor_temperature;
+  const outdoorTemp = unit.available === true && typeof outdoorValue === "number" && Number.isFinite(outdoorValue) ? outdoorValue : null;
+  const weather = unit.weather && typeof unit.weather === "object" ? unit.weather as WeatherSummary : null;
   // Only shown once Home Assistant is part of the setup (has been seen, or Smart Auto needs it).
   const haVisible = haLink.state !== null && (haLink.state !== "never" || haLink.required);
   const haChipContent = <><span className="live-dot" />HA{haLink.state !== "online" && <small>{haInfo.label}</small>}</>;
@@ -209,7 +212,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span>{subtitle}</span>
           </div>
           <div className="topbar-actions">
-            <TopbarWeather />
+            <TopbarWeather outdoorTemp={outdoorTemp} weather={weather} />
             {availableUpdate && session.can("system") && <NavLink className="topbar-update-tab" to="/updates" title={availableUpdate}><RefreshCw size={15}/><span>{availableUpdate === "Installerer opdatering" ? availableUpdate : "Opdatering klar"}</span>{availableUpdate !== "Installerer opdatering" && <small>{availableUpdate}</small>}</NavLink>}
             <div className="topbar-clock"><strong>{now.toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" })}</strong><span>{now.toLocaleDateString("da-DK", { day: "2-digit", month: "short", year: "numeric" })}</span></div>
             {notice && <div className={`topbar-control-notice${notice.startsWith("Kunne") ? " error" : ""}`} role="status" title={notice}><strong>Seneste ændring</strong><span>{notice}</span></div>}

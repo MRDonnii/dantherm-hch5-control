@@ -245,12 +245,14 @@ def absolute_humidity(temperature: float | None, relative_humidity: float | None
     return saturation_hpa * relative_humidity * 2.1674 / (273.15 + temperature)
 
 
-def valid_source(value: object, *, allow_fixed: bool) -> str:
-    """Normalise a measurement source: '', 't5', 'ha_average' or 'room:<name>'."""
+def valid_source(value: object, *, allow_fixed: bool, allow_weather: bool = False) -> str:
+    """Normalise a measurement source, optionally including leased HA weather."""
     text = str(value or "").strip()
     if not text:
         return ""
     if allow_fixed and text in TEMPERATURE_SOURCE_FIXED:
+        return text
+    if allow_weather and text == "weather":
         return text
     if text.startswith(ROOM_PREFIX) and 0 < len(text[len(ROOM_PREFIX):].strip()) <= 64:
         return ROOM_PREFIX + text[len(ROOM_PREFIX):].strip()
