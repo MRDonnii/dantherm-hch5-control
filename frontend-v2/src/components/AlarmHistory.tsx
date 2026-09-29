@@ -39,6 +39,7 @@ function kindInfo(event: EventRow): { icon: typeof BellRing; label: string; tone
     case "login": return { icon: KeyRound, label: "Login", tone: "neutral" };
     case "login_failed": return { icon: ShieldAlert, label: "Fejlet login", tone: "warning" };
     case "password_reset": return { icon: KeyRound, label: "Nulstilling", tone: "neutral" };
+    case "token_generated": return { icon: KeyRound, label: "API-nøgle", tone: "warning" };
     default: return { icon: UserCog, label: "Bruger", tone: "neutral" };
   }
 }

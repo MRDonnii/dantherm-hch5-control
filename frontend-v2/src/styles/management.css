@@ -32,3 +32,6 @@
 .settings-savebar span{font-size:13px}
 .pm25-rooms{grid-column:1/-1;display:grid;gap:6px}.pm25-rooms>span{color:var(--muted);font-size:13px;font-weight:750}.pm25-rooms label small{color:var(--muted);font-weight:600;margin-left:6px}
 .pm25-room em{font-style:normal;color:var(--text);font-size:14px}
+.integration-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}.integration-field{display:grid;gap:6px;min-width:0}.integration-field>span{color:var(--muted);font-size:12.5px;font-weight:750}.integration-field small{color:var(--muted);font-size:12px}
+.integration-value{display:flex;align-items:center;gap:6px;min-width:0}.integration-value code{flex:1 1 auto;min-width:0;padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:var(--surface-soft);color:var(--text);font:13px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}.integration-value code.masked{color:var(--muted);letter-spacing:.05em}
+@media(max-width:760px){.integration-fields{grid-template-columns:1fr}}

@@ -90,7 +90,7 @@ Nu har Home Assistant temperaturer, blæsere, CO₂, fugt, bypass, filter og ala
 
 ## 6. Home Assistant: med i styringen
 
-1. Vis controller-tokenet på Pi'en:
+1. Find adresse og API-nøgle: i WebUI under **Home Assistant → Forbindelse fra Home Assistant** (tekniker eller administrator) kan du vise, kopiere eller generere en ny nøgle. En ny nøgle stopper den gamle med det samme. Over SSH kan du også vise den nøgle, installationen lavede:
 
    ```bash
    sudo sed -n 's/^DANTHERM_CONTROLLER_TOKEN=//p' /etc/dantherm-passivelink-webui/gateway.env

@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, urlparse
 from controller_core import ControllerError
 from dashboard_server import ASSET_TYPES, DashboardHttpServer, WEBUI_CSP
 from balancing_store import BalancingError, BalancingStore
+from controller_token import ControllerTokenStore
 from event_log import ALARM_KINDS, EventLog
 from webui_auth import ROLE_LABELS
 from webui_mail import AlarmMailer, MailError, MailService
@@ -39,7 +40,10 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
     def __init__(self, *args, controller_runtime, **kwargs):
         super().__init__(*args, **kwargs)
         self.controller_runtime = controller_runtime
-        self.controller_token = os.getenv("DANTHERM_CONTROLLER_TOKEN")
+        self.tokens = ControllerTokenStore(
+            os.getenv("DANTHERM_CONTROLLER_TOKEN_FILE", str(self.auth.path.with_name("controller-token.json"))),
+            os.getenv("DANTHERM_CONTROLLER_TOKEN"),
+        )
         self.mail = MailService(os.getenv(
             "DANTHERM_WEBUI_MAIL_FILE", str(self.auth.path.with_name("webui-mail.json"))))
         self.events = EventLog(os.getenv(
@@ -103,10 +107,11 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                 return session if self._need(session, capability) else None
 
             def _machine_auth(self):
-                if not dashboard.controller_token:
+                token = dashboard.tokens.current()
+                if not token:
                     return False
                 supplied = self.headers.get("Authorization", "")
-                expected = f"Bearer {dashboard.controller_token}"
+                expected = f"Bearer {token}"
                 return hmac.compare_digest(supplied, expected)
 
             def do_GET(self):
@@ -195,6 +200,11 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                         return
                     report = dashboard.balancing.get_report(parse_qs(parsed.query).get("id", [""])[0])
                     self._json(report) if report else self._json_error(404, "Rapporten findes ikke")
+                elif parsed.path == "/api/integration":
+                    if self._require("configure") is None:
+                        return
+                    self._json({**dashboard.tokens.status(), "port": dashboard.port,
+                                "address": dashboard._system_snapshot().get("network_ipv4")})
                 elif parsed.path == "/api/mail":
                     if self._require("mail") is None:
                         return
@@ -390,6 +400,21 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                         LOG.exception("Could not save balancing data")
                         return self._json_error(500, "Kunne ikke gemme indreguleringen")
                     return self.send_error(404)
+                if self.path in ("/api/integration/token/generate", "/api/integration/token/reveal"):
+                    if not self._need(session, "configure"):
+                        return
+                    if self.path.endswith("/generate"):
+                        try:
+                            token = dashboard.tokens.generate(session.get("username"))
+                        except OSError:
+                            LOG.exception("Could not save the controller token")
+                            return self._json_error(500, "Kunne ikke gemme API-nøglen")
+                        dashboard.events.add("token_generated", "Ny API-nøgle til Home Assistant genereret", user=session.get("username"))
+                        return self._json({"token": token, **dashboard.tokens.status()})
+                    token = dashboard.tokens.current()
+                    if not token:
+                        return self._json_error(404, "Der er ingen API-nøgle endnu")
+                    return self._json({"token": token, **dashboard.tokens.status()})
                 if self.path in ("/api/mail/settings", "/api/mail/test"):
                     if not self._need(session, "mail"):
                         return
