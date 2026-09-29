@@ -18,7 +18,7 @@ WebUI-gatewayen åbner serieporten én gang. Home Assistant forbinder via TCP og
 - systemd og `apt`;
 - Python 3.11 eller nyere;
 - en Linux-understøttet USB-RS485-adapter;
-- Dantherm HCH5 MK1/HAC1. HCP4 kan forblive forbundet og har altid prioritet; Pi'en skriver kun, når HCP4 er stille og bussen er sund.
+- Dantherm HCH5 MK1/HAC1. Ved normal aktiv Pi-styring frakobles HCP4 fra RS485-styrevejen. Hvis HCP4 er tilsluttet og skriver på bussen, giver Pi'en straks forrang og blokerer egne skriverier.
 
 ## Sikker RS485-tilslutning
 

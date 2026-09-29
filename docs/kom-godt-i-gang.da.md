@@ -49,26 +49,26 @@ Kommandoen installerer seneste stabile version. Tilføj `--beta` for seneste bet
 
 Åbn `http://PI-IP:8080/`. Første gang opretter du selv ejerkontoen – der findes ingen standardadgangskode.
 
-<img src="images/1.2.0/first-user-setup.png" alt="Opret første bruger" width="300">
+<img src="images/1.3.2/first-user-setup.png" alt="Opret første bruger" width="300">
 
 Kontrollér derefter på **Overblik**:
 
 - **Bus: Sund** og temperaturer, der opdateres;
 - **Master: Raspberry Pi**, når HCP4 er koblet fra.
 
-![Overblik](images/1.2.0/overview-desktop.png)
+![Overblik](images/1.3.2/overview-desktop.png)
 
 Gå så til **Indstillinger** og tag disse i rækkefølge:
 
 1. **Hus og luftmængde** – boligens størrelse giver grundtrinnet. Slå **Luftbalance** på *Auto*, så udsugningen altid er lidt større end indblæsningen (5 % i m³/h) på alle trin. Har du en T2-føler før eftervarmen, lærer Pi'en selv, hvor meget luft kanalerne giver pr. omdrejning.
 2. **Luftkvalitet** – normaltrin og grænser for fugt og CO₂.
 3. **Nat**, **Frikøling**, **Pejs og brændeovn** efter behov.
-4. **Eftervarme** – eftervarmefladens type (el eller vand) og sommerstop.
+4. **Eftervarme** – eftervarmefladens type (el eller vand), setpunkt og eventuel rumtemperaturfølgning. HAC1 styrer fortsat sin egen ventil og frostbeskyttelse.
 5. **Følere** – giv DS18B20-følerne en rolle: *T2 · før eftervarme*, *Eftervarme · frem/retur*, *Loftrum* eller et eget navn.
 
-![Indstillinger: luftkvalitet](images/1.2.0/settings-air-quality.png)
+![Indstillinger: luftkvalitet](images/1.3.2/settings-air-quality.png)
 
-![Indstillinger: følere](images/1.2.0/settings-sensors.png)
+![Indstillinger: følere](images/1.3.2/settings-sensors.png)
 
 Tryk **Gem controller**. Vælg til sidst driftstilstand under **Drift og styring** på overblikket:
 
@@ -109,7 +109,7 @@ Nu har Home Assistant temperaturer, blæsere, CO₂, fugt, bypass, filter og ala
 
 Siden **Home Assistant** i WebUI'en viser nu hvert rum, dets værdier og om data er friske:
 
-![Home Assistant i WebUI](images/1.2.0/home-assistant.png)
+![Home Assistant i WebUI](images/1.3.2/home-assistant.png)
 
 Rum med *Brug til styring* slået fra vises kun. Holder Home Assistant op med at sende, udløber rumdata efter den valgte gyldighed (standard 180 sekunder), og Pi'en fortsætter i Local Auto.
 
@@ -129,7 +129,7 @@ Eftervarme og genvundet varme er beregnet ud fra luftens temperaturer og anslåe
 
 Åbn **Opdateringer** i WebUI'en. **Stabil** er standard; slå **Brug beta-kanal** til, hvis du vil have nye funktioner før alle andre. **Installer opdatering** tager backup, opdaterer, genstarter og kontrollerer, at alt kører. Integration og kort opdateres i HACS – siden har genveje til begge.
 
-![Opdateringer](images/1.2.0/updates-home-assistant.png)
+![Opdateringer](images/1.3.2/updates-home-assistant.png)
 
 ## Hvis noget ikke virker
 
