@@ -63,11 +63,11 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
    so the vanishing point sits above it: the exhaust end turns away, gets
    smaller and rises towards the horizon instead of pinching to the middle,
    which read as seen from eye level. The padding keeps the raised top in the card. */
-.hch5-visual { flex: 1; display: flex; flex-direction: column; margin-top: 4px; padding-top: 16px; perspective: 1900px; perspective-origin: 25% -80%; }
+.hch5-visual { flex: 1; display: flex; flex-direction: column; margin-top: 4px; padding-top: 16px; }
 .hch5-visual .unit-readback-row { margin-top: auto; }
 /* Seen from the afterheat end: the left side stays put while the exhaust
    end turns slightly away from the viewer. */
-.hch5-visual > svg { width: 100%; height: auto; display: block; transform: rotateY(9deg); transform-origin: 0 50%; }
+.hch5-visual .hch5-svg-wrap > svg { width: 100%; height: auto; display: block; transform: rotateY(9deg); transform-origin: 0 50%; }
 .hch-side-inset { fill: none; stroke: #8199a7; stroke-width: 1; opacity: .45; }
 .hch-floor-shadow { fill: rgb(0 0 0 / 32%); filter: blur(9px); }
 .hch-cabinet,.hch-top-panel,.hch-side-panel { stroke: #77909f; stroke-width: 1.4; }
@@ -361,7 +361,7 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
   .afterheat-row { grid-template-columns: 1fr; }
   .setpoint-stepper { justify-self: stretch; grid-template-columns: 42px 1fr 42px; }
   .hch5-visual { overflow: visible; padding-top: 0; }
-  .hch5-visual > svg { display: block; width: 100%; height: auto; transform: none; }
+  .hch5-visual .hch5-svg-wrap > svg { display: block; width: 100%; height: auto; transform: none; }
 }
 
 /* RS485/Modbus wiring between the unit, HAC1 and the Raspberry Pi. */
@@ -450,7 +450,7 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 }
 @media (max-width:680px) {
   .pro-air-card { margin-inline: -12px; padding: 12px 10px; border-radius: 0; }
-  .hch5-visual > svg { max-width: 100%; }
+  .hch5-visual .hch5-svg-wrap > svg { max-width: 100%; }
 }
 
 /* Water afterheat coil (controller setting afterheat_coil = water): copper
@@ -476,18 +476,29 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .hch-water-coil .valve-actuator { fill: #b8773c; stroke: #08141b; stroke-width: 1; }
 .hch-water-coil.active .valve-actuator { fill: #f0a050; }
 [data-motion="reduced"] .hch-water-coil.active .water-flow path { animation: none; }
-.hch-control-panel .control-body { fill: rgb(8 20 28 / 82%); stroke: #3a5b70; stroke-width: 1.4; filter: drop-shadow(0 6px 14px rgb(0 0 0 / 35%)); }
-.hch-control-panel.tone-boost .control-body { stroke: #c9894a; }
-.hch-control-panel.tone-reduced .control-body { stroke: #4f86b0; }
-.hch-control-panel.tone-paused .control-body { stroke: #8a6a3a; stroke-dasharray: 6 5; }
-.hch-control-text { display: flex; flex-direction: column; gap: 3px; height: 100%; overflow: hidden; color: #a3b9c6; font-family: inherit; }
-.hch-control-eyebrow { font-size: 11.5px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: #7fa3b8; }
-.hch-control-title { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; color: #f5fafd; font-size: 19px; font-weight: 850; line-height: 1.15; }
-.hch-control-title em { flex: none; font-style: normal; font-size: 15px; font-weight: 800; color: #74ecab; }
+/* "Styring nu" lies flat over the turned drawing; sizes follow the drawing's width. */
+.hch5-svg-wrap { position: relative; container-type: inline-size; perspective: 1900px; perspective-origin: 25% -80%; }
+.hch-control-panel { --u: var(--svg-unit, 1px); position: absolute; z-index: 2; box-sizing: border-box; display: flex; flex-direction: column; gap: 3px; padding: max(calc(var(--u) * 10), 8px) max(calc(var(--u) * 14), 11px); overflow: hidden; border: 1.5px solid #3a5b70; border-radius: 12px; background: rgb(8 20 28 / 90%); box-shadow: 0 6px 14px rgb(0 0 0 / 35%); color: #a3b9c6; pointer-events: none; }
+.hch-control-panel.tone-boost { border-color: #c9894a; }
+.hch-control-panel.tone-reduced { border-color: #4f86b0; }
+.hch-control-panel.tone-paused { border-style: dashed; border-color: #8a6a3a; }
+.hch-control-eyebrow { font-size: max(calc(var(--u) * 12.5), 11px); font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: #7fa3b8; }
+.hch-control-title { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; color: #f5fafd; font-size: max(calc(var(--u) * 21), 16px); font-weight: 850; line-height: 1.15; }
+.hch-control-title em { flex: none; font-style: normal; font-size: max(calc(var(--u) * 16), 13px); font-weight: 800; color: #74ecab; }
 .hch-control-panel.tone-boost .hch-control-title em { color: #ffb066; }
 .hch-control-panel.tone-reduced .hch-control-title em { color: #7fd0ff; }
-.hch-control-reason { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 13px; font-weight: 650; line-height: 1.3; color: #c8dbe5; }
-.hch-control-footer { margin-top: auto; font-size: 11.5px; font-weight: 700; color: #7fa3b8; }
+.hch-control-reason { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: max(calc(var(--u) * 14.5), 12.5px); font-weight: 650; line-height: 1.3; color: #c9dbe5; }
+.hch-control-footer { font-size: max(calc(var(--u) * 12.5), 11px); font-weight: 700; color: #7fa3b8; }
+/* A narrow drawing leaves no room: the panel becomes a straight bar under it. */
+@container (max-width: 900px) {
+  .hch-control-panel { position: static; width: auto !important; margin: 8px 0 4px; display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; column-gap: 12px; row-gap: 2px; }
+  .hch-control-eyebrow { grid-row: 1 / span 2; }
+  .hch-control-title { grid-column: 2; }
+  .hch-control-reason { grid-column: 2; -webkit-line-clamp: 1; }
+  .hch-control-footer { grid-column: 3; grid-row: 1 / span 2; text-align: right; }
+}
+/* Phones show the same decision in the Drift og styring card. */
+@media (max-width: 680px) { .hch-control-panel { display: none; } }
 .hch-core-toggle { fill: transparent; stroke: none; cursor: pointer; outline: none; }
 .hch-core-toggle:focus-visible { stroke: rgb(127 208 255 / 70%); stroke-width: 2; stroke-dasharray: 6 5; }
 .hch-recovery-hit { cursor: pointer; outline: none; }
@@ -573,7 +584,7 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
   .function-buttons button { flex: 1 1 0; }
 }
 /* The drawing shows "Styring nu" on wide screens; the decision box is only needed where it doesn't. */
-@media (min-width: 1351px) { .pro-control-card .active-decision { display: none; } }
+@media (min-width: 681px) { .pro-control-card .active-decision { display: none; } }
 /* End both columns at the same height. */
 .dashboard-main-grid { align-items: stretch; }
 .dashboard-col > :last-child { flex: 1 1 auto; }

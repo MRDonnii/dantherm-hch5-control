@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.2
+
+- **"Styring nu" stands straight:** the panel with the controller's current decision was part of the unit drawing, which is turned in perspective, so it leaned with it. It is now a flat label over the drawing in the same corner, with text that never gets smaller than a readable size. When the drawing is narrow (for example on a 1440 px screen, where the overview has two columns) it becomes a straight bar just under the drawing. On phones the same decision stays in the *Drift og styring* card.
+- Changes by Claude AI.
+
 ## 1.3.1
 
 - **Update check compares version numbers:** the beta channel offered 1.2.1-beta.13 to an installation already on 1.3.0, because any different version counted as an update. Versions are now compared by number (1.3.0 is newer than 1.2.1-beta.13 and 1.3.0-beta.x), and only a newer version is offered, on both channels.
