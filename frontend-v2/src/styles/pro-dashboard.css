@@ -544,3 +544,46 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 @container (max-width: 560px) {
   .unit-readback-row, .climate-metrics, .climate-metrics.metrics-5 { grid-template-columns: repeat(2,minmax(0,1fr)); }
 }
+/* Functions: one compact row per temporary function. */
+.functions-card { padding: 13px 14px; border-radius: 12px; min-width: 0; }
+.function-rows { display: grid; margin-top: 8px; }
+.function-row { display: grid; grid-template-columns: 34px minmax(0,1fr) auto; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--border); }
+.function-row:first-child { border-top: 0; }
+.function-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; color: #7cc4f2; background: rgb(76 159 220 / 12%); }
+.function-icon.flame { color: #ff9b52; background: rgb(255 155 82 / 12%); }
+.function-icon.cooling { color: #6fd3f0; background: rgb(111 211 240 / 12%); }
+.function-icon.smoke { color: #b9c7d1; background: rgb(185 199 209 / 12%); }
+.function-row.active .function-icon { box-shadow: 0 0 0 2px currentColor inset; }
+.function-text { display: grid; gap: 1px; min-width: 0; }
+.function-text strong { font-size: 14px; color: var(--text); }
+.function-text small { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.function-buttons { display: flex; gap: 5px; }
+.function-buttons button { min-width: 50px; height: 34px; padding: 0 9px; border: 1px solid #294658; border-radius: 8px; background: #0c1b25; color: #a9bdc9; font-size: 13px; font-weight: 750; white-space: nowrap; cursor: pointer; }
+.function-buttons button:hover:not(:disabled) { border-color: #4e92bb; color: #dff5ff; }
+.function-buttons button.active { color: #fff; border-color: #3baeff; background: linear-gradient(145deg,#15538a,#1265ae); }
+.function-buttons button.stop { border-color: #c9653a; color: #ffb48a; }
+.function-buttons button:disabled { opacity: .45; cursor: default; }
+:root[data-theme="light"] .function-buttons button { border-color: #a9c3d4; background: #f0f6f9; color: #384a54; }
+:root[data-theme="light"] .function-buttons button.active { color: #fff; border-color: #0d92f0; background: linear-gradient(145deg,#1b5486,#1a65a7); }
+/* Narrow cards: buttons go under the text. */
+.dashboard-col-side { container-type: inline-size; }
+@container (max-width: 470px) {
+  .function-row { grid-template-columns: 34px minmax(0,1fr); }
+  .function-buttons { grid-column: 2; }
+  .function-buttons button { flex: 1 1 0; }
+}
+/* The drawing shows "Styring nu" on wide screens; the decision box is only needed where it doesn't. */
+@media (min-width: 1351px) { .pro-control-card .active-decision { display: none; } }
+/* End both columns at the same height. */
+.dashboard-main-grid { align-items: stretch; }
+.dashboard-col > :last-child { flex: 1 1 auto; }
+@container (min-width: 561px) and (max-width: 760px) {
+  .climate-metrics.metrics-5 { grid-template-columns: repeat(6,minmax(0,1fr)); }
+  .climate-metrics.metrics-5 > :nth-child(-n+3) { grid-column: span 2; }
+  .climate-metrics.metrics-5 > :nth-child(n+4) { grid-column: span 3; }
+}
+/* Share any small height difference between the two columns across the climate tiles. */
+@media (min-width: 1351px) {
+  .climate-panel > .climate-metrics { flex: 1 1 auto; align-content: stretch; }
+  .climate-panel .climate-metric { align-content: center; }
+}
