@@ -9,6 +9,7 @@
 - **Holiday with a planned start:** choose from/to (or start now), the holiday level and quick lengths (3 days to 3 weeks). A planned holiday waits for its start and ends by itself.
 - A plain *Bruger* may edit the week plan and holiday. The old single window per day keeps working until the week plan is saved.
 - On phones the menu stays on one row whatever the role shows.
+- **Larger text in the whole WebUI:** labels, help text, inputs, buttons, tables and cards were 7–11 px and are now roughly 11.5–15 px (settings fields 13–14 px). Cards with several buttons (fireplace, Bål i haven) put the buttons on their own row, and the afterheat dial stacks above its readings when the card is narrow. The unit drawing is unchanged.
 - Changes by Claude AI.
 
 ## 1.2.1-beta.12

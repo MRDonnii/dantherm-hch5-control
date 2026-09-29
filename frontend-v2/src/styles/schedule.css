@@ -5,9 +5,9 @@
 
 .schedule-status { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-bottom:12px; }
 .schedule-tile { display:grid; gap:3px; padding:13px 14px; border:1px solid var(--border); border-radius:var(--radius-md,12px); background:var(--surface); min-width:0; }
-.schedule-tile span { color:var(--muted); font-size:9px; font-weight:750; letter-spacing:.06em; text-transform:uppercase; }
-.schedule-tile strong { color:var(--text); font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.schedule-tile small { color:var(--muted); font-size:9.5px; line-height:1.4; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+.schedule-tile span { color:var(--muted); font-size:12.5px; font-weight:750; letter-spacing:.06em; text-transform:uppercase; }
+.schedule-tile strong { color:var(--text); font-size:17px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.schedule-tile small { color:var(--muted); font-size:13px; line-height:1.4; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
 .schedule-tile.is-active { border-color:color-mix(in srgb,var(--green) 45%,var(--border)); background:color-mix(in srgb,var(--green) 7%,var(--surface)); }
 .schedule-tile.is-vacation { border-color:color-mix(in srgb,var(--orange) 45%,var(--border)); background:color-mix(in srgb,var(--orange) 7%,var(--surface)); }
 
@@ -19,29 +19,29 @@
 .schedule-switch input:checked + span { background:color-mix(in srgb,var(--green) 35%,var(--surface)); border-color:var(--green); }
 .schedule-switch input:checked + span::after { transform:translateX(16px); background:var(--green); }
 .schedule-switch input:focus-visible + span { outline:2px solid var(--blue); outline-offset:2px; }
-.schedule-switch strong { font-size:10.5px; color:var(--text); }
+.schedule-switch strong { font-size:14px; color:var(--text); }
 
 .schedule-toolbar { display:flex; flex-wrap:wrap; align-items:end; justify-content:space-between; gap:10px; margin:12px 0 4px; }
-.schedule-toolbar label { display:grid; gap:5px; color:var(--muted); font-size:8.5px; font-weight:750; }
+.schedule-toolbar label { display:grid; gap:5px; color:var(--muted); font-size:12px; font-weight:750; }
 .schedule-toolbar select { min-height:34px; padding:5px 10px; border:1px solid var(--border); border-radius:9px; background:var(--surface-soft); color:var(--text); }
 .schedule-legend { display:flex; flex-wrap:wrap; align-items:center; gap:5px; }
-.schedule-legend span { display:inline-grid; place-items:center; min-width:24px; height:20px; padding:0 6px; border-radius:6px; background:var(--lvl); color:#0b1318; font-size:9.5px; font-weight:850; }
+.schedule-legend span { display:inline-grid; place-items:center; min-width:24px; height:20px; padding:0 6px; border-radius:6px; background:var(--lvl); color:#0b1318; font-size:13px; font-weight:850; }
 .schedule-legend .legend-night { display:inline-flex; gap:4px; background:transparent; color:var(--muted); border:1px dashed var(--border-strong); font-weight:700; }
 
 .week-grid { display:grid; gap:6px; margin-top:12px; transition:opacity .2s ease; }
 .week-grid.is-off { opacity:.55; }
 .week-ruler { position:relative; height:14px; margin-left:62px; }
-.week-ruler i { position:absolute; transform:translateX(-50%); font-style:normal; font-size:8.5px; color:var(--muted); }
+.week-ruler i { position:absolute; transform:translateX(-50%); font-style:normal; font-size:12px; color:var(--muted); }
 .week-ruler i:first-of-type { transform:none; } .week-ruler i:last-of-type { transform:translateX(-100%); }
 .week-row { display:grid; grid-template-columns:56px minmax(0,1fr); gap:6px; align-items:center; }
 .week-day { position:relative; display:flex; align-items:center; justify-content:space-between; gap:4px; padding-left:4px; }
-.week-day strong { font-size:11px; color:var(--text); }
+.week-day strong { font-size:14px; color:var(--text); }
 .week-row.is-today .week-day strong { color:var(--blue); }
 .week-day-copy { display:grid; place-items:center; width:22px; height:22px; border:1px solid transparent; border-radius:6px; background:transparent; color:var(--muted); cursor:pointer; opacity:.55; }
 .week-day-copy:hover, .week-day-copy[aria-expanded="true"] { opacity:1; border-color:var(--border); background:var(--surface-soft); color:var(--text); }
 .week-copy-menu { position:absolute; left:0; top:calc(100% + 4px); z-index:20; display:grid; gap:3px; min-width:170px; padding:8px; border:1px solid var(--border-strong); border-radius:10px; background:var(--surface); box-shadow:var(--shadow-md); }
-.week-copy-menu small { padding:2px 4px 4px; color:var(--muted); font-size:9px; }
-.week-copy-menu button { padding:7px 8px; border:0; border-radius:7px; background:transparent; color:var(--text); font-size:10.5px; text-align:left; cursor:pointer; }
+.week-copy-menu small { padding:2px 4px 4px; color:var(--muted); font-size:12.5px; }
+.week-copy-menu button { padding:7px 8px; border:0; border-radius:7px; background:transparent; color:var(--text); font-size:14px; text-align:left; cursor:pointer; }
 .week-copy-menu button:hover { background:var(--surface-soft); } .week-copy-menu button.muted { color:var(--muted); }
 
 .week-track { position:relative; height:46px; border:1px solid var(--border); border-radius:10px; background:var(--surface-soft); overflow:hidden; cursor:copy; touch-action:pan-y; }
@@ -61,37 +61,37 @@
 .week-block.is-selected { z-index:3; box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--text),0 4px 14px rgb(0 0 0 / 30%); }
 .week-block.is-continued { border-top-left-radius:0; border-bottom-left-radius:0; cursor:pointer; }
 .week-block-text { display:flex; align-items:baseline; gap:5px; min-width:0; padding:0 9px; overflow:hidden; white-space:nowrap; pointer-events:none; }
-.week-block-text strong { font-size:13px; font-weight:900; }
-.week-block-text small { font-size:9.5px; font-weight:700; overflow:hidden; text-overflow:ellipsis; opacity:.85; }
+.week-block-text strong { font-size:15.5px; font-weight:900; }
+.week-block-text small { font-size:13px; font-weight:700; overflow:hidden; text-overflow:ellipsis; opacity:.85; }
 .week-handle { position:absolute; top:0; bottom:0; width:9px; cursor:ew-resize; z-index:1; }
 .week-handle.start { left:-2px; } .week-handle.end { right:-2px; }
 .week-handle::after { content:""; position:absolute; top:30%; bottom:30%; left:3px; width:3px; border-radius:2px; background:rgb(0 0 0 / 28%); opacity:0; transition:opacity .15s ease; }
 .week-block:hover .week-handle::after, .week-block.is-selected .week-handle::after { opacity:1; }
 
-.schedule-hint { display:flex; align-items:center; gap:6px; margin:14px 0 0; color:var(--muted); font-size:9.5px; }
+.schedule-hint { display:flex; align-items:center; gap:6px; margin:14px 0 0; color:var(--muted); font-size:13px; }
 .period-editor { margin-top:14px; padding:14px; border:1px solid var(--border-strong); border-radius:12px; background:color-mix(in srgb,var(--surface-soft) 70%,var(--surface)); animation:period-in .18s ease; }
 @keyframes period-in { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:none; } }
 .period-editor-head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
-.period-editor-head h3 { margin:0; font-size:12px; color:var(--text); }
+.period-editor-head h3 { margin:0; font-size:15px; color:var(--text); }
 .period-editor .settings-grid { margin-top:10px; }
 .period-times { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-.period-field { display:grid; gap:6px; align-content:start; color:var(--muted); font-size:8.5px; font-weight:750; }
+.period-field { display:grid; gap:6px; align-content:start; color:var(--muted); font-size:12px; font-weight:750; }
 .period-levels { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:5px; }
 .vacation-card .period-levels { grid-template-columns:repeat(3,minmax(0,52px)); }
 .period-levels button { min-height:36px; border:1px solid var(--border-strong); border-radius:9px; background:var(--surface); color:var(--text); font-weight:850; cursor:pointer; box-shadow:inset 0 -3px 0 var(--lvl); }
 .period-levels button.active { background:var(--lvl); border-color:var(--lvl); color:#0b1318; box-shadow:0 0 0 2px color-mix(in srgb,var(--lvl) 35%,transparent); }
 .period-mode { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
-.period-mode button { min-height:36px; border:1px solid var(--border-strong); border-radius:9px; background:var(--surface); color:var(--text); font-size:10px; font-weight:800; cursor:pointer; }
+.period-mode button { min-height:36px; border:1px solid var(--border-strong); border-radius:9px; background:var(--surface); color:var(--text); font-size:13.5px; font-weight:800; cursor:pointer; }
 .period-mode button.active { border-color:var(--blue); background:color-mix(in srgb,var(--blue) 18%,var(--surface)); color:var(--blue); }
 .period-chips { position:static !important; display:flex; flex-wrap:wrap; gap:4px; margin-top:2px; }
-.period-chips button { padding:3px 8px; border:1px solid var(--border); border-radius:999px; background:var(--surface); color:var(--muted); font-size:9px; cursor:pointer; }
+.period-chips button { padding:3px 8px; border:1px solid var(--border); border-radius:999px; background:var(--surface); color:var(--muted); font-size:12.5px; cursor:pointer; }
 .period-chips button:hover { color:var(--text); border-color:var(--border-strong); }
-.period-copy { display:flex; flex-wrap:wrap; align-items:center; gap:5px; margin-top:12px; font-size:9px; color:var(--muted); }
+.period-copy { display:flex; flex-wrap:wrap; align-items:center; gap:5px; margin-top:12px; font-size:12.5px; color:var(--muted); }
 .period-copy > span { margin-right:4px; font-weight:750; }
-.period-copy > button:not(.secondary-action):not(.text-action) { min-width:38px; min-height:28px; border:1px solid var(--border); border-radius:7px; background:var(--surface); color:var(--text); font-size:9.5px; cursor:pointer; }
+.period-copy > button:not(.secondary-action):not(.text-action) { min-width:38px; min-height:28px; border:1px solid var(--border); border-radius:7px; background:var(--surface); color:var(--text); font-size:13px; cursor:pointer; }
 .period-copy > button.active { border-color:var(--blue); background:color-mix(in srgb,var(--blue) 18%,var(--surface)); color:var(--blue); }
 .period-copy > button:disabled { opacity:.4; cursor:default; }
-.period-copy .text-action { border:0; background:none; color:var(--blue); font-size:9.5px; cursor:pointer; }
+.period-copy .text-action { border:0; background:none; color:var(--blue); font-size:13px; cursor:pointer; }
 .period-copy .secondary-action { min-height:28px; }
 .schedule-page .settings-help svg { vertical-align:-2px; }
 .schedule-savebar .diag-actions { margin-top:0; }

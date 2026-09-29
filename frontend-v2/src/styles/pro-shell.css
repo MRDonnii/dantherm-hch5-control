@@ -1,44 +1,44 @@
 .sidebar-product-note { margin-top:auto; display:grid; gap:3px; padding:12px 11px 4px; color:#7e96a6; }
-.sidebar-product-note strong { color:#dbeaf1; font-size:11px; letter-spacing:.08em; text-transform:uppercase; }
-.sidebar-product-note span { font-size:9px; }
-.sidebar-product-note small { color:#5f7888; font-size:8px; line-height:1.45; }
+.sidebar-product-note strong { color:#dbeaf1; font-size:14px; letter-spacing:.08em; text-transform:uppercase; }
+.sidebar-product-note span { font-size:12.5px; }
+.sidebar-product-note small { color:#5f7888; font-size:11.5px; line-height:1.45; }
 .sidebar-product-note + .sidebar-health { margin-top:4px; }
 .live-dot.offline { background:#667985; box-shadow:none; }
 .pro-topbar .topbar-page-copy { display:grid; gap:3px; }
-.pro-topbar .topbar-page-copy > span { color:#7891a0; font-size:9px; }
+.pro-topbar .topbar-page-copy > span { color:#7891a0; font-size:12.5px; }
 .topbar-clock { display:grid; gap:1px; text-align:right; min-width:88px; }
-.topbar-clock strong { color:#c9dce6; font-size:10px; }
-.topbar-clock span { color:#6f8795; font-size:8px; text-transform:capitalize; }
+.topbar-clock strong { color:#c9dce6; font-size:13.5px; }
+.topbar-clock span { color:#6f8795; font-size:11.5px; text-transform:capitalize; }
 .pro-topbar { flex-wrap: nowrap; }
 .pro-topbar .topbar-actions { min-width: 0; margin-left: auto; }
 .topbar-weather { position: relative; }
-.topbar-weather-button { display: flex; align-items: center; gap: 7px; min-height: 34px; padding: 5px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); cursor: pointer; white-space: nowrap; font-size: 10px; font-weight: 750; }
+.topbar-weather-button { display: flex; align-items: center; gap: 7px; min-height: 34px; padding: 5px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); cursor: pointer; white-space: nowrap; font-size: 13.5px; font-weight: 750; }
 .topbar-weather-button svg { color: #73c7ec; }
-.topbar-weather-button small { color: var(--muted); font-size: 9px; }
+.topbar-weather-button small { color: var(--muted); font-size: 12.5px; }
 .topbar-weather-button .topbar-weather-aqi { color: #8ed7b2; padding-left: 7px; border-left: 1px solid var(--border); }
 .topbar-weather-picker { position: absolute; top: calc(100% + 9px); right: 0; z-index: 30; width: 260px; display: grid; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); box-shadow: var(--shadow-md); }
-.topbar-weather-picker label { font-size: 10px; font-weight: 750; }
+.topbar-weather-picker label { font-size: 13.5px; font-weight: 750; }
 .topbar-weather-picker > div { display: flex; align-items: center; gap: 5px; }
 .topbar-weather-picker input { width: 100%; min-width: 0; padding: 7px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-soft); color: var(--text); }
 .topbar-weather-picker button { padding: 7px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-soft); color: var(--text); cursor: pointer; }
-.topbar-weather-picker small { color: var(--muted); font-size: 9px; }
+.topbar-weather-picker small { color: var(--muted); font-size: 12.5px; }
 @media (max-width: 920px) { .topbar-weather-button small { display: none; } }
 @media (max-width: 680px) { .topbar-weather-button span { display: none; } .topbar-weather-button { padding-inline: 8px; } }
-.topbar-update-tab { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 7px 11px; border: 1px solid #a56433; border-radius: 9px; background: #302018; color: #ffd1a3; font-size: 10px; font-weight: 800; text-decoration: none; white-space: nowrap; }
-.topbar-update-tab small { color: #ffb979; font-size: 9px; font-weight: 700; }
+.topbar-update-tab { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 7px 11px; border: 1px solid #a56433; border-radius: 9px; background: #302018; color: #ffd1a3; font-size: 13.5px; font-weight: 800; text-decoration: none; white-space: nowrap; }
+.topbar-update-tab small { color: #ffb979; font-size: 12.5px; font-weight: 700; }
 .topbar-update-tab:hover,.topbar-update-tab.active { background: #49301e; border-color: #e7a062; color: #fff0d9; }
-.topbar-control-notice { display: flex; align-items: center; gap: 7px; min-width: 0; max-width: 300px; padding: 7px 10px; border: 1px solid #23566c; border-radius: 8px; background: #0b2634; color: #b7e7fb; font-size: 10px; }
+.topbar-control-notice { display: flex; align-items: center; gap: 7px; min-width: 0; max-width: 300px; padding: 7px 10px; border: 1px solid #23566c; border-radius: 8px; background: #0b2634; color: #b7e7fb; font-size: 13.5px; }
 .topbar-control-notice span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.topbar-control-notice strong { flex: 0 0 auto; color: #78c8e8; font-size: 9px; text-transform: uppercase; letter-spacing: .06em; }
+.topbar-control-notice strong { flex: 0 0 auto; color: #78c8e8; font-size: 12.5px; text-transform: uppercase; letter-spacing: .06em; }
 .topbar-control-notice.error { border-color: #72404a; background: #2a171c; color: #ffc0c0; }
 .topbar-control-notice.error strong { color: #ffc0c0; }
 @media (max-width:920px) { .sidebar-product-note { display:none; } .pro-topbar .topbar-page-copy > span { display:none; } }
-@media (max-width:680px) { .topbar-clock { display:none; } .topbar-update-tab { padding-inline: 8px; font-size: 9px; } .topbar-update-tab small { display: none; } .topbar-control-notice { max-width: 38vw; } .topbar-control-notice strong { display: none; } }
+@media (max-width:680px) { .topbar-clock { display:none; } .topbar-update-tab { padding-inline: 8px; font-size: 12.5px; } .topbar-update-tab small { display: none; } .topbar-control-notice { max-width: 38vw; } .topbar-control-notice strong { display: none; } }
 .brand-mark { padding: 0; background: none; border: 0; box-shadow: none; overflow: hidden; }
 .brand-mark img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .topbar-user { display:flex; align-items:center; gap:8px; padding:4px 4px 4px 10px; border:1px solid var(--border); border-radius:12px; background:var(--surface-soft); color:var(--muted); }
 .topbar-user > span { display:grid; gap:1px; line-height:1.15; }
-.topbar-user strong { color:var(--text); font-size:11px; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.topbar-user small { font-size:9px; }
+.topbar-user strong { color:var(--text); font-size:14px; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.topbar-user small { font-size:12.5px; }
 .topbar-user .icon-button { width:30px; height:30px; }
 @media (max-width: 720px) { .topbar-user > span { display:none; } }
