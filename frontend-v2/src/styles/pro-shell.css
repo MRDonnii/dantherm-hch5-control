@@ -42,3 +42,5 @@
 .topbar-user small { font-size:12.5px; }
 .topbar-user .icon-button { width:30px; height:30px; }
 @media (max-width: 720px) { .topbar-user > span { display:none; } }
+@media (max-width: 1400px) { .topbar-user > span { display:none; } .topbar-user { padding-left:8px; } }
+@media (max-width: 1300px) { .topbar-actions { flex-wrap: wrap; justify-content: flex-end; row-gap: 6px; min-width: 0; } .topbar-clock span { display: none; } }

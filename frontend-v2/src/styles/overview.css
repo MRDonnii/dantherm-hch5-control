@@ -145,7 +145,7 @@ button:disabled{opacity:.42!important;cursor:not-allowed!important;transform:non
 :root[data-theme="light"] .thermostat-confirm { background: rgb(255 255 255 / 60%); }
 /* With larger text the side-by-side layout needs room; stack the dial above the readings in a narrow card. */
 :has(> .afterheat-thermostat) { container-type: inline-size; }
-@container (max-width: 520px) {
+@container (max-width: 470px) {
   .afterheat-thermostat { grid-template-columns: 1fr; justify-items: center; }
   .thermostat-dial { max-width: 230px; }
   .thermostat-side { width: 100%; }

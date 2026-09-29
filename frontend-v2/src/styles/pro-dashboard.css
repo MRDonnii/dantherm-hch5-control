@@ -518,3 +518,12 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .status-action-card > .fireplace-actions { grid-column: 1 / -1; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0,1fr); gap: 5px; }
 .status-action-card > .fireplace-actions button { width: 100%; height: 34px; font-size: 13px; }
 .mini-buttons button { white-space: nowrap; padding: 0 4px; }
+/* Compact overview: two independent columns and tiles sized to their content. */
+.dashboard-main-grid { grid-template-areas: none; align-items: start; }
+.dashboard-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.dashboard-col > * { grid-area: auto; }
+.climate-panel > .climate-metrics { flex: 0 0 auto; }
+.climate-metric { min-height: 0; padding: 9px 12px 10px; align-content: start; }
+.climate-metric > svg, .climate-metric > .metric-drop, .climate-metric > .metric-filter, .climate-metric > .metric-heat { align-self: center; }
+.afterheat-setpoint-card { align-content: start; }
+.afterheat-setpoint-card .climate-metric { min-height: 0; }
