@@ -50,7 +50,41 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
             "DANTHERM_WEBUI_EVENTS_FILE", str(self.auth.path.with_name("webui-events.json"))))
         self.balancing = BalancingStore(os.getenv(
             "DANTHERM_WEBUI_BALANCING_FILE", str(self.auth.path.with_name("webui-balancing.json"))))
-        self.alarm_mailer = AlarmMailer(self.mail, controller_runtime.snapshot, events=self.events)
+        # Contact from Home Assistant (any request with the right API key) and
+        # requests with a wrong key, e.g. after a new key was generated.
+        self.started_at = time.time()
+        self.ha_last_ok: float | None = None
+        self.ha_last_rejected: float | None = None
+        self.ha_rejected_ip: str | None = None
+        self.alarm_mailer = AlarmMailer(self.mail, lambda: {**controller_runtime.snapshot(), **self.ha_link()}, events=self.events)
+
+    def ha_link(self, now: float | None = None) -> dict:
+        """Whether Home Assistant is talking to the controller API right now."""
+        now = time.time() if now is None else now
+        runtime = self.controller_runtime
+        contacts = [t for t in (self.ha_last_ok, getattr(runtime, "smart_inputs_received_at", None)) if t]
+        last = max(contacts) if contacts else None
+        lease = max(180, int(getattr(runtime, "smart_inputs_valid_for", 180) or 180) + 60)
+        config = getattr(getattr(runtime, "config", None), "data", {}) or {}
+        rejected = self.ha_last_rejected
+        if last is not None and now - last <= lease:
+            state = "online"
+        elif rejected and now - rejected <= 600 and (last is None or rejected > last):
+            state = "bad_token"
+        elif last is not None:
+            state = "offline"
+        elif now - self.started_at < 300:
+            state = "waiting"
+        else:
+            state = "never"
+        return {
+            "ha_link_state": state,
+            "ha_link_last_contact": round(last, 1) if last else None,
+            "ha_link_age_seconds": round(now - last) if last else None,
+            "ha_link_required": config.get("mode") == "smart_auto",
+            "ha_link_rejected_at": round(rejected, 1) if rejected else None,
+            "ha_link_rejected_ip": self.ha_rejected_ip,
+        }
 
     def reset_base_url(self) -> str:
         configured = self.mail.load().get("base_url")
@@ -107,12 +141,17 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                 return session if self._need(session, capability) else None
 
             def _machine_auth(self):
-                token = dashboard.tokens.current()
-                if not token:
-                    return False
                 supplied = self.headers.get("Authorization", "")
-                expected = f"Bearer {token}"
-                return hmac.compare_digest(supplied, expected)
+                if not supplied.startswith("Bearer "):
+                    return False
+                token = dashboard.tokens.current()
+                ok = bool(token) and hmac.compare_digest(supplied, f"Bearer {token}")
+                if ok:
+                    dashboard.ha_last_ok = time.time()
+                else:
+                    dashboard.ha_last_rejected = time.time()
+                    dashboard.ha_rejected_ip = self.client_address[0]
+                return ok
 
             def do_GET(self):
                 parsed = urlparse(self.path)
@@ -210,9 +249,9 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                         return
                     self._json(dashboard.mail.public())
                 elif parsed.path == "/api/controller/state":
-                    self._json(dashboard.controller_runtime.snapshot())
+                    self._json({**dashboard.controller_runtime.snapshot(), **dashboard.ha_link()})
                 elif parsed.path in ("/state.json", "/api"):
-                    self._json(dashboard.snapshot())
+                    self._json({**dashboard.snapshot(), **dashboard.ha_link()})
                 elif parsed.path == "/api/diagnostics/report":
                     if self._require("diagnostics") is not None:
                         self._diagnostic_report()

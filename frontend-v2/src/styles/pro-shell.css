@@ -44,3 +44,13 @@
 @media (max-width: 720px) { .topbar-user > span { display:none; } }
 @media (max-width: 1400px) { .topbar-user > span { display:none; } .topbar-user { padding-left:8px; } }
 @media (max-width: 1300px) { .topbar-actions { flex-wrap: wrap; justify-content: flex-end; row-gap: 6px; min-width: 0; } .topbar-clock span { display: none; } }
+.ha-chip { gap:6px; text-decoration:none; }
+.ha-chip small { font-size:11.5px; font-weight:750; }
+.ha-chip.tone-warn { color:var(--orange); border-color:color-mix(in srgb,var(--orange) 45%,var(--border)); }
+.ha-chip.tone-warn .live-dot { background:var(--orange); box-shadow:none; }
+.ha-chip.tone-bad { color:var(--red); border-color:color-mix(in srgb,var(--red) 50%,var(--border)); background:color-mix(in srgb,var(--red) 10%,transparent); }
+.ha-chip.tone-bad .live-dot { background:var(--red); box-shadow:0 0 8px var(--red); animation:ha-blink 1.6s ease-in-out infinite; }
+.ha-chip.tone-muted { color:var(--muted); }
+.ha-chip.tone-muted .live-dot { background:var(--muted); box-shadow:none; }
+@keyframes ha-blink { 50% { opacity:.35; } }
+@media (prefers-reduced-motion: reduce) { .ha-chip.tone-bad .live-dot { animation:none; } }

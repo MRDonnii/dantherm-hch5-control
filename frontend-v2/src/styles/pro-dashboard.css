@@ -587,3 +587,11 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
   .climate-panel > .climate-metrics { flex: 1 1 auto; align-content: stretch; }
   .climate-panel .climate-metric { align-content: center; }
 }
+/* Smart Auto chosen but Home Assistant is not delivering data. */
+.ha-warning { display:grid; gap:2px; margin-top:10px; padding:10px 12px; border:1px solid color-mix(in srgb,var(--orange) 50%,var(--border)); border-radius:10px; background:color-mix(in srgb,var(--orange) 10%,transparent); color:var(--orange); text-decoration:none; }
+.ha-warning.tone-bad { border-color:color-mix(in srgb,var(--red) 55%,var(--border)); background:color-mix(in srgb,var(--red) 10%,transparent); color:var(--red); }
+.ha-warning strong { font-size:13.5px; }
+.ha-warning span { color:var(--text); font-size:12.5px; line-height:1.4; }
+.status-led.bad { background: var(--red); box-shadow: 0 0 0 4px rgb(255 99 99 / 10%),0 0 16px rgb(255 99 99 / 40%); }
+.ha-page-warning { margin:10px 0 0; padding:9px 11px; border:1px solid color-mix(in srgb,var(--orange) 50%,var(--border)); border-radius:9px; color:var(--orange); font-size:13px; line-height:1.45; }
+.ha-page-warning.tone-bad { border-color:color-mix(in srgb,var(--red) 55%,var(--border)); color:var(--red); background:color-mix(in srgb,var(--red) 8%,transparent); }

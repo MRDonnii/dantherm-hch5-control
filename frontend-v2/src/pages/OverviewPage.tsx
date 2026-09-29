@@ -1,3 +1,6 @@
+import { NavLink } from "react-router-dom";
+import { haLinkText, readHaLink } from "../lib/haLink";
+import { useSession } from "../lib/session";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowRight, CloudFog, Flame, Gauge, House, Leaf, Power, Snowflake, Wind, X, Zap } from "lucide-react";
@@ -89,6 +92,7 @@ function remaining(value: unknown) {
 }
 
 export function OverviewPage() {
+  const session = useSession();
   const [unit, setUnit] = useState<Data>({});
   const [controller, setController] = useState<Data>({});
   const [csrf, setCsrf] = useState("");
@@ -259,6 +263,11 @@ export function OverviewPage() {
     void sendAfterheat(afterheatDraft, seq);
   };
 
+  const canConfigure = session.can("configure");
+  const haLink = readHaLink(controller);
+  const haInfo = haLinkText(haLink);
+  const haWarning = haLink.required && haLink.state !== null && haLink.state !== "online" && haLink.state !== "waiting";
+
   const afterheatCard = (
     <article className="surface afterheat-setpoint-card">
       <AfterheatThermostat value={shownAfterheat} onChange={setAfterheatTarget} heating={heating} lockout={afterheatLockout}
@@ -346,6 +355,9 @@ export function OverviewPage() {
                   <button key={value} className={mode === value ? "active" : ""} disabled={busy !== null} onClick={() => void command(`mode-${value}`, { mode: value }, `${modeLabel(value)} valgt.`)}>{modeLabel(value)}</button>
                 ))}
               </div>
+              {haWarning && (canConfigure
+                ? <NavLink to="/home-assistant" className={`ha-warning tone-${haInfo.tone}`} role="status"><strong>Home Assistant: {haInfo.label}</strong><span>{haInfo.detail}</span></NavLink>
+                : <div className={`ha-warning tone-${haInfo.tone}`} role="status"><strong>Home Assistant: {haInfo.label}</strong><span>{haInfo.detail}</span></div>)}
               <label className="control-label">Ventilatorniveau</label>
               <div className="pro-levels with-off">
                 {[1,2,3,4,5,6].map(value => <button key={value} className={!standbyActive && level === value ? "active" : ""} disabled={busy !== null} onClick={() => void command(`level-${value}`, standbyActive ? { standby_minutes: 0, [levelPatch]: value } : { [levelPatch]: value }, standbyActive ? `Anlægget er tændt på trin ${value}.` : `Ventilation sat til trin ${value}.`)}>{value}</button>)}
