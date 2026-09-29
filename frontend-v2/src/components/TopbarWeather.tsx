@@ -5,14 +5,12 @@ type Place = { name: string; latitude: number; longitude: number };
 type Current = { temperature_2m: number; weather_code: number; is_day: number; time: string };
 type AirQuality = { european_aqi: number; pm2_5: number; pm10: number; time: string };
 const KEY = "hch5-weather-place";
-// Langaa is the existing HA forecast location; the chooser can override it.
-const DEFAULT_PLACE: Place = { name: "Langå", latitude: 56.39026, longitude: 9.89486 };
 
 function savedPlace(): Place | null {
   try {
     const value = JSON.parse(localStorage.getItem(KEY) || "null") as Place | null;
-    return value && typeof value.name === "string" && Number.isFinite(value.latitude) && Number.isFinite(value.longitude) ? value : DEFAULT_PLACE;
-  } catch { return DEFAULT_PLACE; }
+    return value && typeof value.name === "string" && Number.isFinite(value.latitude) && Number.isFinite(value.longitude) ? value : null;
+  } catch { return null; }
 }
 
 function description(code: number) {
@@ -78,8 +76,8 @@ export function TopbarWeather() {
 
   const icon = current?.weather_code === 0 ? <Sun size={17}/> : current && current.weather_code >= 71 && current.weather_code <= 86 ? <CloudSnow size={17}/> : current && (current.weather_code >= 51 || current.weather_code >= 95) ? <CloudRain size={17}/> : current ? <CloudSun size={17}/> : <Cloud size={17}/>;
   return <div className="topbar-weather">
-    <button type="button" className="topbar-weather-button" onClick={() => setOpen(value => !value)} aria-label="Vælg sted for live vejr" title={`${place?.name ?? "Sted"} · ${current ? `${Math.round(current.temperature_2m)} °C, ${description(current.weather_code)}` : error || "Henter vejr"}${air ? ` · EU luftindeks ${Math.round(air.european_aqi)}, PM2.5 ${air.pm2_5} µg/m³, PM10 ${air.pm10} µg/m³` : ""} · Open-Meteo / CAMS`}>
-      {icon}<span>{current ? `${Math.round(current.temperature_2m)} °C · ${description(current.weather_code)}` : error || "Henter vejr…"}</span>{air && <small className="topbar-weather-aqi">EU {Math.round(air.european_aqi)}</small>}<small>{place?.name}</small>
+    <button type="button" className="topbar-weather-button" onClick={() => setOpen(value => !value)} aria-label="Vælg sted for live vejr" title={place ? `${place.name} · ${current ? `${Math.round(current.temperature_2m)} °C, ${description(current.weather_code)}` : error || "Henter vejr"}${air ? ` · EU luftindeks ${Math.round(air.european_aqi)}, PM2.5 ${air.pm2_5} µg/m³, PM10 ${air.pm10} µg/m³` : ""} · Open-Meteo / CAMS` : "Vælg sted for live vejr"}>
+      {icon}<span>{place ? current ? `${Math.round(current.temperature_2m)} °C · ${description(current.weather_code)}` : error || "Henter vejr…" : "Vælg sted"}</span>{air && <small className="topbar-weather-aqi">EU {Math.round(air.european_aqi)}</small>}<small>{place?.name}</small>
     </button>
     {open && <form className="topbar-weather-picker" onSubmit={choose}>
       <label htmlFor="weather-place">Vejr for</label>

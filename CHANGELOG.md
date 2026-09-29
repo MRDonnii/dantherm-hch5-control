@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.3.0
+
+Stable release. Everything from 1.2.1-beta.1 to 1.2.1-beta.13 (the details are in the beta notes below):
+
+- **Users and roles:** several logins with the roles *Administrator*, *Tekniker* (everything technical, optionally time-limited) and *Bruger* (daily controls). Rules are enforced by the Pi on every request; the existing owner becomes administrator.
+- **Mail service:** SMTP with provider presets and a test mail, fault mails for diagnostics alarms (severity, repeat and resolved mails) and *Glemt adgangskode?* links from the login page.
+- **Ugeplan:** a week planner with several periods per day, drag to move and resize, *Grundtrin* periods that can lower the base level and *Mindst* periods as a floor, templates, copy to weekdays/weekend and holiday with a planned start and end.
+- **Indregulering:** rooms with type, m², ceiling height and supply/extract; design airflow per valve after BR18 balanced against extract; recommended level; measuring mode with l/s per valve and deviation; a printable A4 report saved on the Pi.
+- **Alarm history:** alarms and HCP4 takeovers logged when they start and clear, plus sign-ins and user changes for administrators.
+- **PM2.5 (optional):** Smart Auto can raise the level on fine dust from Home Assistant room sensors, with a limit, step, maximum level and per-room opt-out.
+- **Overview:** compact and symmetric, controls on the right and information on the left, one *Funktioner* card; *OFF* with presets, *Bål i haven* and afterheat changes confirmed in a popup.
+- **Air balance:** extract a chosen share above supply in m³/h, a duct ratio learned from the exchanger heat balance, airflow following real fan speed, and an overpressure alarm.
+- **Control and bus:** the Pi no longer hands the bus to HCP4 by mistake, the HAC1 connection no longer flickers, the temperature block to HAC1 keeps going, afterheat off while the unit is off, bathroom drying at night and stronger bathroom drying, and every setting change logged with who made it.
+- **Larger text** in the whole WebUI, a neutral weather picker without a default location, and the project renamed to Dantherm HCH5 Control.
+- Changes by Claude AI.
+
 ## 1.2.1-beta.13
 
 - **Ugeplan (new page):** draw the week on a 24-hour timeline per day. Click a day to add a period, drag it to move it, drag its edges to change the length (15-minute steps), and click it to edit name, time, level and type. Up to 8 periods per day, and a period may run past midnight (for example Friday 21:00–01:00).
