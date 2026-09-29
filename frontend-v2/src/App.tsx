@@ -6,6 +6,7 @@ import { DiagnosticsPage } from "./pages/DiagnosticsPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { HomeAssistantPage } from "./pages/HomeAssistantPage";
 import { OverviewPage } from "./pages/OverviewPage";
+import { SchedulePage } from "./pages/SchedulePage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { SystemPage } from "./pages/SystemPage";
 import { TechniquePage } from "./pages/TechniquePage";
@@ -26,6 +27,7 @@ export function App() {
     <Route path="/" element={<Navigate to="/overview" replace/>}/>
     <Route path="/overview" element={<OverviewPage/>}/>
     <Route path="/history" element={<HistoryPage/>}/>
+    <Route path="/schedule" element={<SchedulePage/>}/>
     {guarded("/technique", <TechniquePage/>)}
     {guarded("/system", <SystemPage/>)}
     {guarded("/home-assistant", <HomeAssistantPage/>)}

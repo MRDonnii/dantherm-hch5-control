@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { NavLink, useLocation } from "react-router-dom";
 import {
   BarChart3,
+  CalendarClock,
   Boxes,
   ChevronLeft,
   ChevronRight,
@@ -24,6 +25,7 @@ import { TopbarWeather } from "./TopbarWeather";
 const navigation = [
   ["/overview", "Overblik", Home, null],
   ["/history", "Historik", BarChart3, null],
+  ["/schedule", "Ugeplan", CalendarClock, null],
   ["/technique", "Teknik", Gauge, "diagnostics"],
   ["/system", "System", Boxes, "system"],
   ["/home-assistant", "Home Assistant", Zap, "configure"],
@@ -40,6 +42,7 @@ export const ROUTE_PERMISSIONS: Record<string, Permission> = Object.fromEntries(
 const routeTitles: Record<string, [string, string]> = {
   "/overview": ["Overblik", "Aktuel drift og status for dit HCH5 ventilationsanlæg"],
   "/history": ["Historik", "Udvikling i temperaturer, luftkvalitet og drift"],
+  "/schedule": ["Ugeplan", "Ugens rytme, perioder og ferie"],
   "/technique": ["Teknik", "Controller, bus og hardwarestatus"],
   "/system": ["System", "Raspberry Pi, services og gateway"],
   "/home-assistant": ["Home Assistant", "Integration og smart-data"],

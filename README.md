@@ -130,6 +130,10 @@ Temperatures, afterheat water, fans, CO₂ and heat recovery over 1 hour to 30 d
 
 Every setting explains what it does. Sections: house and airflow, air quality, moisture, night, afterheat, free cooling, fireplace, user interface, security, 1-Wire sensors, users and mail.
 
+### Ugeplan
+
+A 24-hour timeline for each weekday. Click to add a period, drag to move or resize it, and set its level. A *Grundtrin* period replaces the base level (CO₂ and humidity can still lift it); a *Mindst* period is a floor. Periods can run past midnight, be copied to weekdays or the weekend, and start from templates. The same page plans holidays with a start and end date.
+
 ### Users, technicians and mail
 
 The first account created on `/setup` is the **administrator**. Under *Indstillinger → Brugere* the administrator can add more logins, each with a role:

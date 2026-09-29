@@ -19,6 +19,12 @@ const SETTING_LABELS: Record<string, string> = {
   standby_minutes: "Sluk anlæg (min)",
   bonfire_minutes: "Bål i haven (min)",
   fireplace_minutes: "Pejsefunktion (min)",
+  schedule_enabled: "Ugeplan tændt",
+  schedule_periods: "Ugeplan",
+  vacation_enabled: "Ferie",
+  vacation_level: "Trin under ferie",
+  vacation_from: "Ferie fra",
+  vacation_until: "Ferie til",
 };
 function sourceLabel(source: string) {
   if (source === "home_assistant") return "Home Assistant";
@@ -30,6 +36,13 @@ function valueLabel(value: unknown) {
   if (value === true) return "til";
   if (value === false) return "fra";
   return typeof value === "object" ? JSON.stringify(value) : String(value);
+}
+
+function changeValue(key: string, value: unknown) {
+  if ((key === "vacation_from" || key === "vacation_until") && value && Number.isFinite(Number(value))) {
+    return new Date(Number(value) * 1000).toLocaleString("da-DK", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  }
+  return valueLabel(value);
 }
 
 const RANGES: { value: string; label: string }[] = [
@@ -162,7 +175,7 @@ export function HistoryPage() {
                 <li key={`${event.timestamp}-${key}`}>
                   <time>{new Date(event.timestamp * 1000).toLocaleString("da-DK", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</time>
                   <strong>{SETTING_LABELS[key] ?? key}</strong>
-                  <span>{valueLabel(from)} → {valueLabel(to)}</span>
+                  <span>{key === "schedule_periods" ? "perioder ændret" : `${changeValue(key, from)} → ${changeValue(key, to)}`}</span>
                   <em>{sourceLabel(event.source)}</em>
                 </li>
               )))}

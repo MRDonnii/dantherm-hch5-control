@@ -18,6 +18,7 @@ required_source=(
   gateway/webui_auth.py
   gateway/webui_mail.py
   gateway/webui_permissions.py
+  gateway/week_schedule.py
   gateway/webui/index.html
   gateway/webui/controller.html
   gateway/webui/login.html

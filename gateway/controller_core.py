@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
+import week_schedule
 from onewire_extras import clean_roles
 from advanced_control import (
     BALANCE_EXCESS_DEFAULT,
@@ -237,6 +238,8 @@ class ControllerState:
         "t3_setpoint": None,
         "t5_setpoint": None,
         "schedule_enabled": False,
+        # Week planner periods; None = use the old single window per day.
+        "schedule_periods": None,
         "night_enabled": False,
         "night_start": "22:00",
         "night_end": "06:00",
@@ -248,6 +251,7 @@ class ControllerState:
         "vacation_enabled": False,
         "vacation_level": 1,
         "vacation_until": None,
+        "vacation_from": None,
         "quick_boost_until": None,
         "quick_boost_level": 6,
         "quick_boost_minutes": 0,
@@ -420,6 +424,15 @@ class ControllerState:
             _parse_until(self.data.get("vacation_until"), "Ferie slut")
         except ControllerError:
             self.data["vacation_until"] = None
+        try:
+            _parse_until(self.data.get("vacation_from"), "Ferie start")
+        except ControllerError:
+            self.data["vacation_from"] = None
+        if self.data.get("schedule_periods") is not None:
+            try:
+                self.data["schedule_periods"] = week_schedule.normalize(self.data["schedule_periods"])
+            except week_schedule.ScheduleError:
+                self.data["schedule_periods"] = None
         try:
             quick_boost_until = _parse_until(self.data.get("quick_boost_until"), "Quick Boost slut")
         except ControllerError:
@@ -707,6 +720,19 @@ class ControllerState:
             "error": self.balance_error,
         }
 
+    def schedule_periods(self) -> dict[str, list[dict[str, object]]]:
+        periods = self.data.get("schedule_periods")
+        return periods if periods is not None else week_schedule.from_legacy(self.data.get("schedule"))
+
+    def vacation_running(self, now: float | None = None) -> bool:
+        if not self.data.get("vacation_enabled"):
+            return False
+        try:
+            start = _parse_until(self.data.get("vacation_from"), "Ferie start")
+        except ControllerError:
+            start = None
+        return start is None or start <= (now or time.time())
+
     def normal_level(self) -> int:
         """Base level: from the house size when sizing is on, else the user's."""
         if self.data.get("sizing_enabled"):
@@ -749,7 +775,7 @@ class ControllerState:
                 "schedule", "night_enabled", "night_start", "night_end", "night_level",
                 "night_air_quality_max_level", "bathroom_rh_setpoint",
                 "bathroom_rh_hysteresis", "bathroom_max_level",
-                "vacation_enabled", "vacation_level", "vacation_until",
+                "vacation_enabled", "vacation_level", "vacation_until", "vacation_from", "schedule_periods",
                 "quick_boost_minutes", "quick_boost_level", "bonfire_minutes", "standby_minutes", "cooling_enabled",
                 "cooling_room_setpoint", "cooling_hysteresis", "cooling_outdoor_min",
                 "cooling_min_delta", "cooling_level", "cooling_start_delay_seconds",
@@ -809,6 +835,19 @@ class ControllerState:
                 value = patch["vacation_until"]
                 _parse_until(value, "Ferie slut")
                 self.data["vacation_until"] = str(value)[:40] if value else None
+            if "vacation_from" in patch:
+                value = patch["vacation_from"]
+                _parse_until(value, "Ferie start")
+                self.data["vacation_from"] = str(value)[:40] if value else None
+            if self.data.get("vacation_from") and self.data.get("vacation_until"):
+                if _parse_until(self.data["vacation_until"], "Ferie slut") <= _parse_until(self.data["vacation_from"], "Ferie start"):
+                    raise ControllerError("Ferie slut skal ligge efter ferie start")
+            if "schedule_periods" in patch:
+                try:
+                    self.data["schedule_periods"] = (
+                        None if patch["schedule_periods"] is None else week_schedule.normalize(patch["schedule_periods"]))
+                except week_schedule.ScheduleError as error:
+                    raise ControllerError(str(error)) from error
             if "quick_boost_minutes" in patch:
                 minutes = int(patch["quick_boost_minutes"])
                 if minutes not in VALID_QUICK_BOOST_MINUTES:
@@ -1093,6 +1132,7 @@ class ControllerState:
         if until is not None and until <= now:
             self.data["vacation_enabled"] = False
             self.data["vacation_until"] = None
+            self.data["vacation_from"] = None
             self.data["updated_at"] = now
             self.save()
 
@@ -1167,6 +1207,17 @@ class ControllerState:
             result["standby_remaining_seconds"] = max(0, int(float(standby_until) - now)) if standby_until else None
             vacation_until = _parse_until(result.get("vacation_until"), "Ferie slut") if result.get("vacation_until") else None
             result["vacation_remaining_seconds"] = max(0, int(vacation_until - now)) if vacation_until else None
+            vacation_from = _parse_until(result.get("vacation_from"), "Ferie start") if result.get("vacation_from") else None
+            result["vacation_pending"] = bool(result.get("vacation_enabled")) and not self.vacation_running(now)
+            result["vacation_starts_in_seconds"] = max(0, int(vacation_from - now)) if vacation_from and vacation_from > now else None
+            periods = self.schedule_periods()
+            local_now = datetime.fromtimestamp(now).astimezone()
+            planned = week_schedule.effect(periods, local_now)
+            result["schedule_periods"] = periods
+            result["schedule_source"] = "periods" if self.data.get("schedule_periods") is not None else "legacy"
+            result["schedule_now"] = None if planned is None else {
+                **planned["period"], "set_level": planned["set_level"], "min_level": planned["min_level"]}
+            result["schedule_next_change"] = week_schedule.next_change(periods, local_now)
             level = result.get("effective_level")
             result["effective_profile"] = result["profiles"].get(int(level)) if level else None
             if result["bonfire_active"] and not result.get("fireplace"):
@@ -1317,7 +1368,7 @@ class ControllerEngine:
         flags = {"schedule_active": False, "night_active": False, "vacation_active": False, "quick_boost_active": False, "cooling_active": False}
         effective_bypass = "on" if d["bypass"] == "on" else "off"
 
-        if d.get("vacation_enabled"):
+        if self.config.vacation_running(now_ts):
             flags["vacation_active"] = True
             level = int(d["vacation_level"])
             source = "vacation"
@@ -1325,13 +1376,19 @@ class ControllerEngine:
             self._stop_cooling(now_ts, "vacation")
         elif d["mode"] != "manual":
             if d.get("schedule_enabled"):
-                entry = d["schedule"].get(str(now.weekday()))
-                if entry and entry.get("enabled") and _time_window_active(now, str(entry["start"]), str(entry["end"])):
+                planned = week_schedule.effect(self.config.schedule_periods(), now)
+                if planned:
                     flags["schedule_active"] = True
-                    scheduled = int(entry["level"])
-                    if level < scheduled:
-                        level = scheduled
-                    reason = f"{reason}; ugeskema {entry['start']}–{entry['end']}"
+                    period = planned["period"]
+                    name = period["label"] or f"{period['start']}–{period['end']}"
+                    if planned["set_level"] is not None:
+                        # The period replaces the base level; air-quality demand above
+                        # the normal base level may still lift it.
+                        wanted = max(int(d["local_min_level"]), int(planned["set_level"]))
+                        level = max(level, wanted) if level > self.config.normal_level() else wanted
+                    if planned["min_level"] is not None:
+                        level = max(level, int(planned["min_level"]))
+                    reason = f"{reason}; ugeplan {name} · trin {planned['set_level'] or planned['min_level']}"
             if d.get("night_enabled") and _time_window_active(now, str(d["night_start"]), str(d["night_end"])):
                 flags["night_active"] = True
                 rh, co2 = self.measurements.get("rh"), self.measurements.get("co2")

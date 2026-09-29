@@ -9,6 +9,9 @@ USER_CONFIG_KEYS = frozenset({
     "mode", "manual_level", "local_normal_level", "quick_boost_minutes",
     "bypass", "cooling_enabled", "fireplace", "fireplace_minutes",
     "afterheat_enabled", "afterheat_setpoint", "standby_minutes", "bonfire_minutes",
+    # Week planner and holiday are household routines, not technical setup.
+    "schedule_enabled", "schedule_periods", "vacation_enabled", "vacation_level",
+    "vacation_from", "vacation_until",
 })
 
 # Read-only or harmless admin-helper actions a plain user may trigger.

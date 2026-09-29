@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.1-beta.13
+
+- **Ugeplan (new page):** draw the week on a 24-hour timeline per day. Click a day to add a period, drag it to move it, drag its edges to change the length (15-minute steps), and click it to edit name, time, level and type. Up to 8 periods per day, and a period may run past midnight (for example Friday 21:00–01:00).
+- **Two kinds of period:** *Grundtrin* replaces the normal base level, so "Ude · trin 1" can lower the ventilation while CO₂ and humidity can still lift it. *Mindst* is a floor that automation can only go above (what the old schedule did). Where periods overlap, the highest level wins; night reduction and the house minimum still apply.
+- Copy a period or a whole day to weekdays, weekend or all days, or start from a template (*Arbejdsdage ude*, *Hjemmearbejde*). Changes are a draft until **Gem ugeplan**; **Fortryd** throws them away.
+- The page shows what the schedule does right now, when it next changes and to which level, the night reduction as a hatched band and a line for the current time.
+- **Holiday with a planned start:** choose from/to (or start now), the holiday level and quick lengths (3 days to 3 weeks). A planned holiday waits for its start and ends by itself.
+- A plain *Bruger* may edit the week plan and holiday. The old single window per day keeps working until the week plan is saved.
+- On phones the menu stays on one row whatever the role shows.
+- Changes by Claude AI.
+
 ## 1.2.1-beta.12
 
 - **Users and roles:** several WebUI logins, each with a role. *Administrator* can do everything, including users and mail. *Tekniker* gets everything technical (advanced settings, sensors, Teknik, System, Home Assistant, Diagnostik, sniffer, updates, restart and mail) but not user management. *Bruger* gets the daily controls on the overview (mode, level, OFF, Quick Boost, bypass, free cooling, fireplace, Bål i haven, afterheat) and history. Users are managed under Indstillinger → Brugere.
