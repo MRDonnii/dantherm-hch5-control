@@ -199,14 +199,34 @@ def _final_url(url: str) -> str:
         return response.geturl()
 
 
+def version_key(value: str) -> tuple[int, int, int, int, int] | None:
+    """Sortable key: 1.3.0 > 1.3.0-beta.9 > 1.2.1-beta.13. None if unknown."""
+    match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?", str(value).strip())
+    if not match:
+        return None
+    major, minor, patch, beta = match.groups()
+    return (int(major), int(minor), int(patch), 0 if beta is not None else 1, int(beta or 0))
+
+
+def is_newer(remote: str, current: str) -> bool:
+    remote_key, current_key = version_key(remote), version_key(current)
+    if remote_key is None or current_key is None:
+        return remote != current
+    return remote_key > current_key
+
+
 def _latest_beta_tag() -> str:
-    """Read prerelease tags from GitHub's public Atom feed, without API quota."""
+    """Newest release for the beta channel from GitHub's public Atom feed.
+
+    The feed lists stable releases too; a stable release newer than every
+    beta (for example 1.3.0 after 1.2.1-beta.13) is what the beta channel
+    should get, so both kinds are compared by version.
+    """
     feed = _request_text(BETA_FEED)
-    tags = set(re.findall(r"v(\d+)\.(\d+)\.(\d+)-beta\.(\d+)", feed))
+    tags = set(re.findall(r"v\d+\.\d+\.\d+(?:-beta\.\d+)?(?![\w.-])", feed))
     if not tags:
         raise ValueError("beta_release_missing_from_feed")
-    version = max(tuple(int(part) for part in tag) for tag in tags)
-    return f"v{version[0]}.{version[1]}.{version[2]}-beta.{version[3]}"
+    return max(tags, key=lambda tag: version_key(tag) or (0, 0, 0, 0, 0))
 
 
 def _read_text(path: Path, fallback: str = "unknown") -> str:
@@ -313,13 +333,13 @@ def update_info(channel: str | None = None, *, force_refresh: bool = False) -> d
                 raise ValueError("latest_release_redirect_missing_tag")
             remote_version = ref.lstrip("v")
             published = None
-            update_available = current != remote_version
+            update_available = is_newer(remote_version, current)
         else:
             ref = _latest_beta_tag()
             remote_version = ref.lstrip("v")
             available_build = remote_version
             published = None
-            update_available = current != remote_version
+            update_available = is_newer(remote_version, current)
     except (OSError, ValueError, KeyError, urllib.error.URLError, json.JSONDecodeError) as error:
         # A GitHub rate limit (HTTP 403) or transient network error should not
         # spam the UI with a failure on every poll. Fall back to the last
