@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.1-beta.12
+
+- **Users and roles:** several WebUI logins, each with a role. *Administrator* can do everything, including users and mail. *Tekniker* gets everything technical (advanced settings, sensors, Teknik, System, Home Assistant, Diagnostik, sniffer, updates, restart and mail) but not user management. *Bruger* gets the daily controls on the overview (mode, level, OFF, Quick Boost, bypass, free cooling, fireplace, Bål i haven, afterheat) and history. Users are managed under Indstillinger → Brugere.
+- A technician account can get an **expiry date**, so access ends by itself after a service visit. Accounts can be disabled or deleted; role changes apply to open sessions immediately. The last active administrator cannot be removed.
+- The server checks the role on every request; the menu and settings only show what the role may use. The existing owner becomes administrator, and the old login file is only rewritten the next time a user is changed or someone signs in.
+- Top bar shows who is signed in, with the role and a log-out button. Indstillinger → Sikkerhed lets every user change their own e-mail, username and password.
+- **Mail service (Indstillinger → Mail):** SMTP with presets for Gmail, Outlook.com, Microsoft 365, iCloud and one.com, and a test mail. The SMTP password stays on the Pi and is never sent to the browser.
+- **Fault mails** to a list of recipients for the diagnostics alarms (no RS485 connection, frost risk, low recovery, bypass not closing, afterheat without effect, missing 1-Wire sensor, filter, overpressure) and when HCP4 takes over. Choose the minimum severity, a repeat interval while the alarm stays active and whether to mail when it clears.
+- **Forgot password:** the login page shows *Glemt adgangskode?* and mails a single-use link valid for 30 minutes to users with an e-mail on their account. Administrators can also send a reset link from the user list.
+- Changes by Claude AI.
+
 ## 1.2.1-beta.11
 
 - **Air balance (Hus og luftmængde → Luftbalance):** with *Auto* every level keeps its extract percentage and the controller works out the supply percentage so extract is a chosen share (default 5 %, 0–20 %) above supply **in m³/h**, not in percent. The HCH5 fans turn at about 550 rpm at 0 %, so the old fixed 12-point gap gave about 30 % more extract at level 1 but only a few percent at level 6. The balanced percentages are written into the level profiles, so the engine, the house-size plan and Home Assistant all use them. While Auto is on, supply is set by the balance (changing it is refused with an explanation); switching to *Manuel* keeps the last balanced values.

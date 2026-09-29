@@ -38,7 +38,9 @@ HCH5 Control turns a Raspberry Pi and a USB-RS485 adapter into a local controlle
 - **History** for temperatures, water, fans, CO₂ and heat recovery, plus Raspberry Pi health.
 - **Optional 1-Wire (DS18B20) sensors:** T2 before the afterheat coil, afterheat water flow/return, loft and others.
 - **Home Assistant:** integration via HACS, raw TCP data on port `4196`, authenticated controller API on port `8080`, and a matching dashboard card.
-- **Secure by default:** first-user owner login, salted password hashes, sessions, CSRF protection, login rate limiting.
+- **Secure by default:** first-user administrator login, salted password hashes, sessions, CSRF protection, login rate limiting.
+- **Users and roles:** separate logins for the family (*Bruger*), the service technician (*Tekniker*, optionally time-limited) and administrators.
+- **Mail service (optional):** SMTP alarm mails when the unit reports a fault, and "Forgot password?" links by mail.
 - **Safe updates** from the WebUI with Stable/Beta channels, backups and automatic health checks.
 
 ## How the pieces fit together
@@ -126,7 +128,26 @@ Temperatures, afterheat water, fans, CO₂ and heat recovery over 1 hour to 30 d
 
 ### Indstillinger
 
-Every setting explains what it does. Sections: house and airflow, air quality, moisture, night, afterheat, free cooling, fireplace, user interface, security and 1-Wire sensors.
+Every setting explains what it does. Sections: house and airflow, air quality, moisture, night, afterheat, free cooling, fireplace, user interface, security, 1-Wire sensors, users and mail.
+
+### Users, technicians and mail
+
+The first account created on `/setup` is the **administrator**. Under *Indstillinger → Brugere* the administrator can add more logins, each with a role:
+
+| Role | Can do |
+| --- | --- |
+| **Administrator** | Everything, including users, mail and whether login is required. |
+| **Tekniker** | Everything technical: advanced settings, sensors, Teknik, System, Diagnostik, sniffer, updates, restart/reboot and mail. Cannot manage users. |
+| **Bruger** | Daily use: mode, level, Quick Boost, bypass, free cooling, fireplace and afterheat, plus history. |
+
+A technician account can be given an expiry date, so access ends by itself after a service visit. Role changes, disabling and deletion take effect immediately, including for sessions that are already open. The server enforces every rule; the WebUI only hides what a role cannot use. Existing single-owner installations keep working and the owner becomes the administrator.
+
+Under *Indstillinger → Mail* an administrator or technician can set up an SMTP server (presets for Gmail, Outlook.com, Microsoft 365, iCloud and one.com) and send a test mail. When mail is on:
+
+- **Fault notifications** are sent to the listed recipients for the same alarms as the Diagnostik page (no RS485 connection, frost risk, low heat recovery, bypass not closing, afterheat without effect, missing 1-Wire sensor, clogged filter) and when the HCP4 panel takes over. You choose the minimum severity, whether to repeat a mail while an alarm stays active, and whether to mail when it clears.
+- **Password reset:** the login page shows *Glemt adgangskode?*. Users with an e-mail on their account receive a single-use link that is valid for 30 minutes. The administrator can also send a reset link from the user list.
+
+The SMTP password is stored only on the Pi (`/var/lib/dantherm-hch5-ha/webui-mail.json`, mode 0600) and is never sent back to the browser.
 
 ![Air-quality settings](docs/images/1.2.0/settings-air-quality.png)
 

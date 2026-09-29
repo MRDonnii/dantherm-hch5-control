@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Activity, Droplets, Flame, Gauge, House, Monitor, Moon, RotateCcw, Save, Scale, ShieldCheck, Snowflake, Thermometer, Wind } from "lucide-react";
+import { Activity, Droplets, Flame, Gauge, House, Mail, Monitor, Moon, RotateCcw, Save, Scale, ShieldCheck, Snowflake, Thermometer, Users, Wind } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { postJson, requestJson } from "../lib/api";
 import { airflowPlan, balancedProfiles, sideConstants, type AirflowProfiles, type RatioSource } from "../lib/airflow";
 import { LANG_KEY, currentLang, useLang, type Lang } from "../lib/i18n";
+import { useSession, type Permission } from "../lib/session";
+import { AccountPanel } from "../components/AccountPanel";
+import { MailPanel } from "../components/MailPanel";
+import { UsersPanel } from "../components/UsersPanel";
 import "../styles/panels.css";import "../styles/management.css";
 
 type Data = Record<string, unknown>;
@@ -54,7 +58,7 @@ const T = {
   level: { da: "Trin", en: "Level" }, status: { da: "Status lige nu", en: "Status right now" },
 } satisfies Record<string, Text>;
 
-type SectionId = "ui" | "house" | "air" | "humidity" | "night" | "afterheat" | "cooling" | "fireplace" | "security" | "sensors";
+type SectionId = "ui" | "house" | "air" | "humidity" | "night" | "afterheat" | "cooling" | "fireplace" | "security" | "sensors" | "users" | "mail";
 const SECTIONS: { id: SectionId; icon: LucideIcon; title: Text; lead: Text }[] = [
   { id: "house", icon: House, title: { da: "Hus og luftmængde", en: "House and airflow" }, lead: { da: "Grundtrin og luftbalance ud fra boligen", en: "Base level and air balance from the home" } },
   { id: "air", icon: Wind, title: { da: "Luftkvalitet", en: "Air quality" }, lead: { da: "Fugt og CO₂ løfter ventilationen", en: "Humidity and CO₂ raise the ventilation" } },
@@ -64,9 +68,21 @@ const SECTIONS: { id: SectionId; icon: LucideIcon; title: Text; lead: Text }[] =
   { id: "cooling", icon: Snowflake, title: { da: "Frikøling", en: "Free cooling" }, lead: { da: "Køl huset med kølig udeluft via bypass", en: "Cool the house with cool outdoor air via bypass" } },
   { id: "fireplace", icon: Flame, title: { da: "Pejs og brændeovn", en: "Fireplace and stove" }, lead: { da: "Overtryk mens der fyres", en: "Positive pressure while the stove burns" } },
   { id: "ui", icon: Monitor, title: { da: "Brugerflade", en: "Interface" }, lead: { da: "Sprog, tema og bevægelse", en: "Language, theme and motion" } },
-  { id: "security", icon: ShieldCheck, title: { da: "Sikkerhed", en: "Security" }, lead: { da: "Login og hvem der styrer anlægget", en: "Login and who controls the unit" } },
+  { id: "security", icon: ShieldCheck, title: { da: "Sikkerhed", en: "Security" }, lead: { da: "Min konto, login og hvem der styrer anlægget", en: "My account, login and who controls the unit" } },
   { id: "sensors", icon: Activity, title: { da: "Følere", en: "Sensors" }, lead: { da: "1-Wire-følere: eftervarme, T2, loft og andre", en: "1-Wire sensors: afterheat, T2, loft and others" } },
+  { id: "users", icon: Users, title: { da: "Brugere", en: "Users" }, lead: { da: "Brugere, teknikere og administratorer", en: "Users, technicians and administrators" } },
+  { id: "mail", icon: Mail, title: { da: "Mail", en: "Mail" }, lead: { da: "Fejlmeddelelser og nulstilling af adgangskode", en: "Fault notifications and password reset" } },
 ];
+
+/** Who may open each section. Controller sections need "configure"; the rest follow their own permission. */
+const SECTION_PERMISSION: Partial<Record<SectionId, Permission>> = { users: "users", mail: "mail" };
+const OPEN_SECTIONS: SectionId[] = ["ui", "security"];
+/** Sections with their own save button instead of the controller save bar. */
+const SELF_SAVING: SectionId[] = ["ui", "security", "users", "mail"];
+export function sectionAllowed(id: SectionId, can: (permission: Permission) => boolean) {
+  if (OPEN_SECTIONS.includes(id)) return true;
+  return can(SECTION_PERMISSION[id] ?? "configure");
+}
 
 function Card({ title, lead, icon: Icon, children }: { title: string; lead?: string; icon?: LucideIcon; children: ReactNode }) {
   return <article className="surface panel-card settings-card"><div className="pro-card-head compact"><div><h2>{title}</h2>{lead && <p>{lead}</p>}</div>{Icon && <Icon size={20}/>}</div>{children}</article>;
@@ -82,6 +98,7 @@ function Help({ children }: { children: ReactNode }) { return <small className="
 
 export function SettingsPage() {
   const lang = useLang();
+  const { can } = useSession();
   const t = (text: Text) => text[lang];
   const [controller, setController] = useState<Data>({});
   const [auth, setAuth] = useState<Auth>({});
@@ -206,7 +223,7 @@ export function SettingsPage() {
     other: { da: "Andet (eget navn)", en: "Other (own name)" },
   };
   const sections: Record<SectionId, ReactNode> = {
-    sensors: <Card title={t(SECTIONS[SECTIONS.length - 1].title)} lead={lang === "da" ? "DS18B20-følere på Pi'ens 1-Wire-bus (GPIO4)" : "DS18B20 sensors on the Pi's 1-Wire bus (GPIO4)"} icon={Activity}>
+    sensors: <Card title={t(SECTIONS[9].title)} lead={lang === "da" ? "DS18B20-følere på Pi'ens 1-Wire-bus (GPIO4)" : "DS18B20 sensors on the Pi's 1-Wire bus (GPIO4)"} icon={Activity}>
       <p className="settings-help">{lang === "da" ? "Nye følere dukker op her af sig selv, når de er loddet på 1-Wire-bussen (3,3 V, GND og data parallelt med de eksisterende). Giv hver føler en rolle: T2 bruges i tegningen, genvindingen og som målt T2; Loftrum og egne navne vises her og i Home Assistant. Eftervarme frem/retur bestemmer, hvilke følere 1-Wire-tjenesten sender til Home Assistant som vandets frem- og returtemperatur. Er de forvekslet, så byt rollerne her." : "New sensors appear here by themselves once soldered onto the 1-Wire bus (3.3 V, GND and data in parallel with the existing ones). Give each a role: T2 is used in the drawing, the recovery and as measured T2; Loft space and own names show here and in Home Assistant. Afterheat flow/return decide which sensors the 1-Wire service reports to Home Assistant as the water flow and return. Swap the roles here if they are mixed up."}</p>
       {onewire.length === 0
         ? <p className="settings-warning">{lang === "da" ? "Ingen følere fundet endnu. Tjek lodningerne og at føleren er på samme bus som frem/retur." : "No extra sensors found yet. Check the soldering and that the sensor is on the same bus as flow/return."}</p>
@@ -424,23 +441,29 @@ export function SettingsPage() {
       </div>
     </Card>,
     security: <Card title={t(SECTIONS[8].title)} lead={t(SECTIONS[8].lead)} icon={ShieldCheck}>
-      <div className="settings-summary">
-        <span>{lang === "da" ? "Bruger" : "User"}<strong>{auth.username ?? "—"}</strong></span>
-        <span>Login<strong>{auth.enabled === false ? (lang === "da" ? "Deaktiveret" : "Disabled") : (lang === "da" ? "Aktiveret" : "Enabled")}</strong></span>
+      <AccountPanel lang={lang}/>
+      {can("configure") && <><div className="settings-summary">
         <span>Master<strong>{s(controller.active_master, "—")}</strong></span>
         <span>{lang === "da" ? "Skrivninger" : "Writes"}<strong>{controller.hardware_writes_allowed === true ? (lang === "da" ? "Tilladt" : "Allowed") : (lang === "da" ? "Blokeret" : "Blocked")}</strong></span>
       </div>
-      <p className="settings-help">{lang === "da" ? "Pi'en skriver kun til anlægget, når den er master. Sidder HCP4-panelet på bussen, vinder det altid." : "The Pi only writes to the unit when it is master. If the HCP4 panel is on the bus, it always wins."}</p>
+      <p className="settings-help">{lang === "da" ? "Pi'en skriver kun til anlægget, når den er master. Sidder HCP4-panelet på bussen, vinder det altid." : "The Pi only writes to the unit when it is master. If the HCP4 panel is on the bus, it always wins."}</p></>}
+    </Card>,
+    users: <Card title={t(SECTIONS[10].title)} lead={lang === "da" ? "Giv familien, teknikeren og dig selv hver deres login og rolle" : "Give the family, the technician and yourself their own login and role"} icon={Users}>
+      <UsersPanel lang={lang}/>
+    </Card>,
+    mail: <Card title={t(SECTIONS[11].title)} lead={lang === "da" ? "Mail ved fejl på anlægget og link til ny adgangskode" : "Mail on unit faults and links for a new password"} icon={Mail}>
+      <MailPanel lang={lang}/>
     </Card>,
   };
 
-  const active = SECTIONS.find(item => item.id === section) ?? SECTIONS[0];
+  const visible = SECTIONS.filter(item => sectionAllowed(item.id, can));
+  const active = visible.find(item => item.id === section) ?? visible[0];
   return <section className="dashboard-overview page-enter">
     <header className="overview-heading-row"><div><span className="eyebrow">{t(T.eyebrow)}</span><h1>{t(T.title)}</h1><p>{t(T.intro)}</p></div></header>
     <div className="settings-layout">
-      <nav className="settings-nav" aria-label={t(T.eyebrow)}>{SECTIONS.map(item => { const Icon = item.icon; return <button key={item.id} type="button" aria-current={item.id === active.id ? "page" : undefined} onClick={() => setSection(item.id)}><Icon size={16}/><span><strong>{t(item.title)}</strong><small>{t(item.lead)}</small></span></button>; })}</nav>
+      <nav className="settings-nav" aria-label={t(T.eyebrow)}>{visible.map(item => { const Icon = item.icon; return <button key={item.id} type="button" aria-current={item.id === active.id ? "page" : undefined} onClick={() => setSection(item.id)}><Icon size={16}/><span><strong>{t(item.title)}</strong><small>{t(item.lead)}</small></span></button>; })}</nav>
       <div className="settings-content" data-section={active.id}>{sections[active.id]}</div>
     </div>
-    <div className="settings-savebar"><span>{notice || t(T.saveHint)}</span><button className="primary-action" disabled={busy || !csrf} onClick={() => void save()}><Save size={15}/>{busy ? t(T.saving) : t(T.save)}</button></div>
+    {!SELF_SAVING.includes(active.id) && <div className="settings-savebar"><span>{notice || t(T.saveHint)}</span><button className="primary-action" disabled={busy || !csrf} onClick={() => void save()}><Save size={15}/>{busy ? t(T.saving) : t(T.save)}</button></div>}
   </section>;
 }

@@ -36,3 +36,9 @@
 @media (max-width:680px) { .topbar-clock { display:none; } .topbar-update-tab { padding-inline: 8px; font-size: 9px; } .topbar-update-tab small { display: none; } .topbar-control-notice { max-width: 38vw; } .topbar-control-notice strong { display: none; } }
 .brand-mark { padding: 0; background: none; border: 0; box-shadow: none; overflow: hidden; }
 .brand-mark img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.topbar-user { display:flex; align-items:center; gap:8px; padding:4px 4px 4px 10px; border:1px solid var(--border); border-radius:12px; background:var(--surface-soft); color:var(--muted); }
+.topbar-user > span { display:grid; gap:1px; line-height:1.15; }
+.topbar-user strong { color:var(--text); font-size:11px; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.topbar-user small { font-size:9px; }
+.topbar-user .icon-button { width:30px; height:30px; }
+@media (max-width: 720px) { .topbar-user > span { display:none; } }

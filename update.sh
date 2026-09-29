@@ -16,6 +16,8 @@ required_source=(
   gateway/controller_dashboard_server.py
   gateway/dashboard_server.py
   gateway/webui_auth.py
+  gateway/webui_mail.py
+  gateway/webui_permissions.py
   gateway/webui/index.html
   gateway/webui/controller.html
   gateway/webui/login.html
@@ -65,6 +67,8 @@ PYTHONPATH="${stage}" "${venv}/bin/python" - <<'PY'
 import importlib
 modules = (
     "webui_auth",
+    "webui_permissions",
+    "webui_mail",
     "dashboard_server",
     "controller_core",
     "controller_runtime",
@@ -180,7 +184,7 @@ echo "[5/6] Validating installed files before restart..."
 "${venv}/bin/python" -m py_compile "${app}"/*.py
 PYTHONPATH="${app}" "${venv}/bin/python" - <<'PY'
 import importlib
-for module in ("webui_auth", "dashboard_server", "controller_core", "controller_runtime", "controller_dashboard_server", "dantherm_controller_gateway"):
+for module in ("webui_auth", "webui_permissions", "webui_mail", "dashboard_server", "controller_core", "controller_runtime", "controller_dashboard_server", "dantherm_controller_gateway"):
     importlib.import_module(module)
 print("installed runtime imports: OK")
 PY

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   BarChart3,
@@ -7,27 +7,35 @@ import {
   ChevronRight,
   Gauge,
   Home,
+  LogOut,
   Moon,
   RefreshCw,
   Settings,
   Sun,
+  UserRound,
   Wrench,
   Zap,
 } from "lucide-react";
 import { postJson, requestJson } from "../lib/api";
 import { TopbarNoticeContext } from "../lib/topbar-notice";
+import { ROLE_NAMES, SessionContext, sessionCan, type AuthStatus, type Permission } from "../lib/session";
 import { TopbarWeather } from "./TopbarWeather";
 
 const navigation = [
-  ["/overview", "Overblik", Home],
-  ["/history", "Historik", BarChart3],
-  ["/technique", "Teknik", Gauge],
-  ["/system", "System", Boxes],
-  ["/home-assistant", "Home Assistant", Zap],
-  ["/diagnostics", "Diagnostik", Wrench],
-  ["/updates", "Opdateringer", RefreshCw],
-  ["/settings", "Indstillinger", Settings],
-] as const;
+  ["/overview", "Overblik", Home, null],
+  ["/history", "Historik", BarChart3, null],
+  ["/technique", "Teknik", Gauge, "diagnostics"],
+  ["/system", "System", Boxes, "system"],
+  ["/home-assistant", "Home Assistant", Zap, "configure"],
+  ["/diagnostics", "Diagnostik", Wrench, "diagnostics"],
+  ["/updates", "Opdateringer", RefreshCw, "system"],
+  ["/settings", "Indstillinger", Settings, null],
+] as const satisfies readonly (readonly [string, string, unknown, Permission | null])[];
+
+/** Pages that need a role above a plain user. */
+export const ROUTE_PERMISSIONS: Record<string, Permission> = Object.fromEntries(
+  navigation.filter(item => item[3] !== null).map(item => [item[0], item[3] as Permission]),
+);
 
 const routeTitles: Record<string, [string, string]> = {
   "/overview": ["Overblik", "Aktuel drift og status for dit HCH5 ventilationsanlæg"],
@@ -37,7 +45,7 @@ const routeTitles: Record<string, [string, string]> = {
   "/home-assistant": ["Home Assistant", "Integration og smart-data"],
   "/diagnostics": ["Diagnostik", "Fejlsøgning og rå systemdata"],
   "/updates": ["Opdateringer", "Software, kanal og failsafe-opdatering"],
-  "/settings": ["Indstillinger", "Udseende, login og lokale præferencer"],
+  "/settings": ["Indstillinger", "Udseende, brugere, mail og lokale præferencer"],
 };
 
 type ThemeMode = "system" | "light" | "dark";
@@ -62,6 +70,24 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [version, setVersion] = useState("—");
   const [notice, setNotice] = useState("");
   const [availableUpdate, setAvailableUpdate] = useState<string | null>(null);
+  const [auth, setAuth] = useState<AuthStatus>({});
+  const [authLoading, setAuthLoading] = useState(true);
+
+  const refreshAuth = useCallback(async () => {
+    try { setAuth(await requestJson<AuthStatus>("/api/auth/status", { timeoutMs: 3500 })); }
+    catch { /* keep the last known session; the server still enforces every request */ }
+    finally { setAuthLoading(false); }
+  }, []);
+  useEffect(() => { void refreshAuth(); }, [refreshAuth]);
+  const session = useMemo(() => ({
+    auth, loading: authLoading, refresh: refreshAuth,
+    can: (permission: Permission) => sessionCan(auth, permission),
+  }), [auth, authLoading, refreshAuth]);
+  const visibleNavigation = navigation.filter(item => item[3] === null || session.can(item[3]));
+  const logout = async () => {
+    try { await postJson("/api/auth/logout", {}, auth.csrf ?? undefined); } catch { /* go to login regardless */ }
+    window.location.href = "/login";
+  };
 
   const effectiveTheme = useMemo(() => {
     if (theme !== "system") return theme;
@@ -146,7 +172,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="sidebar-nav">
-          {navigation.map(([to, label, Icon]) => (
+          {visibleNavigation.map(([to, label, Icon]) => (
             <NavLink key={to} to={to} className={({ isActive }) => `nav-item${isActive ? " active" : ""}`} title={collapsed ? label : undefined}>
               <Icon size={18} strokeWidth={1.9} />
               {!collapsed && <span>{label}</span>}
@@ -169,18 +195,25 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
           <div className="topbar-actions">
             <TopbarWeather />
-            {availableUpdate && <NavLink className="topbar-update-tab" to="/updates" title={availableUpdate}><RefreshCw size={15}/><span>{availableUpdate === "Installerer opdatering" ? availableUpdate : "Opdatering klar"}</span>{availableUpdate !== "Installerer opdatering" && <small>{availableUpdate}</small>}</NavLink>}
+            {availableUpdate && session.can("system") && <NavLink className="topbar-update-tab" to="/updates" title={availableUpdate}><RefreshCw size={15}/><span>{availableUpdate === "Installerer opdatering" ? availableUpdate : "Opdatering klar"}</span>{availableUpdate !== "Installerer opdatering" && <small>{availableUpdate}</small>}</NavLink>}
             <div className="topbar-clock"><strong>{now.toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" })}</strong><span>{now.toLocaleDateString("da-DK", { day: "2-digit", month: "short", year: "numeric" })}</span></div>
             {notice && <div className={`topbar-control-notice${notice.startsWith("Kunne") ? " error" : ""}`} role="status" title={notice}><strong>Seneste ændring</strong><span>{notice}</span></div>}
             <span className={`status-chip${online ? "" : " muted"}`}><span className="live-dot" /> {online ? "Forbundet" : "Afventer"}</span>
             <button className="icon-button" type="button" onClick={() => setTheme(effectiveTheme === "dark" ? "light" : "dark")} aria-label="Skift tema">
               {effectiveTheme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
             </button>
+            {auth.username && <div className="topbar-user" title={auth.role ? ROLE_NAMES[auth.role].da : undefined}>
+              <UserRound size={16} />
+              <span><strong>{auth.username}</strong>{auth.role && <small>{ROLE_NAMES[auth.role].da}</small>}</span>
+              {auth.enabled !== false && <button className="icon-button" type="button" onClick={() => void logout()} aria-label="Log ud" title="Log ud"><LogOut size={16} /></button>}
+            </div>}
           </div>
         </header>
-        <TopbarNoticeContext.Provider value={noticeContext}>
-          <main className="content-stage">{children}</main>
-        </TopbarNoticeContext.Provider>
+        <SessionContext.Provider value={session}>
+          <TopbarNoticeContext.Provider value={noticeContext}>
+            <main className="content-stage">{children}</main>
+          </TopbarNoticeContext.Provider>
+        </SessionContext.Provider>
       </div>
     </div>
   );
