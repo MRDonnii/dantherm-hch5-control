@@ -191,7 +191,7 @@ Home Assistant now has temperatures, fans, CO₂, humidity, bypass, filter and a
 
 ### 2. Connect the controller API
 
-1. On the Pi, show the controller token that the installer generated:
+1. Get the controller address and API key: in the WebUI open **Home Assistant → Forbindelse fra Home Assistant** (technician or administrator), where you can show, copy or generate a new key. Generating a new key stops the old one at once. Over SSH you can also show the token the installer generated:
 
    ```bash
    sudo sed -n 's/^DANTHERM_CONTROLLER_TOKEN=//p' /etc/dantherm-passivelink-webui/gateway.env

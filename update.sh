@@ -19,6 +19,7 @@ required_source=(
   gateway/webui_mail.py
   gateway/webui_permissions.py
   gateway/week_schedule.py
+  gateway/controller_token.py
   gateway/event_log.py
   gateway/balancing_store.py
   gateway/webui/index.html
@@ -42,6 +43,11 @@ web_port=$(read_env WEBUI_PORT); web_port=${web_port:-8080}
 raw_port=$(read_env GATEWAY_PORT); raw_port=${raw_port:-4196}
 device=$(read_env RS485_DEVICE)
 controller_token=$(read_env DANTHERM_CONTROLLER_TOKEN)
+# A token generated in the WebUI replaces the installer's token.
+if [[ -f ${state_dir}/controller-token.json ]]; then
+  webui_token=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("token",""))' "${state_dir}/controller-token.json" 2>/dev/null || true)
+  [[ -n ${webui_token} ]] && controller_token=${webui_token}
+fi
 [[ ${web_port} =~ ^[0-9]+$ && ${raw_port} =~ ^[0-9]+$ ]] || { echo "Invalid saved port configuration." >&2; exit 2; }
 [[ ${device} == /dev/serial/by-id/* ]] || { echo "Saved RS485 device is not a stable /dev/serial/by-id/... path; refusing restart." >&2; exit 2; }
 [[ -e ${device} ]] || { echo "Saved RS485 device is currently unavailable: ${device}. Live service is left untouched." >&2; exit 2; }

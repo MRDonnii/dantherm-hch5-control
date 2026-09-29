@@ -3,6 +3,7 @@
 ## 1.3.1
 
 - **Update check compares version numbers:** the beta channel offered 1.2.1-beta.13 to an installation already on 1.3.0, because any different version counted as an update. Versions are now compared by number (1.3.0 is newer than 1.2.1-beta.13 and 1.3.0-beta.x), and only a newer version is offered, on both channels.
+- **API key for Home Assistant in the WebUI:** *Home Assistant → Forbindelse fra Home Assistant* shows the controller address and the API key, with buttons to show, copy and generate a new key (technicians and administrators). A new key stops the old one at once and is stored on the Pi (`controller-token.json`, mode 0600); `update.sh` uses it for its health check. Generating a key is logged in the alarm history.
 - **The beta channel also follows stable releases:** a stable release newer than every beta is offered on the beta channel too, and the next beta after it (for example 1.3.1-beta.1) is offered once it exists.
 - Changes by Claude AI.
 

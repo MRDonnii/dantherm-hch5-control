@@ -14,7 +14,7 @@ from pathlib import Path
 
 MAX_EVENTS = 500
 ALARM_KINDS = ("alarm_raised", "alarm_cleared")
-SECURITY_KINDS = ("login", "login_failed", "user_created", "user_changed", "user_deleted", "password_reset")
+SECURITY_KINDS = ("login", "login_failed", "user_created", "user_changed", "user_deleted", "password_reset", "token_generated")
 
 
 class EventLog:
