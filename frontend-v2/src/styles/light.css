@@ -189,9 +189,9 @@
 :root[data-theme="light"] .hch-water-coil :is(.water-pipe-shell,.water-tube-shell) { stroke: #52697a; }
 :root[data-theme="light"] .hch-water-coil .valve-body { fill: #f0f6fa; stroke: #52697a; }
 :root[data-theme="light"] .hch-water-coil .valve-actuator { stroke: #52697a; }
-:root[data-theme="light"] .hch-control-panel .control-body{fill:rgb(240 246 250 / 92%);stroke:#92afc2;filter:drop-shadow(0 6px 14px rgb(0 0 0 / 18%))}
-:root[data-theme="light"] .hch-control-panel.tone-boost .control-body{stroke:#e0a060}
-:root[data-theme="light"] .hch-control-panel.tone-reduced .control-body{stroke:#5f9cc8}
+:root[data-theme="light"] .hch-control-panel{background:rgb(240 246 250 / 94%);border-color:#92afc2;box-shadow:0 6px 14px rgb(0 0 0 / 18%)}
+:root[data-theme="light"] .hch-control-panel.tone-boost{border-color:#e0a060}
+:root[data-theme="light"] .hch-control-panel.tone-reduced{border-color:#5f9cc8}
 :root[data-theme="light"] .hch-control-eyebrow,:root[data-theme="light"] .hch-control-footer{color:#4f6b7c}
 :root[data-theme="light"] .hch-control-title{color:#0d2635}
 :root[data-theme="light"] .hch-control-title em{color:#1f9d57}

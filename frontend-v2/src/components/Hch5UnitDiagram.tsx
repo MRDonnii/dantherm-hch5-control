@@ -380,21 +380,23 @@ function Rs485Wiring({ active, valveAt }: { active: boolean; valveAt: Point }) {
 }
 
 // "Styring nu": source, level and reason of the controller's current decision,
-// placed in the free corner right of the Raspberry Pi and below T4.
-const CONTROL_BOX = { x: 930, y: 420, width: 272, height: 126 };
+// in the free corner right of the Raspberry Pi and below T4. It is an HTML
+// layer over the drawing rather than part of it, so it stays flat and easy to
+// read while the drawing itself is turned in perspective.
+const CONTROL_BOX = { x: 900, y: 420, width: 302 };
 function ControlPanel({ control }: { control: ControlSummary }) {
-  const { x, y, width, height } = CONTROL_BOX;
-  return <g className={`hch-control-panel tone-${control.tone}`} aria-label={`Styring nu: ${control.title}${control.level ? `, trin ${control.level}` : ""}. ${control.reason}`}>
-    <rect className="control-body" x={x} y={y} width={width} height={height} rx="12"/>
-    <foreignObject x={x + 12} y={y + 8} width={width - 24} height={height - 16}>
-      <div className="hch-control-text">
-        <span className="hch-control-eyebrow">Styring nu</span>
-        <strong className="hch-control-title">{control.title}{control.level ? <em>Trin {control.level}</em> : null}</strong>
-        <span className="hch-control-reason">{control.reason}</span>
-        <span className="hch-control-footer">{control.footer}</span>
-      </div>
-    </foreignObject>
-  </g>;
+  const { x, y, width } = CONTROL_BOX;
+  const style = {
+    left: `${((x - VIEW.x) / VIEW.width) * 100}%`,
+    top: `${((y - VIEW.y) / VIEW.height) * 100}%`,
+    width: `${(width / VIEW.width) * 100}%`,
+  };
+  return <div className={`hch-control-panel tone-${control.tone}`} style={style} role="status" aria-label={`Styring nu: ${control.title}${control.level ? `, trin ${control.level}` : ""}. ${control.reason}`}>
+    <span className="hch-control-eyebrow">Styring nu</span>
+    <strong className="hch-control-title">{control.title}{control.level ? <em>Trin {control.level}</em> : null}</strong>
+    <span className="hch-control-reason">{control.reason}</span>
+    <span className="hch-control-footer">{control.footer}</span>
+  </div>;
 }
 
 function LockoutBadge() {
@@ -499,6 +501,7 @@ export function Hch5UnitDiagram(props:Hch5UnitDiagramProps) {
   const {x:ox,y:oy,width:ow,height:oh}=OPENING;
   const backX=ox+ow+CABINET_DEPTH[0], backY=oy+oh+CABINET_DEPTH[1];
   return <div className={`hch5-visual${bypassOpen?" is-bypass":" is-recovery"}`}>
+    <div className="hch5-svg-wrap" style={{ "--svg-unit": `calc(100cqw / ${VIEW.width})` } as CSSProperties}>
     <svg viewBox={`${VIEW.x} ${VIEW.y} ${VIEW.width} ${VIEW.height}`} role="group" aria-label="HCH5 luftstrøm med intern bypass og ekstern eftervarme">
       <defs>
         <linearGradient id="metalFace" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stopColor="#596b76"/><stop offset=".4" stopColor="#263843"/><stop offset="1" stopColor="#14242e"/></linearGradient>
@@ -621,13 +624,14 @@ export function Hch5UnitDiagram(props:Hch5UnitDiagramProps) {
       <SensorPin x={57} y={292} label="Frost" value={fmt(frost,"°")} sensor="frost" onClick={onTemperatureClick}/>
       {/* T2 on the supply duct between the unit and the afterheat coil. */}
       {(beforeHeater !== null || beforeHeaterEstimate !== null) && <SensorPin x={150} y={331} lift={38} width={92} label={beforeHeater !== null ? "T2 · målt" : "T2 · beregnet"} value={fmt(beforeHeater ?? beforeHeaterEstimate,"°")} sensor="beforeHeater" onClick={onTemperatureClick}/>}
-      {control && <ControlPanel control={control}/>}
       <g className="hch-water-callout" transform="translate(-236 414)"><rect width="196" height="110" rx="12"/><text className="water-title" x="14" y="24">{water ? "Vandvarmeflade" : "Eftervarmevand"}</text>
         <g className="hch-water-reading" role="button" tabIndex={0} aria-label={`Frem: ${fmt(flowWater)}, vis 24 timers graf`} onClick={() => onTemperatureClick?.("flowWater")} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onTemperatureClick?.("flowWater"); } }}><rect x="8" y="31" width="180" height="23" rx="5"/><text className="water-value" x="14" y="48">Frem <tspan x="184" textAnchor="end">{fmt(flowWater)}</tspan></text></g>
         <g className="hch-water-reading" role="button" tabIndex={0} aria-label={`Retur: ${fmt(returnWater)}, vis 24 timers graf`} onClick={() => onTemperatureClick?.("returnWater")} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onTemperatureClick?.("returnWater"); } }}><rect x="8" y="57" width="180" height="23" rx="5"/><text className="water-value" x="14" y="74">Retur <tspan x="184" textAnchor="end">{fmt(returnWater)}</tspan></text></g>
         <g className="hch-water-reading" role="button" tabIndex={0} aria-label={`Afkøl: ${fmt(waterDelta)}, vis 24 timers graf`} onClick={() => onTemperatureClick?.("waterDelta")} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onTemperatureClick?.("waterDelta"); } }}><rect x="8" y="83" width="180" height="23" rx="5"/><text className="water-delta" x="14" y="100">Afkøl <tspan x="184" textAnchor="end">{fmt(waterDelta)}</tspan></text></g>
       </g>
     </svg>
+    {control && <ControlPanel control={control}/>}
+    </div>
     <div className="hch-mobile-flow" aria-label="HCH5 luftstrømme og temperaturer">
       <div className="hch-mobile-flow-head"><span>LUFTVEJE</span><strong>HCH5</strong><span className={busActive ? "connected" : ""}>{busActive ? "Bus aktiv" : "Afventer bus"}</span></div>
       <div className="hch-mobile-lane supply">
