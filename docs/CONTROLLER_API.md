@@ -86,4 +86,4 @@ Rooms sent to `/api/controller/inputs` can also serve as measurement sources cho
 
 ## Master rule
 
-There is no normal controller ON/OFF. Pi becomes master automatically whenever the RS485 bus is healthy and HCP4 is absent. Any detected HCP4 FC06/FC16 activity immediately pauses Pi writes. During `unknown` arbitration state writes are blocked.
+The user-facing temporary **OFF** control stops ventilation for a selected duration and then restores the prior operating state; it does not disable RS485 master arbitration. Pi becomes master automatically whenever the RS485 bus is healthy and HCP4 is absent. Any detected HCP4 FC06/FC16 activity immediately pauses Pi writes. During `unknown` arbitration state writes are blocked.

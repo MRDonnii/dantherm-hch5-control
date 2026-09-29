@@ -1,5 +1,7 @@
 # HCH5 Control – modern controller roadmap
 
+> Historical planning notes. For the features available in the current stable release, see the [complete feature list](FEATURES.md) and the [release notes](../CHANGELOG.md).
+
 This roadmap tracks the controller features that turn the Raspberry Pi replacement controller into a modern, local-first ventilation controller while preserving the HCH5's verified safety behaviour and automatic HCP4/Pi arbitration.
 
 ## Design principles
