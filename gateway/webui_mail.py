@@ -46,6 +46,10 @@ DEFAULTS = {
 HCP4_ALARM = {"code": "hcp4_master", "severity": "warning",
               "text": "HCP4-panelet har overtaget styringen; Pi'ens skrivninger er sat på pause"}
 HCP4_DELAY = 120
+HA_ALARM = {"code": "ha_offline", "severity": "warning",
+            "text": "Home Assistant har ikke kontakt; Smart Auto kører på anlæggets egne følere"}
+HA_BAD_TOKEN_TEXT = "Home Assistant bruger en forkert API-nøgle; Smart Auto kører på anlæggets egne følere"
+HA_DELAY = 300
 
 
 class MailError(Exception):
@@ -248,11 +252,21 @@ class AlarmMailer:
         self.sent: dict[str, float] = {}
         self.known: dict[str, dict] = {}
         self.hcp4_since: float | None = None
+        self.ha_since: float | None = None
         self.stop_event = threading.Event()
         self.thread: threading.Thread | None = None
 
     def current_alarms(self, state: dict, now: float) -> dict[str, dict]:
         alarms = {a["code"]: a for a in state.get("diagnostics_alarms") or [] if isinstance(a, dict) and a.get("code")}
+        # Smart Auto depends on Home Assistant; say so when it has gone quiet.
+        link = state.get("ha_link_state")
+        if state.get("ha_link_required") and link in ("offline", "bad_token", "never"):
+            self.ha_since = self.ha_since or now
+            if now - self.ha_since >= HA_DELAY:
+                alarms[HA_ALARM["code"]] = dict(HA_ALARM, since=int(self.ha_since),
+                                                text=HA_BAD_TOKEN_TEXT if link == "bad_token" else HA_ALARM["text"])
+        else:
+            self.ha_since = None
         if state.get("hardware_control_state") == "paused_hcp4_master":
             self.hcp4_since = self.hcp4_since or now
             if now - self.hcp4_since >= HCP4_DELAY:

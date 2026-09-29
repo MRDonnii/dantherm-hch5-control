@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { postJson, requestJson } from "../lib/api";
 import { TopbarNoticeContext } from "../lib/topbar-notice";
+import { haLinkText, readHaLink } from "../lib/haLink";
 import { ROLE_NAMES, SessionContext, sessionCan, type AuthStatus, type Permission } from "../lib/session";
 import { TopbarWeather } from "./TopbarWeather";
 
@@ -89,6 +90,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     auth, loading: authLoading, refresh: refreshAuth,
     can: (permission: Permission) => sessionCan(auth, permission),
   }), [auth, authLoading, refreshAuth]);
+  const haLink = readHaLink(unit);
+  const haInfo = haLinkText(haLink);
+  // Only shown once Home Assistant is part of the setup (has been seen, or Smart Auto needs it).
+  const haVisible = haLink.state !== null && (haLink.state !== "never" || haLink.required);
+  const haChipContent = <><span className="live-dot" />HA{haLink.state !== "online" && <small>{haInfo.label}</small>}</>;
+  const haChip = !haVisible ? null : sessionCan(auth, "configure")
+    ? <NavLink to="/home-assistant" className={`status-chip ha-chip tone-${haInfo.tone}`} title={`Home Assistant: ${haInfo.label}. ${haInfo.detail}`}>{haChipContent}</NavLink>
+    : <span className={`status-chip ha-chip tone-${haInfo.tone}`} title={`Home Assistant: ${haInfo.label}. ${haInfo.detail}`}>{haChipContent}</span>;
   const visibleNavigation = navigation.filter(item => item[3] === null || session.can(item[3]));
   const logout = async () => {
     try { await postJson("/api/auth/logout", {}, auth.csrf ?? undefined); } catch { /* go to login regardless */ }
@@ -204,7 +213,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             {availableUpdate && session.can("system") && <NavLink className="topbar-update-tab" to="/updates" title={availableUpdate}><RefreshCw size={15}/><span>{availableUpdate === "Installerer opdatering" ? availableUpdate : "Opdatering klar"}</span>{availableUpdate !== "Installerer opdatering" && <small>{availableUpdate}</small>}</NavLink>}
             <div className="topbar-clock"><strong>{now.toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" })}</strong><span>{now.toLocaleDateString("da-DK", { day: "2-digit", month: "short", year: "numeric" })}</span></div>
             {notice && <div className={`topbar-control-notice${notice.startsWith("Kunne") ? " error" : ""}`} role="status" title={notice}><strong>Seneste ændring</strong><span>{notice}</span></div>}
-            <span className={`status-chip${online ? "" : " muted"}`}><span className="live-dot" /> {online ? "Forbundet" : "Afventer"}</span>
+            <span className={`status-chip${online ? "" : " muted"}`} title={online ? "Forbindelse til anlægget" : "Venter på data fra anlægget"}><span className="live-dot" /> {online ? "Forbundet" : "Afventer"}</span>
+            {haChip}
             <button className="icon-button" type="button" onClick={() => setTheme(effectiveTheme === "dark" ? "light" : "dark")} aria-label="Skift tema">
               {effectiveTheme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
             </button>
