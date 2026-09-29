@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.1
+
+- **Update check compares version numbers:** the beta channel offered 1.2.1-beta.13 to an installation already on 1.3.0, because any different version counted as an update. Versions are now compared by number (1.3.0 is newer than 1.2.1-beta.13 and 1.3.0-beta.x), and only a newer version is offered, on both channels.
+- **The beta channel also follows stable releases:** a stable release newer than every beta is offered on the beta channel too, and the next beta after it (for example 1.3.1-beta.1) is offered once it exists.
+- Changes by Claude AI.
+
 ## 1.3.0
 
 Stable release. Everything from 1.2.1-beta.1 to 1.2.1-beta.13 (the details are in the beta notes below):

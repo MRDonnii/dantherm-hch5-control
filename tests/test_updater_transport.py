@@ -50,6 +50,49 @@ class UpdaterTransportTests(unittest.TestCase):
         self.assertEqual(info["ref"], "v1.2.0-beta.20")
         final_url.assert_not_called()
 
+    def test_beta_channel_does_not_offer_an_older_beta_after_a_stable_release(self):
+        feed = "<feed>v1.2.1-beta.12 v1.2.1-beta.13 v1.3.0 v1.2.0</feed>"
+        with (
+            mock.patch.object(self.module, "current_version", return_value="1.3.0"),
+            mock.patch.object(self.module, "current_build", return_value="1.3.0"),
+            mock.patch.object(self.module, "_request_text", return_value=feed),
+        ):
+            info = self.module.update_info("beta")
+        self.assertEqual(info["ref"], "v1.3.0")
+        self.assertFalse(info["update_available"])
+
+    def test_beta_channel_moves_from_beta_to_newer_stable_and_newer_beta(self):
+        with (
+            mock.patch.object(self.module, "current_version", return_value="1.2.1-beta.13"),
+            mock.patch.object(self.module, "current_build", return_value="old"),
+            mock.patch.object(self.module, "_request_text", return_value="v1.2.1-beta.13 v1.3.0"),
+        ):
+            self.assertTrue(self.module.update_info("beta", force_refresh=True)["update_available"])
+        with (
+            mock.patch.object(self.module, "current_version", return_value="1.3.0"),
+            mock.patch.object(self.module, "current_build", return_value="1.3.0"),
+            mock.patch.object(self.module, "_request_text", return_value="v1.3.0 v1.3.1-beta.1"),
+        ):
+            info = self.module.update_info("beta", force_refresh=True)
+        self.assertEqual(info["ref"], "v1.3.1-beta.1")
+        self.assertTrue(info["update_available"])
+
+    def test_versions_compare_by_number_not_by_text(self):
+        newer = self.module.is_newer
+        self.assertFalse(newer("1.2.1-beta.13", "1.3.0"))
+        self.assertTrue(newer("1.3.0", "1.3.0-beta.9"))
+        self.assertTrue(newer("1.2.1-beta.13", "1.2.1-beta.9"))
+        self.assertTrue(newer("1.10.0", "1.9.0"))
+        self.assertFalse(newer("1.3.0", "1.3.0"))
+
+    def test_stable_channel_does_not_downgrade_a_newer_install(self):
+        with (
+            mock.patch.object(self.module, "current_version", return_value="1.3.0"),
+            mock.patch.object(self.module, "current_build", return_value="1.3.0"),
+            mock.patch.object(self.module, "_final_url", return_value="https://github.com/x/y/releases/tag/v1.2.0"),
+        ):
+            self.assertFalse(self.module.update_info("stable")["update_available"])
+
     def test_stable_check_resolves_public_latest_redirect(self):
         with (
             mock.patch.object(self.module, "current_version", return_value="1.1.0"),
