@@ -88,22 +88,7 @@ function remaining(value: unknown) {
   return `${minutes} min tilbage`;
 }
 
-function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState(() => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(query).matches);
-  useEffect(() => {
-    if (typeof window.matchMedia !== "function") return;
-    const media = window.matchMedia(query);
-    const update = () => setMatches(media.matches);
-    update();
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, [query]);
-  return matches;
-}
-
 export function OverviewPage() {
-  // Medium screens: the right column is narrow, so the afterheat card sits under the climate data instead.
-  const afterheatInMain = useMediaQuery("(min-width: 1351px) and (max-width: 1760px)");
   const [unit, setUnit] = useState<Data>({});
   const [controller, setController] = useState<Data>({});
   const [csrf, setCsrf] = useState("");
@@ -280,16 +265,6 @@ export function OverviewPage() {
         cutoff={afterheatCutoff} outdoor={outdoor} airBefore={number(controller.actual_supply_before_heater_temperature)} airAfter={afterHeater}
         registered={actualAfterheatSelection} lastOn={lastAfterheatOn.current}
         current={committedAfterheat} onConfirm={confirmAfterheat} onCancel={() => setAfterheatDraft(null)} busy={busy !== null}/>
-      {/* Only with a measured T2 before the afterheat coil (1-Wire role "t2"). */}
-      {number(controller.actual_supply_before_heater_temperature) !== null && <>
-        <div className="pro-card-head compact air-calc-head"><div><h2>Beregnet fra målt T2</h2><p>Luftmængde anslået for aktuelt trin{number(controller.supply_airflow_estimate_m3h) === null ? "" : ` · ${whole(number(controller.supply_airflow_estimate_m3h))} m³/h`}</p></div></div>
-        <div className="climate-metrics metrics-2">
-          <div className="climate-metric green"><Leaf size={21}/><span>Genvinding · indblæsning</span><strong>{whole(number(controller.supply_recovery_percent))} <small>%</small></strong><em>(T2 − T1) / (T3 − T1)</em><i style={{ width: `${Math.max(0, Math.min(100, number(controller.supply_recovery_percent) ?? 0))}%` }}/></div>
-          <div className="climate-metric cyan"><Wind size={21}/><span>Genvundet varme</span><strong>{whole(number(controller.recovered_heat_w))} <small>W</small></strong><em>Veksler → indblæsning</em><i style={{ width: `${Math.min(100, (number(controller.recovered_heat_w) ?? 0) / 30)}%` }}/></div>
-          <div className="climate-metric neutral"><span className="metric-heat">≋</span><span>Eftervarme løft</span><strong>{temp(number(controller.afterheat_lift))}</strong><em>T2AH − T2</em><i style={{ width: `${Math.max(0, Math.min(100, (number(controller.afterheat_lift) ?? 0) * 10))}%` }}/></div>
-          <div className="climate-metric neutral"><Flame size={21}/><span>Eftervarme effekt</span><strong>{whole(number(controller.afterheat_power_w))} <small>W</small></strong><em>Varme tilført luften</em><i style={{ width: `${Math.min(100, (number(controller.afterheat_power_w) ?? 0) / 20)}%` }}/></div>
-        </div>
-      </>}
     </article>
   );
 
@@ -349,8 +324,17 @@ export function OverviewPage() {
               <div className="climate-metric neutral"><Zap size={21}/><span>Strøm i dag{number(controller.unit_energy_measured_today_kwh) !== null ? " · målt" : " · anslået"}</span><strong>{energy(number(controller.unit_energy_measured_today_kwh) ?? number(controller.unit_energy_today_kwh))} <small>kWh</small></strong><em>Ca. {cost(number(controller.unit_energy_measured_today_kwh) ?? number(controller.unit_energy_today_kwh), number(controller.electricity_price_dkk_kwh))} ved aktuel elpris</em><i style={{ width: `${Math.min(100, (number(controller.unit_energy_measured_today_kwh) ?? number(controller.unit_energy_today_kwh) ?? 0) * 50)}%` }}/></div>
               <div className="climate-metric neutral"><Flame size={21}/><span>Eftervarme i dag · anslået</span><strong>{energy(number(controller.afterheat_energy_today_kwh))} <small>kWh</small></strong><em>Ca. {cost(number(controller.afterheat_energy_today_kwh), number(controller.heat_price_dkk_kwh))} ved aktuel varmepris</em><i style={{ width: `${Math.min(100, (number(controller.afterheat_energy_today_kwh) ?? 0) * 50)}%` }}/></div>
             </div>
+            {/* Only with a measured T2 before the afterheat coil (1-Wire role "t2"). */}
+            {number(controller.actual_supply_before_heater_temperature) !== null && <>
+              <div className="pro-card-head compact air-calc-head"><div><h2>Genvinding og eftervarme · målt T2</h2><p>Luftmængde anslået for aktuelt trin{number(controller.supply_airflow_estimate_m3h) === null ? "" : ` · ${whole(number(controller.supply_airflow_estimate_m3h))} m³/h`}</p></div></div>
+              <div className="climate-metrics">
+                <div className="climate-metric green"><Leaf size={21}/><span>Genvinding · indblæsning</span><strong>{whole(number(controller.supply_recovery_percent))} <small>%</small></strong><em>(T2 − T1) / (T3 − T1)</em><i style={{ width: `${Math.max(0, Math.min(100, number(controller.supply_recovery_percent) ?? 0))}%` }}/></div>
+                <div className="climate-metric cyan"><Wind size={21}/><span>Genvundet varme</span><strong>{whole(number(controller.recovered_heat_w))} <small>W</small></strong><em>Veksler → indblæsning</em><i style={{ width: `${Math.min(100, (number(controller.recovered_heat_w) ?? 0) / 30)}%` }}/></div>
+                <div className="climate-metric neutral"><span className="metric-heat">≋</span><span>Eftervarme løft</span><strong>{temp(number(controller.afterheat_lift))}</strong><em>T2AH − T2</em><i style={{ width: `${Math.max(0, Math.min(100, (number(controller.afterheat_lift) ?? 0) * 10))}%` }}/></div>
+                <div className="climate-metric neutral"><Flame size={21}/><span>Eftervarme effekt</span><strong>{whole(number(controller.afterheat_power_w))} <small>W</small></strong><em>Varme tilført luften</em><i style={{ width: `${Math.min(100, (number(controller.afterheat_power_w) ?? 0) / 20)}%` }}/></div>
+              </div>
+            </>}
           </article>
-          {afterheatInMain && afterheatCard}
         </div>
         <div className="dashboard-col dashboard-col-side">
           <aside className="pro-control-column">
@@ -415,7 +399,7 @@ export function OverviewPage() {
             </article>
 
           </aside>
-          {!afterheatInMain && afterheatCard}
+          {afterheatCard}
         </div>
       </div>
       {standbyDialog && createPortal(<div className="sensor-history-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setStandbyDialog(false); }}>

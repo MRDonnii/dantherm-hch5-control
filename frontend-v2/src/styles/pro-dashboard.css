@@ -527,3 +527,20 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 .climate-metric > svg, .climate-metric > .metric-drop, .climate-metric > .metric-filter, .climate-metric > .metric-heat { align-self: center; }
 .afterheat-setpoint-card { align-content: start; }
 .afterheat-setpoint-card .climate-metric { min-height: 0; }
+/* Controls live in the right column; give it room for the afterheat dial beside its readings on medium screens. */
+@media (min-width: 1351px) and (max-width: 1760px) {
+  .dashboard-main-grid { grid-template-columns: minmax(0,1.3fr) minmax(430px,1fr); }
+}
+/* The info column adapts to its own width. */
+.dashboard-col-main { container-type: inline-size; }
+@container (max-width: 760px) {
+  .unit-readback { grid-template-columns: 30px minmax(0,1fr); gap: 7px; padding: 8px 9px; }
+  .unit-readback small { font-size: 12px; }
+  .unit-readback strong { font-size: 15px; }
+  .unit-readback em { font-size: 12px; }
+  .climate-metrics.metrics-5 { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  .climate-metric { grid-template-columns: 20px 1fr; padding: 8px 10px; }
+}
+@container (max-width: 560px) {
+  .unit-readback-row, .climate-metrics, .climate-metrics.metrics-5 { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
