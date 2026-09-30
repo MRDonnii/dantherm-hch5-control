@@ -16,7 +16,7 @@ describe("sensor history popup", () => {
     const now = Math.floor(Date.now() / 1000);
     api.requestJson.mockImplementation(async (endpoint: string) => {
       if (endpoint === "/state.json") return { outdoor_temp: 6.1, flow_temperature: 34, return_temperature: 28 };
-      if (endpoint === "/api/controller/state") return {};
+      if (endpoint === "/api/controller/state?compact=1") return {};
       if (endpoint === "/api/auth/status") return { csrf: "test" };
       if (endpoint === "/history.json?range=24h") return { samples: [{ ts: now - 60, outdoor_temp: 5.5 }, { ts: now, outdoor_temp: 6.1 }] };
       throw new Error(endpoint);

@@ -21,6 +21,9 @@ except ModuleNotFoundError:
     _sensor_spec=importlib.util.spec_from_file_location("sensor_freshness",Path(__file__).with_name("sensor_freshness.py")); _sensor_module=importlib.util.module_from_spec(_sensor_spec); _sensor_spec.loader.exec_module(_sensor_module); fresh_sensor_value=_sensor_module.fresh_sensor_value; hide_stale_sensor_values=_sensor_module.hide_stale_sensor_values
 LOGGER = logging.getLogger("passivelink-dashboard")
 ASSET_TYPES = {".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png"}
+# The 1-Wire service caches for 10 s as well; refreshing more often gains nothing.
+AUXILIARY_REFRESH_SECONDS = 5
+PREHEATER_STALE_SECONDS = 60
 RANGES = {"1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800, "30d": 2592000}
 HISTORY_FIELDS = ("outdoor_temp", "supply_temp", "extract_temp", "exhaust_temp", "hrc2_t5_temperature", "heating_coil_after_temperature", "heating_coil_frost_temperature", "flow_temperature", "return_temperature", "co2", "fan_supply_rpm", "fan_extract_rpm", "fan_supply_percent", "fan_extract_percent", "heat_recovery_efficiency", "system_cpu_usage_percent", "pi_cpu_temperature", "system_memory_used_percent", "system_load_1m")
 HISTORY_SENSOR_MARKERS = {
@@ -90,15 +93,22 @@ class HistoryStore:
         since = int(time.time()) - RANGES.get(range_name, RANGES["24h"])
         try:
             with self.lock, self._connect() as db:
-                db.row_factory = sqlite3.Row; rows = db.execute("SELECT * FROM samples WHERE ts >= ? ORDER BY ts", (since,)).fetchall()
+                # Thin out in SQLite: turning 10,000+ rows into Python objects
+                # takes seconds on a Pi 3, and only every stride-th row is kept.
+                count = db.execute("SELECT COUNT(*) FROM samples WHERE ts >= ?", (since,)).fetchone()[0]
+                stride = max(1, count // 720)
+                db.row_factory = sqlite3.Row
+                rows = db.execute(
+                    "SELECT * FROM (SELECT *, ROW_NUMBER() OVER (ORDER BY ts) - 1 AS _row FROM samples WHERE ts >= ?) "
+                    "WHERE _row % ? = 0 ORDER BY ts", (since, stride)).fetchall()
         except (OSError, sqlite3.Error) as error:
             self.available, self.error = False, str(error)
             LOGGER.warning("History read failed, disabling: %s", error)
             return []
-        stride = max(1, len(rows) // 720)
         samples = []
-        for row in rows[::stride]:
+        for row in rows:
             sample = dict(row)
+            sample.pop("_row", None)
             for field, marker in HISTORY_SENSOR_MARKERS.items():
                 if sample.get(marker) != 1:
                     sample[field] = None
@@ -115,6 +125,9 @@ class DashboardHttpServer:
         self._system_cache = {}; self._system_last_fetch = 0.0; self._cpu_sample = None
         self.auth = AuthManager(os.getenv("DANTHERM_WEBUI_AUTH_FILE","/var/lib/dantherm-hch5-ha/webui-auth.json")); self.admin_token = os.getenv("DANTHERM_REBOOT_TOKEN"); self.admin_url=os.getenv("DANTHERM_ADMIN_URL","http://127.0.0.1:4198")
         self.history_thread = None; self.history_stop = threading.Event()
+        # Set by start(): from then on a background thread refreshes the 1-Wire
+        # and system values, and a request only reads what it has cached.
+        self.background_refresh = False; self.refresh_thread = None
     def _fetch_preheater(self) -> dict[str, object]:
         if not self.preheater_url: return {}
         with self._preheater_lock:
@@ -128,8 +141,31 @@ class DashboardHttpServer:
             if not isinstance(payload, dict): return {"preheater_diagnostics_reachable": False}
             payload["onewire_available"] = payload.pop("available", None)
             payload["preheater_diagnostics_reachable"] = True; self._preheater_cache = dict(payload); self._preheater_last_fetch = now; return payload
+    def _cached_preheater(self) -> dict[str, object]:
+        # A 1-Wire service that has not answered for a minute is shown as
+        # unreachable rather than with its last temperatures.
+        if time.monotonic() - self._preheater_last_fetch > PREHEATER_STALE_SECONDS:
+            return {"preheater_diagnostics_reachable": False} if self.preheater_url else {}
+        return dict(self._preheater_cache)
+    def _auxiliary_values(self) -> dict[str, object]:
+        """1-Wire and Pi system values for a snapshot.
+
+        The 1-Wire service can take several seconds to answer and the system
+        probe starts a dozen subprocesses. Neither may hold up /state.json,
+        or the WebUI times out and shows the unit as offline. While the
+        background refresher runs, only the caches are read here.
+        """
+        if not self.background_refresh:
+            return {**self._fetch_preheater(), **self._system_snapshot()}
+        return {**self._cached_preheater(), **self._system_cache}
     def snapshot(self) -> dict[str, object]:
-        merged = dict(self.state); merged.update(self._fetch_preheater()); merged.update(self._system_snapshot())
+        merged = self._compose_snapshot()
+        # Without the background threads (tests, one-off use) history is
+        # recorded inline as before; otherwise only the history thread writes.
+        if not self.background_refresh: self.history.record(merged)
+        return merged
+    def _compose_snapshot(self) -> dict[str, object]:
+        merged = dict(self.state); merged.update(self._auxiliary_values())
         merged = hide_stale_sensor_values(merged)
         age = merged.get("bus_last_frame_age")
         merged["available"] = merged.get("bus_traffic") is True and isinstance(age, (int, float)) and age <= 5
@@ -142,7 +178,24 @@ class DashboardHttpServer:
         except (KeyError, TypeError, ValueError):
             merged["heat_recovery_efficiency"] = None
         if merged.get("pi_cpu_temperature") is None: merged["pi_cpu_temperature"] = merged.get("system_cpu_temperature")
-        self.history.record(merged); return merged
+        return merged
+    def _refresh_auxiliary(self) -> None:
+        for refresh in (self._fetch_preheater, self._system_snapshot):
+            try: refresh()
+            except Exception:  # noqa: BLE001 - a failing probe must never stop the refresher
+                LOGGER.exception("Background refresh failed: %s", getattr(refresh, "__name__", refresh))
+    def start_background(self) -> None:
+        """Start the auxiliary refresher and the history recorder."""
+        self.background_refresh = True
+        def refresh_auxiliary():
+            while True:
+                self._refresh_auxiliary()
+                if self.history_stop.wait(AUXILIARY_REFRESH_SECONDS): return
+        def record_history():
+            while not self.history_stop.is_set(): self.history.record(self.snapshot()); self.history_stop.wait(self.history.sample_seconds)
+        self.history_stop.clear()
+        self.refresh_thread = threading.Thread(target=refresh_auxiliary, name="dashboard-refresh", daemon=True); self.refresh_thread.start()
+        self.history_thread = threading.Thread(target=record_history, name="dashboard-history", daemon=True); self.history_thread.start()
     @staticmethod
     def _read(path: str) -> str | None:
         try: return Path(path).read_text(encoding="utf-8").rstrip("\x00\n ") or None
@@ -302,12 +355,12 @@ class DashboardHttpServer:
                 self.send_response(200); self.send_header("Content-Type", content_type); self.send_header("Cache-Control", "no-store"); self.send_header("X-Content-Type-Options", "nosniff"); self.send_header("Content-Security-Policy", WEBUI_CSP); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
             def log_message(self, format_, *args): LOGGER.debug(format_, *args)
         self.server = ThreadingHTTPServer((self.host, self.port), Handler); self.thread = threading.Thread(target=self.server.serve_forever, name="dashboard-http", daemon=True); self.thread.start()
-        def record_history():
-            while not self.history_stop.is_set(): self.snapshot(); self.history_stop.wait(self.history.sample_seconds)
-        self.history_stop.clear(); self.history_thread = threading.Thread(target=record_history, name="dashboard-history", daemon=True); self.history_thread.start()
+        self.start_background()
         LOGGER.info("Web-dashboard lytter på %s:%s", self.host, self.port)
     def stop(self):
         self.history_stop.set()
         if self.server: self.server.shutdown(); self.server.server_close(); self.server = None
         if self.thread: self.thread.join(timeout=2); self.thread = None
         if self.history_thread: self.history_thread.join(timeout=2); self.history_thread = None
+        if self.refresh_thread: self.refresh_thread.join(timeout=5); self.refresh_thread = None
+        self.background_refresh = False

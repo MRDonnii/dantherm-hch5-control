@@ -116,7 +116,7 @@ export function SettingsPage() {
   const [extractEdits, setExtractEdits] = useState<Record<string, number>>({});
 
   const refresh = useCallback(async () => {
-    const [c, a] = await Promise.all([requestJson<Data>("/api/controller/state"), requestJson<Auth>("/api/auth/status")]);
+    const [c, a] = await Promise.all([requestJson<Data>("/api/controller/state?compact=1"), requestJson<Auth>("/api/auth/status")]);
     setController(c); setForm(c); setAuth(a); setCsrf(a.csrf ?? "");
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);

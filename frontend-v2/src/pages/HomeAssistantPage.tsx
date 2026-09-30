@@ -4,14 +4,15 @@ import { InfoList } from "../components/InfoList";
 import { IntegrationTokenCard } from "../components/IntegrationTokenCard";
 import { ago, haLinkText, readHaLink } from "../lib/haLink";
 import { requestJson } from "../lib/api";
+import { usePollHealth } from "../lib/connection";
 import "../styles/panels.css";
 import "../styles/management.css";
 type Data=Record<string,unknown>;
 function text(v:unknown,f="—"){return v===null||v===undefined||v===""?f:String(v)}
 function age(v:unknown){if(v===null||v===undefined||v==="")return "Aldrig";const n=Number(v);return Number.isFinite(n)?`${n.toLocaleString("da-DK",{maximumFractionDigits:1})} sek`:"—"}
 function bool(v:unknown){return v===true?"Ja":v===false?"Nej":"—"}
-export function HomeAssistantPage(){const[state,setState]=useState<Data>({});const[controller,setController]=useState<Data>({});const[online,setOnline]=useState(false);
- const refresh=useCallback(async()=>{const[a,b]=await Promise.allSettled([requestJson<Data>("/state.json",{timeoutMs:3500}),requestJson<Data>("/api/controller/state",{timeoutMs:3500})]);if(a.status==="fulfilled")setState(a.value);if(b.status==="fulfilled")setController(b.value);setOnline(a.status==="fulfilled"&&b.status==="fulfilled")},[]);
+export function HomeAssistantPage(){const[state,setState]=useState<Data>({});const[controller,setController]=useState<Data>({});const[online,reportPoll]=usePollHealth(2);
+ const refresh=useCallback(async()=>{const[a,b]=await Promise.allSettled([requestJson<Data>("/state.json",{timeoutMs:3500}),requestJson<Data>("/api/controller/state?compact=1",{timeoutMs:3500})]);if(a.status==="fulfilled")setState(a.value);if(b.status==="fulfilled")setController(b.value);reportPoll(a.status==="fulfilled"&&b.status==="fulfilled")},[reportPoll]);
  useEffect(()=>{void refresh();const t=setInterval(()=>void refresh(),5000);return()=>clearInterval(t)},[refresh]);
  const rooms=(controller.smart_ha_rooms&&typeof controller.smart_ha_rooms==="object"?controller.smart_ha_rooms:{}) as Record<string,Data>;const roomEntries=Object.entries(rooms);const smartFresh=controller.smart_inputs_online===true;const master=text(controller.active_master).toLowerCase();const haLink=readHaLink(controller);const haInfo=haLinkText(haLink);const haLed=haInfo.tone==="ok"?"":haInfo.tone==="bad"?"bad":"warn";
  return <section className="dashboard-overview page-enter"><header className="overview-heading-row"><div><span className="eyebrow">HOME ASSISTANT</span><h1>Integration og smart-data</h1><p>HA er klient. HCH5 Control fortsætter lokalt, også når Home Assistant er offline.</p></div><div className="overview-status-pills"><div title={haInfo.detail}><span className={`status-led ${haLed}`}/><small>Home Assistant</small><strong>{haInfo.label}</strong></div><div><Radio size={18}/><small>Smart inputs</small><strong>{smartFresh?"Friske":"Stale / mangler"}</strong></div><div><ShieldCheck size={18}/><small>Master</small><strong>{master==="pi"?"Raspberry Pi":master==="hcp4"?"HCP4":"Unknown"}</strong></div></div></header>

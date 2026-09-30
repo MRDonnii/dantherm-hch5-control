@@ -2,10 +2,12 @@
 """Dashboard server variant that adds the authenticated HCH controller UI/API."""
 from __future__ import annotations
 
+import gzip
 import hmac
 import json
 import logging
 import os
+import re
 import socket
 import threading
 import time
@@ -34,6 +36,14 @@ CONTROLLER_ASSETS = {
     "sniffer.js": "text/javascript; charset=utf-8",
     "sniffer.css": "text/css; charset=utf-8",
 }
+
+
+# Vite names these after their content, so a browser may keep them for good.
+IMMUTABLE_ASSET = re.compile(r"^/assets/v2-[A-Za-z0-9_-]+\.(?:js|css)$")
+COMPRESSIBLE_TYPES = ("application/json", "text/", "image/svg+xml")
+# Left out of /api/controller/state?compact=1. The History page and the
+# legacy controller page ask for the full answer.
+COMPACT_OMITTED_KEYS = ("decision_log", "change_log")
 
 
 class ControllerDashboardHttpServer(DashboardHttpServer):
@@ -109,11 +119,18 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                 session = self._session()
                 if session is not None:
                     return session
+                self._login_required()
+                return None
+
+            def _login_required(self):
+                # The WebUI sends the browser to the login page on this answer,
+                # e.g. after a restart has ended a session without "Husk mig".
+                body = json.dumps({"error": "Log ind igen", "login_required": True}).encode()
                 self.send_response(401)
                 self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", "0")
-                self.end_headers()
-                return None
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers(); self.wfile.write(body)
 
             def _read_json(self):
                 try:
@@ -156,7 +173,7 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
             def do_GET(self):
                 parsed = urlparse(self.path)
                 if parsed.path == "/api/controller/state" and self._machine_auth():
-                    self._json(dashboard.controller_runtime.snapshot())
+                    self._json(self._controller_state(dashboard.controller_runtime.snapshot(), parsed))
                     return
                 if parsed.path == "/api/onewire/water" and self.client_address[0] in ("127.0.0.1", "::1"):
                     # Read by the local 1-Wire service so its flow/return follow the WebUI.
@@ -195,6 +212,9 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                 if not dashboard.auth.configured():
                     self.send_response(302); self.send_header("Location", "/setup"); self.end_headers(); return
                 if self._session() is None and dashboard.auth.enabled():
+                    if parsed.path in ("/state.json", "/api", "/history.json") or parsed.path.startswith("/api/"):
+                        # A redirect would hand fetch() the login page instead of JSON.
+                        self._login_required(); return
                     self.send_response(302); self.send_header("Location", "/login"); self.end_headers(); return
 
                 if parsed.path in ("/", "/index.html"):
@@ -249,7 +269,7 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                         return
                     self._json(dashboard.mail.public())
                 elif parsed.path == "/api/controller/state":
-                    self._json({**dashboard.controller_runtime.snapshot(), **dashboard.ha_link()})
+                    self._json(self._controller_state({**dashboard.controller_runtime.snapshot(), **dashboard.ha_link()}, parsed))
                 elif parsed.path in ("/state.json", "/api"):
                     self._json({**dashboard.snapshot(), **dashboard.ha_link(),
                                 "weather": dashboard.controller_runtime.weather_snapshot()})
@@ -266,6 +286,15 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                     self._file(target, content_type) if content_type else self.send_error(404)
                 else:
                     self.send_error(404)
+
+            @staticmethod
+            def _controller_state(state, parsed):
+                if parse_qs(parsed.query).get("compact") == ["1"]:
+                    # Pollers every few seconds do not show the logs, which
+                    # are about 90 % of the answer.
+                    for key in COMPACT_OMITTED_KEYS:
+                        state.pop(key, None)
+                return state
 
             def _diagnostic_report(self):
                 if not dashboard.admin_token:
@@ -604,13 +633,27 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
                 self._body(body, content_type)
 
             def _body(self, body, content_type):
+                immutable = IMMUTABLE_ASSET.match(urlparse(self.path).path) is not None
+                compress = (
+                    len(body) >= 1024 and str(content_type or "").startswith(COMPRESSIBLE_TYPES)
+                    and "gzip" in self.headers.get("Accept-Encoding", "")
+                )
+                if compress:
+                    body = gzip.compress(body, compresslevel=5)
                 self.send_response(200)
                 self.send_header("Content-Type", content_type)
-                self.send_header("Cache-Control", "no-store")
+                self.send_header("Cache-Control", "public, max-age=31536000, immutable" if immutable else "no-store")
+                if compress:
+                    self.send_header("Content-Encoding", "gzip")
+                self.send_header("Vary", "Accept-Encoding")
                 self.send_header("X-Content-Type-Options", "nosniff")
                 self.send_header("Content-Security-Policy", WEBUI_CSP)
                 self.send_header("Content-Length", str(len(body)))
-                self.end_headers(); self.wfile.write(body)
+                try:
+                    self.end_headers(); self.wfile.write(body)
+                except (BrokenPipeError, ConnectionResetError):
+                    # The browser gave up (poll timeout, page closed); nothing to answer.
+                    LOG.debug("Client %s closed the connection before %s was sent", self.client_address[0], self.path)
 
             def log_message(self, format_, *args):
                 LOG.debug(format_, *args)
@@ -619,14 +662,7 @@ class ControllerDashboardHttpServer(DashboardHttpServer):
         self.thread = threading.Thread(target=self.server.serve_forever, name="dashboard-http", daemon=True)
         self.thread.start()
 
-        def record_history():
-            while not self.history_stop.is_set():
-                self.snapshot()
-                self.history_stop.wait(self.history.sample_seconds)
-
-        self.history_stop.clear()
-        self.history_thread = threading.Thread(target=record_history, name="dashboard-history", daemon=True)
-        self.history_thread.start()
+        self.start_background()
         self.alarm_mailer.site_name = self.device_name or "HCH5 Control"
         self.alarm_mailer.start()
         LOG.info("Controller WebUI listening on %s:%s", self.host, self.port)

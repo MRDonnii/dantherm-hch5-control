@@ -51,7 +51,7 @@ export function BalancingPage() {
   const load = useCallback(async () => {
     const [state, ctrl, auth] = await Promise.all([
       requestJson<{ project: Project; reports: ReportSummary[] }>("/api/balancing"),
-      requestJson<Data>("/api/controller/state", { timeoutMs: 4000 }),
+      requestJson<Data>("/api/controller/state?compact=1", { timeoutMs: 4000 }),
       requestJson<{ csrf?: string | null }>("/api/auth/status"),
     ]);
     const next = { ...state.project, meta: { ...emptyMeta(), ...state.project.meta } };

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Activity, Cpu, GitBranch, Radio, Waves } from "lucide-react";
 import { InfoList } from "../components/InfoList";
 import { requestJson } from "../lib/api";
+import { usePollHealth, useSinglePoll } from "../lib/connection";
 import { bypassTravel, formatRemaining } from "../lib/bypass";
 import "../styles/panels.css";
 
@@ -44,17 +45,17 @@ function masterLabel(value: unknown) {
 
 export function TechniquePage() {
   const [controller, setController] = useState<Data>({});
-  const [online, setOnline] = useState(false);
+  const [online, reportPoll] = usePollHealth(3);
 
-  const refresh = useCallback(async () => {
+  const refresh = useSinglePoll(useCallback(async () => {
     try {
-      const result = await requestJson<Data>("/api/controller/state", { timeoutMs: 3500 });
+      const result = await requestJson<Data>("/api/controller/state?compact=1", { timeoutMs: 3500 });
       setController(result);
-      setOnline(true);
+      reportPoll(true);
     } catch {
-      setOnline(false);
+      reportPoll(false);
     }
-  }, []);
+  }, [reportPoll]));
 
   useEffect(() => {
     void refresh();

@@ -91,11 +91,19 @@ class OneWireExtras:
         self.readings: dict[str, tuple[float | None, float]] = {}
         self.water_ids: set[str] = set()
         self.water_roles: dict[str, str] = {}
+        # Temperatures of the water pair from the service's latest answer.
+        self.water_values: dict[str, float] = {}
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
     def _water_sensor_ids(self) -> set[str]:
-        """Flow/return sensors owned by the 1-Wire service; their roles stay fixed."""
+        """Flow/return sensors owned by the 1-Wire service; their roles stay fixed.
+
+        The service has already read them, so their temperatures are taken from
+        its answer. Reading them again here doubles the time the shared bus is
+        busy (about 0.75 s per sensor), and every other reader has to wait.
+        """
+        self.water_values = {}
         if not self.service_url:
             return set()
         try:
@@ -103,10 +111,12 @@ class OneWireExtras:
                 payload = json.loads(response.read().decode("utf-8"))
         except (OSError, ValueError):
             return self.water_ids
-        self.water_roles = {
-            str(payload[key]).lower(): role
-            for key, role in (("flow_sensor", "water_flow"), ("return_sensor", "water_return"))
-            if payload.get(key)
+        pairs = (("flow_sensor", "water_flow", "flow_temperature"), ("return_sensor", "water_return", "return_temperature"))
+        self.water_roles = {str(payload[key]).lower(): role for key, role, _ in pairs if payload.get(key)}
+        self.water_values = {
+            str(payload[key]).lower(): round(float(payload[value]), 2)
+            for key, _, value in pairs
+            if payload.get(key) and isinstance(payload.get(value), (int, float)) and not isinstance(payload.get(value), bool)
         }
         return set(self.water_roles)
 
@@ -119,9 +129,12 @@ class OneWireExtras:
     def read_once(self, now: float | None = None) -> None:
         self.water_ids = self._water_sensor_ids()
         now = time.monotonic() if now is None else now
-        # The water pair is read here too, only to list it with the others.
-        values = {sensor_id: (read_ds18b20(sensor_id, self.devices), now)
-                  for sensor_id in set(self.discovered()) | self.water_ids}
+        # The water pair is listed with the others. It is only read here when
+        # the service had no value for it.
+        values = {}
+        for sensor_id in set(self.discovered()) | self.water_ids:
+            value = self.water_values.get(sensor_id)
+            values[sensor_id] = (value if value is not None else read_ds18b20(sensor_id, self.devices), now)
         with self.lock:
             self.readings = values
 

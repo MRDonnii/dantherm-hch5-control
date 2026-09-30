@@ -18,6 +18,15 @@ function delay(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+let loginRedirect = false;
+
+/** The Pi answers 401 with login_required when the session has ended, e.g. after a restart. */
+function redirectToLogin() {
+  if (loginRedirect || window.location.pathname === "/login") return;
+  loginRedirect = true;
+  window.location.assign("/login");
+}
+
 export async function requestJson<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
   const { timeoutMs = 4000, retries = 0, ...init } = options;
   let lastError: unknown;
@@ -45,6 +54,9 @@ export async function requestJson<T>(endpoint: string, options: RequestOptions =
         }
       }
       if (!response.ok) {
+        if (response.status === 401 && payload && typeof payload === "object" && (payload as { login_required?: unknown }).login_required === true) {
+          redirectToLogin();
+        }
         const message = payload && typeof payload === "object" && "error" in payload
           ? String((payload as { error?: unknown }).error || `HTTP ${response.status}`)
           : `HTTP ${response.status}`;

@@ -56,7 +56,7 @@ export function SchedulePage() {
 
   const refresh = useCallback(async () => {
     const [state, auth] = await Promise.all([
-      requestJson<Data>("/api/controller/state", { timeoutMs: 4000 }),
+      requestJson<Data>("/api/controller/state?compact=1", { timeoutMs: 4000 }),
       requestJson<{ csrf?: string | null }>("/api/auth/status", { timeoutMs: 3500 }),
     ]);
     apply(state); setCsrf(auth.csrf ?? "");

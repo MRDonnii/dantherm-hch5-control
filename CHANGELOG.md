@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.4
+
+- **The WebUI no longer drops the connection:** every ten seconds one `/state.json` request waited for the 1-Wire service (1.7–6 s, because it read the DS18B20 sensors on every call) and for a dozen `systemctl`/`ip` calls. That was longer than the WebUI's 2.5 s poll timeout, so the top bar switched to *Afventer* and *Styring nu* went empty until the next poll. The 1-Wire and system values are now refreshed by a background thread, and a request only reads what it has cached. A 1-Wire service that has not answered for a minute is shown as unreachable.
+- **1-Wire service reads in the background:** the DS18B20 service reads the sensors every 10 s and answers every request from the latest reading at once (Home Assistant, the WebUI and the controller asked it about 15 times a minute). A reading older than 60 s is reported as missing. The controller now takes the water flow/return temperatures from the service instead of reading those two sensors a second time, which halves the time the shared bus is busy.
+- **One slow answer is not "offline":** the top bar, *Oversigt*, *Teknik* and *Home Assistant* only show *Afventer* after several failed polls in a row, and a poll is skipped while the previous one is still waiting.
+- **Ended sessions go to the login page:** after a restart of the Pi service a login without *Husk mig* has ended. The Pi now answers data requests with 401 and `login_required`, and the WebUI opens the login page; before, it got the login page as data and stayed on *Afventer*.
+- **Smaller and faster answers:** `/api/controller/state?compact=1` leaves out the decision and change logs (about 90 % of the 87 kB answer); the pages that poll every few seconds use it. JSON and text are gzip-compressed when the browser asks for it, and the content-named `v2-*.js`/`v2-*.css` files may be cached by the browser, so the 700 kB bundle is not downloaded on every page load.
+- **Faster history:** 7- and 30-day history is thinned out in SQLite instead of in Python (1.2 s → 0.4 s for 7 days on a Pi 3), with the same points as before.
+- Changes by Claude AI.
+
 ## 1.3.3
 
 - Show the HCH5 measured outdoor T1 in the top bar instead of an Open-Meteo browser temperature.

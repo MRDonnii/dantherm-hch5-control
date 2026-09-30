@@ -9,6 +9,7 @@ import { AfterheatThermostat } from "../components/AfterheatThermostat";
 import { describeControl } from "../lib/control";
 import { HistoryChart, type HistorySeries } from "../components/HistoryChart";
 import { postJson, requestJson } from "../lib/api";
+import { usePollHealth, useSinglePoll } from "../lib/connection";
 import { bypassTravel, formatRemaining } from "../lib/bypass";
 import { useTopbarNotice } from "../lib/topbar-notice";
 import "../styles/overview.css";
@@ -96,7 +97,7 @@ export function OverviewPage() {
   const [unit, setUnit] = useState<Data>({});
   const [controller, setController] = useState<Data>({});
   const [csrf, setCsrf] = useState("");
-  const [online, setOnline] = useState(false);
+  const [online, reportPoll] = usePollHealth(3);
   const [busy, setBusy] = useState<string | null>(null);
   const { setNotice } = useTopbarNotice();
   const [afterheatDraft, setAfterheatDraft] = useState<AfterheatValue | null>(null);
@@ -112,17 +113,17 @@ export function OverviewPage() {
   const [historyError, setHistoryError] = useState("");
   const closeHistoryRef = useRef<HTMLButtonElement>(null);
 
-  const refresh = useCallback(async () => {
+  const refresh = useSinglePoll(useCallback(async () => {
     const [unitResult, controllerResult, authResult] = await Promise.allSettled([
       requestJson<Data>("/state.json", { timeoutMs: 3500 }),
-      requestJson<Data>("/api/controller/state", { timeoutMs: 3500 }),
+      requestJson<Data>("/api/controller/state?compact=1", { timeoutMs: 3500 }),
       requestJson<AuthState>("/api/auth/status", { timeoutMs: 3500 }),
     ]);
     if (unitResult.status === "fulfilled") setUnit(unitResult.value);
     if (controllerResult.status === "fulfilled") setController(controllerResult.value);
     if (authResult.status === "fulfilled") setCsrf(authResult.value.csrf ?? "");
-    setOnline(unitResult.status === "fulfilled" && controllerResult.status === "fulfilled");
-  }, []);
+    reportPoll(unitResult.status === "fulfilled" && controllerResult.status === "fulfilled");
+  }, [reportPoll]));
 
   useEffect(() => {
     void refresh();

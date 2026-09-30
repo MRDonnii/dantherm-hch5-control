@@ -19,6 +19,7 @@ import {
   Zap,
 } from "lucide-react";
 import { postJson, requestJson } from "../lib/api";
+import { usePollHealth } from "../lib/connection";
 import { TopbarNoticeContext } from "../lib/topbar-notice";
 import { haLinkText, readHaLink } from "../lib/haLink";
 import { ROLE_NAMES, SessionContext, sessionCan, type AuthStatus, type Permission } from "../lib/session";
@@ -73,7 +74,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<ThemeMode>(readTheme);
   const [now, setNow] = useState(new Date());
   const [unit, setUnit] = useState<UnitState>({});
-  const [online, setOnline] = useState(false);
+  const [online, reportPoll] = usePollHealth(2);
   const [version, setVersion] = useState("—");
   const [notice, setNotice] = useState("");
   const [availableUpdate, setAvailableUpdate] = useState<string | null>(null);
@@ -166,17 +167,17 @@ export function AppShell({ children }: { children: ReactNode }) {
         const next = await requestJson<UnitState>("/state.json", { timeoutMs: 2500 });
         if (cancelled) return;
         setUnit(next);
-        setOnline(next.available === true || next.bus_traffic === true);
+        reportPoll(next.available === true || next.bus_traffic === true);
         const versionValue = next.version ?? next.app_version ?? next.gateway_version;
         if (versionValue) setVersion(String(versionValue));
       } catch {
-        if (!cancelled) setOnline(false);
+        if (!cancelled) reportPoll(false);
       }
     };
     void poll();
     const timer = window.setInterval(() => void poll(), 5000);
     return () => { cancelled = true; window.clearInterval(timer); };
-  }, []);
+  }, [reportPoll]);
 
   return (
     <div className="app-shell">
