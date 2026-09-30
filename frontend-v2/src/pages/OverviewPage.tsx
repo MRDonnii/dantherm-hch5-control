@@ -1,7 +1,7 @@
 import { NavLink } from "react-router-dom";
 import { haLinkText, readHaLink } from "../lib/haLink";
 import { useSession } from "../lib/session";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { ArrowRight, CloudFog, Flame, Gauge, House, Leaf, Power, Snowflake, Wind, X, Zap } from "lucide-react";
 import { Hch5UnitDiagram } from "../components/Hch5UnitDiagram";
@@ -12,6 +12,7 @@ import { postJson, requestJson } from "../lib/api";
 import { usePollHealth, useSinglePoll } from "../lib/connection";
 import { bypassTravel, formatRemaining } from "../lib/bypass";
 import { useTopbarNotice } from "../lib/topbar-notice";
+import { LEVEL_NAMES, MAX_LEVEL_HOURS, levelList, stepCount } from "../lib/fanSteps";
 import "../styles/overview.css";
 import "../styles/history.css";
 
@@ -249,6 +250,8 @@ export function OverviewPage() {
   }, [bypassActual, outdoor, extract, exhaust]);
 
   const levelPatch = mode === "manual" ? "manual_level" : "local_normal_level";
+  const levels = levelList(controller);
+  const dantherm = stepCount(controller) === 4;
   // Remote-style range: OFF - 10 - 11 ... 35. Minus below 10 selects OFF.
   // +/-, the dial and the power button only move a draft; nothing is sent
   // before the user confirms, so a slip cannot change the afterheat.
@@ -359,9 +362,9 @@ export function OverviewPage() {
               {haWarning && (canConfigure
                 ? <NavLink to="/home-assistant" className={`ha-warning tone-${haInfo.tone}`} role="status"><strong>Home Assistant: {haInfo.label}</strong><span>{haInfo.detail}</span></NavLink>
                 : <div className={`ha-warning tone-${haInfo.tone}`} role="status"><strong>Home Assistant: {haInfo.label}</strong><span>{haInfo.detail}</span></div>)}
-              <label className="control-label">Ventilatorniveau</label>
-              <div className="pro-levels with-off">
-                {[1,2,3,4,5,6].map(value => <button key={value} className={!standbyActive && level === value ? "active" : ""} disabled={busy !== null} onClick={() => void command(`level-${value}`, standbyActive ? { standby_minutes: 0, [levelPatch]: value } : { [levelPatch]: value }, standbyActive ? `Anlægget er tændt på trin ${value}.` : `Ventilation sat til trin ${value}.`)}>{value}</button>)}
+              <label className="control-label">{dantherm ? "Ventilatortrin · Dantherm 4 trin" : "Ventilatorniveau"}</label>
+              <div className="pro-levels with-off" style={{ "--levels": levels.length } as CSSProperties}>
+                {levels.map(value => <button key={value} title={dantherm ? `Trin ${value} · ${LEVEL_NAMES[value].da}${value === 4 ? ` (${MAX_LEVEL_HOURS} timer, derefter trin 3)` : ""}` : undefined} className={!standbyActive && level === value ? "active" : ""} disabled={busy !== null} onClick={() => void command(`level-${value}`, standbyActive ? { standby_minutes: 0, [levelPatch]: value } : { [levelPatch]: value }, standbyActive ? `Anlægget er tændt på trin ${value}.` : `Ventilation sat til trin ${value}.`)}>{value}</button>)}
                 <button className={`level-off${standbyActive ? " active" : ""}`} aria-haspopup="dialog" aria-pressed={standbyActive} disabled={busy !== null} onClick={() => setStandbyDialog(true)}>OFF</button>
               </div>
               <div className="active-decision"><span>Aktiv beslutning</span><strong>{standbyActive ? "OFF · anlæg slukket" : `Trin ${whole(level)} · ${text(controller.effective_source).replaceAll("_", " ")}`}</strong><small>{text(controller.effective_reason, "Afventer controllerens beslutning")}</small></div>
@@ -372,7 +375,7 @@ export function OverviewPage() {
               <div className="function-rows">
                 <div className={`function-row${quickBoostActive ? " active" : ""}`}>
                   <span className="function-icon boost"><Wind size={18}/></span>
-                  <div className="function-text"><strong>Hurtig boost</strong><small>{quickBoostActive ? `Aktiv · ${remaining(controller.quick_boost_remaining_seconds)}` : fireplace ? "Ikke under pejsefunktion" : "Højeste trin i kort tid"}</small></div>
+                  <div className="function-text"><strong>Hurtig boost</strong><small>{quickBoostActive ? `Aktiv · ${remaining(controller.quick_boost_remaining_seconds)}` : fireplace ? "Ikke under pejsefunktion" : `Trin ${number(controller.quick_boost_level) ?? levels.length} i kort tid`}</small></div>
                   <div className="function-buttons">
                     {[15,30,60].map(minutes => <button key={minutes} className={quickBoostActive && number(controller.quick_boost_minutes) === minutes ? "active" : ""} disabled={busy !== null || fireplace} onClick={() => void command(`boost-${minutes}`, { quick_boost_minutes: minutes }, `Quick Boost ${minutes} min startet.`)}>{minutes} min</button>)}
                     {quickBoostActive && <button className="stop" onClick={() => void command("boost-stop", { quick_boost_minutes: 0 }, "Quick Boost stoppet.")}>Stop</button>}

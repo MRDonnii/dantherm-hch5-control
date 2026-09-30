@@ -60,6 +60,7 @@ Kontrollér derefter på **Overblik**:
 
 Gå så til **Indstillinger** og tag disse i rækkefølge:
 
+1. **Hus og luftmængde → Trinstyring** – vælg *4 trin · Dantherm* (standard) eller *6 trin*. Med 4 trin indregulerer du som på Dantherms panel: indblæsning og udsugning på trin 3 (gear 46–91), gearafstanden ned til trin 2 og 1 (fabrik 25) og maksimum på trin 4. Står luftbalancen på *Manuel*, justerer du balancen med de to gear, og kolonnen *Balance* viser straks resultatet.
 1. **Hus og luftmængde** – boligens størrelse giver grundtrinnet. Slå **Luftbalance** på *Auto*, så udsugningen altid er lidt større end indblæsningen (5 % i m³/h) på alle trin. Har du en T2-føler før eftervarmen, lærer Pi'en selv, hvor meget luft kanalerne giver pr. omdrejning.
 2. **Luftkvalitet** – normaltrin og grænser for fugt og CO₂.
 3. **Nat**, **Frikøling**, **Pejs og brændeovn** efter behov.
@@ -76,7 +77,7 @@ Tryk **Gem controller**. Vælg til sidst driftstilstand under **Drift og styring
 | --- | --- |
 | **Local Auto** | Pi'en styrer efter anlæggets egen CO₂ og fugt. Virker helt uden Home Assistant. |
 | **Smart Auto** | Som Local Auto, men også med rum-sensorer fra Home Assistant. Det værste relevante rum bestemmer. |
-| **Manuel** | Fast trin 1–6. |
+| **Manuel** | Fast trin 1–4 (eller 1–6 med 6-trins styring). Trin 4 kører 4 timer og går så tilbage til trin 3, som på Dantherms panel. |
 
 Eftervarmen styres med termostaten i højre side: træk i skiven eller brug − / +, og tænd/sluk med knappen.
 
@@ -103,7 +104,7 @@ Nu har Home Assistant temperaturer, blæsere, CO₂, fugt, bypass, filter og ala
    - **Dantherms elforbrug i dag**, **Elpris** og **Varmepris** – se trin 8.
 4. I menuen **Controlleropsætning**:
    - **Smart Auto-rum → Tilføj rum**: rumnavn, *Aktiv*, *Brug til styring*, prioritet (`auto`, `low`, `normal`, `high`, `critical`) og de sensorer, rummet har (temperatur, luftfugtighed, CO₂). Rum med *bad*, *bath* eller *brus* i navnet får automatisk badeværelsets egen fugtpolitik.
-   - **Drift, Smart Auto og eftervarme** og **Ventilationsprofiler 1–6** kan også justeres herfra.
+   - **Drift, Smart Auto og eftervarme** og **Ventilationsprofiler** (trinenes gear) kan også justeres herfra.
    - **Gem integrationsindstillinger**.
 5. Sæt driftstilstanden til **Smart Auto**.
 

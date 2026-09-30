@@ -2,6 +2,8 @@
 .schedule-page { --lvl-1:#4a90c8; --lvl-2:#3aa5a6; --lvl-3:#56ad6c; --lvl-4:#c4aa3f; --lvl-5:#df863a; --lvl-6:#d4504c; }
 .schedule-page .lvl-1 { --lvl:var(--lvl-1); } .schedule-page .lvl-2 { --lvl:var(--lvl-2); } .schedule-page .lvl-3 { --lvl:var(--lvl-3); }
 .schedule-page .lvl-4 { --lvl:var(--lvl-4); } .schedule-page .lvl-5 { --lvl:var(--lvl-5); } .schedule-page .lvl-6 { --lvl:var(--lvl-6); }
+/* Four Dantherm steps: step 4 is the maximum, drawn like the old top step. */
+.schedule-page.steps-4 .lvl-4 { --lvl:var(--lvl-6); }
 
 .schedule-status { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-bottom:12px; }
 .schedule-tile { display:grid; gap:3px; padding:13px 14px; border:1px solid var(--border); border-radius:var(--radius-md,12px); background:var(--surface); min-width:0; }
@@ -76,7 +78,7 @@
 .period-editor .settings-grid { margin-top:10px; }
 .period-times { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
 .period-field { display:grid; gap:6px; align-content:start; color:var(--muted); font-size:12px; font-weight:750; }
-.period-levels { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:5px; }
+.period-levels { display:grid; grid-template-columns:repeat(var(--levels,6),minmax(0,1fr)); gap:5px; }
 .vacation-card .period-levels { grid-template-columns:repeat(3,minmax(0,52px)); }
 .period-levels button { min-height:36px; border:1px solid var(--border-strong); border-radius:9px; background:var(--surface); color:var(--text); font-weight:850; cursor:pointer; box-shadow:inset 0 -3px 0 var(--lvl); }
 .period-levels button.active { background:var(--lvl); border-color:var(--lvl); color:#0b1318; box-shadow:0 0 0 2px color-mix(in srgb,var(--lvl) 35%,transparent); }
@@ -103,5 +105,5 @@
   .week-ruler { margin-left:44px; }
   .week-day-copy { display:none; }
   .week-track { height:40px; }
-  .period-levels { grid-template-columns:repeat(6,minmax(0,1fr)); }
+  .period-levels { grid-template-columns:repeat(var(--levels,6),minmax(0,1fr)); }
 }

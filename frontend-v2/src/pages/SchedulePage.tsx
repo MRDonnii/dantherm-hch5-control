@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { CalendarClock, Copy, Moon, Palmtree, Plus, Save, Trash2, Undo2, X } from "lucide-react";
 import { postJson, requestJson } from "../lib/api";
 import {
@@ -7,6 +7,7 @@ import {
   toLocalInput, toMinutes, toTime, wrapsMidnight, type Period, type PeriodMode, type WeekPeriods,
 } from "../lib/schedule";
 import { useTopbarNotice } from "../lib/topbar-notice";
+import { LEVEL_NAMES, levelList } from "../lib/fanSteps";
 import "../styles/schedule.css";
 
 type Data = Record<string, unknown>;
@@ -73,6 +74,7 @@ export function SchedulePage() {
   const nightStart = toMinutes(String(controller.night_start ?? "22:00"));
   const nightEnd = toMinutes(String(controller.night_end ?? "06:00"));
   const nightLevel = num(controller.night_level, 2);
+  const levels = levelList(controller);
 
   const updatePeriod = (day: number, index: number, patch: Partial<Period>) => {
     setDraft(week => {
@@ -210,7 +212,7 @@ export function SchedulePage() {
     return [[nightStart, 1440], [0, nightEnd]];
   };
 
-  return <section className="dashboard-overview page-enter schedule-page">
+  return <section className={`dashboard-overview page-enter schedule-page steps-${levels.length}`}>
     <header className="overview-heading-row"><div>
       <span className="eyebrow">UGEPLAN</span>
       <h1>Ugeplan og ferie</h1>
@@ -250,7 +252,7 @@ export function SchedulePage() {
         <label>Skabelon<select value="" onChange={e => { const t = TEMPLATES.find(item => item.id === e.target.value); if (t && window.confirm(`${t.name}: ${t.description}\n\nErstat den nuværende uge?`)) { setDraft(t.build()); setSelected(null); } }}>
           <option value="">Vælg…</option>{TEMPLATES.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
         </select></label>
-        <div className="schedule-legend" aria-label="Trin">{[1, 2, 3, 4, 5, 6].map(level => <span key={level} className={`lvl-${level}`}>{level}</span>)}{nightOn && <span className="legend-night"><Moon size={11}/> Nat · trin {nightLevel}</span>}</div>
+        <div className="schedule-legend" aria-label="Trin">{levels.map(level => <span key={level} className={`lvl-${level}`} title={levels.length === 4 ? LEVEL_NAMES[level].da : undefined}>{level}</span>)}{nightOn && <span className="legend-night"><Moon size={11}/> Nat · trin {nightLevel}</span>}</div>
       </div>
 
       <div className={`week-grid${enabled ? "" : " is-off"}`}>
@@ -301,7 +303,7 @@ export function SchedulePage() {
             <label>Fra<input type="time" step={900} value={current.start} onChange={e => e.target.value && updatePeriod(selected.day, selected.index, { start: e.target.value })} onBlur={() => commitSort(selected.day, selected.index)}/></label>
             <label>Til<input type="time" step={900} value={current.end} onChange={e => e.target.value && updatePeriod(selected.day, selected.index, { end: e.target.value })}/></label>
           </div>
-          <div className="period-field"><span>Trin</span><div className="pro-levels period-levels">{[1, 2, 3, 4, 5, 6].map(level => <button key={level} type="button" className={`lvl-${level}${current.level === level ? " active" : ""}`} onClick={() => updatePeriod(selected.day, selected.index, { level })}>{level}</button>)}</div></div>
+          <div className="period-field"><span>Trin</span><div className="pro-levels period-levels" style={{ "--levels": levels.length } as CSSProperties}>{levels.map(level => <button key={level} type="button" className={`lvl-${level}${current.level === level ? " active" : ""}`} onClick={() => updatePeriod(selected.day, selected.index, { level })}>{level}</button>)}</div></div>
           <div className="period-field"><span>Type</span><div className="pro-segment period-mode">{(["set", "min"] as PeriodMode[]).map(mode => <button key={mode} type="button" className={current.mode === mode ? "active" : ""} onClick={() => updatePeriod(selected.day, selected.index, { mode })}>{MODE_TEXT[mode].title}</button>)}</div><small className="settings-field-help">{MODE_TEXT[current.mode].help}</small></div>
         </div>
         {wrapsMidnight(current) && <p className="settings-help">Perioden fortsætter efter midnat til {DAY_NAMES[(selected.day + 1) % 7].toLowerCase()} kl. {current.end}.</p>}

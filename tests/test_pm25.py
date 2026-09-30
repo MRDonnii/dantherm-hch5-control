@@ -26,16 +26,17 @@ class Pm25Tests(unittest.TestCase):
         normal = runtime.config.normal_level()
         rooms = {"Køkken": {"pm25": 70}}
         self.assertEqual(self.decide(runtime, rooms)[0], normal)  # off by default
-        runtime.config.configure({"pm25_enabled": True, "pm25_setpoint": 25, "pm25_step": 15, "pm25_max_level": 5})
+        runtime.config.configure({"pm25_enabled": True, "pm25_setpoint": 25, "pm25_step": 15, "pm25_max_level": 4})
         level, metric = self.decide(runtime, rooms)
         self.assertEqual(metric, "pm25")
-        self.assertEqual(level, min(5, normal + 3))  # 70 is 45 over the limit = 3 steps
+        self.assertEqual(level, min(4, normal + 3))  # 70 is 45 over the limit = 3 steps
 
     def test_ignored_rooms_and_cap(self):
         runtime = self.make_runtime()
-        runtime.config.configure({"pm25_enabled": True, "pm25_max_level": 4, "pm25_ignored_rooms": ["Soveværelse"]})
+        runtime.config.configure({"pm25_enabled": True, "pm25_max_level": 3, "local_normal_level": 2,
+                                  "pm25_ignored_rooms": ["Soveværelse"]})
         self.assertEqual(self.decide(runtime, {"Soveværelse": {"pm25": 300}})[0], runtime.config.normal_level())
-        self.assertEqual(self.decide(runtime, {"Køkken": {"pm25": 300}})[0], 4)
+        self.assertEqual(self.decide(runtime, {"Køkken": {"pm25": 300}})[0], 3)
 
     def test_pm25_only_room_is_accepted_and_validated(self):
         runtime = self.make_runtime()

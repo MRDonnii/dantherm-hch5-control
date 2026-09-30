@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 
+
 # Dantherm HCH 5 datasheet: maximum airflow 375 m3/h (320 m3/h recommended).
 HCH5_MAX_AIRFLOW_M3H = 375
 # BR18 §447: at least 0.3 l/s per m2 heated floor area in dwellings, plus
@@ -89,8 +90,8 @@ def fit_fan_curve(points: dict[int, float]) -> dict[str, float] | None:
 BALANCE_EXCESS_DEFAULT = 5.0
 BALANCE_RATIO_MODES = {"auto", "fixed"}
 DUCT_RATIO_RANGE = (0.7, 1.5)
-# Profile limits the balance must respect (validate_profile in controller_core).
-SUPPLY_PERCENT_MIN = 10
+# Profile limits the balance must respect (fan_steps.validate_ladder): gear 1..100.
+SUPPLY_PERCENT_MIN = 1
 MAX_PERCENT_GAP = 35
 
 
@@ -103,6 +104,11 @@ def _level_entry(mapping: object, level: object) -> dict:
         return {}
     entry = mapping.get(key, mapping.get(str(key)))
     return entry if isinstance(entry, dict) else {}
+
+
+def _levels(profiles: object) -> list[int]:
+    """The step numbers of a profile table (four or six steps)."""
+    return sorted(int(level) for level in profiles) if isinstance(profiles, dict) else []
 
 
 def learned_duct_ratio(data: dict) -> float | None:
@@ -202,13 +208,13 @@ def balanced_profiles(data: dict, profiles: dict) -> dict[int, dict[str, object]
     target = 1.0 + float(data.get("balance_extract_excess_percent", BALANCE_EXCESS_DEFAULT)) / 100.0
     result: dict[int, dict[str, object]] = {}
     previous = SUPPLY_PERCENT_MIN - 1
-    for level in range(1, 7):
+    for level in _levels(profiles):
         profile = _level_entry(profiles, level)
         extract = int(profile["extract"])
         extract_flow = k_extract * rpm_at_percent(extract, curve)
         exact = percent_at_rpm(extract_flow / target / k_supply, curve)
         low = max(SUPPLY_PERCENT_MIN, extract - MAX_PERCENT_GAP, previous + 1)
-        high = extract - 1
+        high = max(SUPPLY_PERCENT_MIN, extract - 1)
 
         def ratio_at(percent: int) -> float:
             return extract_flow / (k_supply * rpm_at_percent(percent, curve))
@@ -292,7 +298,7 @@ def airflow_plan(data: dict, profiles: dict) -> dict[str, object]:
     levels: dict[int, dict[str, object]] = {}
     base_level = None
     min_level = None
-    for level in range(1, 7):
+    for level in _levels(profiles):
         profile = _level_entry(profiles, level)
         entry = _level_entry(measured, level)
         base = _level_entry(stored, level)
@@ -326,7 +332,7 @@ def airflow_plan(data: dict, profiles: dict) -> dict[str, object]:
             "meets_reduced": meets_reduced,
         }
     reachable = base_level is not None
-    base_level = base_level or 6
+    base_level = base_level or max(levels)
     min_level = min(min_level or base_level, base_level)
     return {
         "volume_m3": round(volume),

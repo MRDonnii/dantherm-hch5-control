@@ -5,6 +5,7 @@ import {
   LS_TO_M3H, ROOM_TYPES, calculate, emptyMeta, fmt, newRoom, recommendedLevel, sizingPatch,
   type LevelPlan, type Meta, type Project, type Room, type RoomType, type Status,
 } from "../lib/balancing";
+import { levelList, stepCount } from "../lib/fanSteps";
 import { useTopbarNotice } from "../lib/topbar-notice";
 import { BalancingReport, buildReport, type Report } from "../components/BalancingReport";
 import "../styles/balancing.css";
@@ -63,7 +64,9 @@ export function BalancingPage() {
   const excess = Number((controller.balance as { target_excess_percent?: number } | undefined)?.target_excess_percent ?? controller.balance_extract_excess_percent ?? 5);
   const result = useMemo(() => calculate(project.rooms, Number.isFinite(excess) ? excess : 5), [project.rooms, excess]);
   const plan = (controller.airflow_plan ?? {}) as { levels?: LevelPlan };
-  const recommended = recommendedLevel(result, plan.levels);
+  // Dantherm commissions the nominal airflow at step 3; six steps suggest the lowest step that covers the design.
+  const dantherm = stepCount(controller) === 4;
+  const recommended = dantherm ? 3 : recommendedLevel(result, plan.levels);
   const level = project.measure_level ?? recommended;
   const profiles = (controller.profiles ?? {}) as Record<string, { supply: number; extract: number }>;
   const profile = level ? profiles[String(level)] ?? null : null;
@@ -214,12 +217,12 @@ export function BalancingPage() {
     </article>}
 
     {step === "measure" && <article className="surface panel-card balancing-card">
-      <div className="pro-card-head compact"><div><h2>Måling ved ventilerne</h2><p>Kør anlægget fast på grundtrinnet, mål hver ventil med flowmåleren og skriv l/s ind.</p></div><Gauge size={20}/></div>
+      <div className="pro-card-head compact"><div><h2>Måling ved ventilerne</h2><p>{dantherm ? "Som hos Dantherm: kør anlægget fast på trin 3 (den nominelle luftmængde), mål hver ventil og skriv l/s ind. Passer summen ikke, så justér trin 3-gearene under Indstillinger → Trinstyring og mål igen." : "Kør anlægget fast på grundtrinnet, mål hver ventil med flowmåleren og skriv l/s ind."}</p></div><Gauge size={20}/></div>
       <div className="balancing-measure-bar">
         <label>Mål ved trin<select value={level ?? ""} onChange={e => setProject(p => ({ ...p, measure_level: e.target.value ? Number(e.target.value) : null }))}>
-          {[1, 2, 3, 4, 5, 6].map(l => <option key={l} value={l}>Trin {l}{l === recommended ? " (foreslået)" : ""}</option>)}
+          {levelList(controller).map(l => <option key={l} value={l}>Trin {l}{l === recommended ? (dantherm ? " (Dantherm: nominel)" : " (foreslået)") : ""}</option>)}
         </select></label>
-        <span className="balancing-profile">{profile ? `Indblæsning ${profile.supply} % · udsugning ${profile.extract} %` : ""}</span>
+        <span className="balancing-profile">{profile ? `Indblæsning gear ${profile.supply} · udsugning gear ${profile.extract}` : ""}</span>
         {measuring
           ? <button type="button" className="secondary-action" disabled={busy} onClick={stopMeasuring}><Undo2 size={14}/>Afslut måling</button>
           : <button type="button" className="primary-action" disabled={busy || !level} onClick={startMeasuring}><Gauge size={14}/>Kør fast på trin {level ?? "—"}</button>}

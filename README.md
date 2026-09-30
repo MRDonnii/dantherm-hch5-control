@@ -217,7 +217,7 @@ Home Assistant now has temperatures, fans, CO₂, humidity, bypass, filter and a
    - **Unit energy today**, **Electricity price**, **Heat price** — see [Energy and kr values](#energy-and-kr-values).
 4. In the menu that follows:
    - **Drift, Smart Auto og eftervarme** — mode, levels, CO₂/RH setpoints, afterheat;
-   - **Ventilationsprofiler 1–6** — supply/extract % per level;
+   - **Ventilationsprofiler** — the steps: step 3 and step 4 per fan with four Dantherm steps, every step with six steps;
    - **Smart Auto-rum** — add rooms: name, *active*, *use for control*, priority (`auto`, `low`, `normal`, `high`, `critical`) and optional temperature, humidity and CO₂ sensors;
    - **Gem integrationsindstillinger** — saves everything.
 5. Set the mode to **Smart Auto** (in the WebUI or Home Assistant).

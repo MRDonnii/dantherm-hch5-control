@@ -29,10 +29,10 @@ class AirflowPlanTests(unittest.TestCase):
         self.assertEqual(plan["supply_required_m3h"], 194)
         self.assertEqual(plan["extract_required_m3h"], 194)
         self.assertEqual(plan["wet_room_requirement_ls"], 45.0)
-        # Default profiles, 375 m3/h at full speed, airflow following fan speed
-        # (557 rpm + 24 rpm/%): level 2 supplies 156, level 3 202.
-        self.assertEqual(plan["levels"][2]["supply_m3h"], 156)
-        self.assertEqual(plan["levels"][3]["supply_m3h"], 202)
+        # Default steps (gear 39/64), 375 m3/h at full speed, airflow following
+        # fan speed (557 rpm + 24 rpm/%): step 2 supplies 189, step 3 265.
+        self.assertEqual(plan["levels"][2]["supply_m3h"], 189)
+        self.assertEqual(plan["levels"][3]["supply_m3h"], 265)
         self.assertFalse(plan["levels"][2]["meets_requirement"])
         self.assertTrue(plan["levels"][3]["meets_requirement"])
         self.assertEqual(plan["base_level"], 3)
@@ -47,8 +47,9 @@ class AirflowPlanTests(unittest.TestCase):
         state.set_fan_curve({"rpm_at_0": 0.0, "rpm_per_percent": 30.0, "samples": 5})
         plan = state.airflow_plan()
         self.assertTrue(plan["fan_curve"]["learned"])
-        self.assertEqual(plan["levels"][3]["supply_m3h"], 161)
-        self.assertEqual(plan["base_level"], 4)
+        self.assertEqual(plan["levels"][3]["supply_m3h"], 240)
+        self.assertEqual(plan["levels"][2]["supply_m3h"], 146)
+        self.assertEqual(plan["base_level"], 3)
 
     def test_fan_curve_fit_matches_the_reference_unit(self):
         from advanced_control import fit_fan_curve
@@ -76,7 +77,7 @@ class AirflowPlanTests(unittest.TestCase):
         state.configure({"house_area_m2": 400, "airflow_max_m3h": 200})
         plan = airflow_plan(state.data, state.data["profiles"])
         self.assertFalse(plan["reachable"])
-        self.assertEqual(plan["base_level"], 6)
+        self.assertEqual(plan["base_level"], 4)
 
     def test_invalid_values_are_rejected(self):
         state = self.make_state()

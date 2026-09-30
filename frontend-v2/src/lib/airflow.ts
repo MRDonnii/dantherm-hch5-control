@@ -10,10 +10,10 @@ const LS_TO_M3H = 3.6;
 // Airflow follows speed (fan law); the controller replaces this with the learned curve.
 const DEFAULT_FAN_RPM_AT_0 = 557;
 const DEFAULT_FAN_RPM_PER_PERCENT = 24;
-// Air balance limits (advanced_control.py / validate_profile).
+// Air balance limits (advanced_control.py / fan_steps.validate_ladder: gear 1..100).
 const DUCT_RATIO_MIN = 0.7;
 const DUCT_RATIO_MAX = 1.5;
-const SUPPLY_PERCENT_MIN = 10;
+const SUPPLY_PERCENT_MIN = 1;
 const MAX_PERCENT_GAP = 35;
 
 export type FanCurve = { rpm_at_0: number; rpm_per_percent: number; learned: boolean; samples: number };
@@ -53,6 +53,8 @@ const num = (value: unknown, fallback: number) => { const x = Number(value); ret
 const round2 = (value: number) => Math.round(value * 100) / 100;
 const round1 = (value: number) => Math.round(value * 10) / 10;
 const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value));
+/** Step numbers of a profile table (four or six steps). */
+const levelsOf = (profiles: AirflowProfiles) => Object.keys(profiles).map(Number).filter(Number.isFinite).sort((a, b) => a - b);
 
 /** Duct ratio k_supply/k_extract in use: learned once trusted (auto), else the fixed value. */
 export function ductRatio(data: Record<string, unknown>): { ratio: number; source: "learned" | "fixed" } {
@@ -108,14 +110,14 @@ export function balancedProfiles(data: Record<string, unknown>, profiles: Airflo
   const target = 1 + num(data.balance_extract_excess_percent, 5) / 100;
   const result: Record<string, BalancedLevel> = {};
   let previous = SUPPLY_PERCENT_MIN - 1;
-  for (let level = 1; level <= 6; level++) {
+  for (const level of levelsOf(profiles)) {
     const profile = profiles[String(level)];
     if (!profile) return null;
     const extract = Math.round(num(profile.extract, 0));
     const extractFlow = k.extract * rpmAtPercent(extract, curve);
     const exact = percentAtRpm(extractFlow / target / k.supply, curve);
     const low = Math.max(SUPPLY_PERCENT_MIN, extract - MAX_PERCENT_GAP, previous + 1);
-    const high = extract - 1;
+    const high = Math.max(SUPPLY_PERCENT_MIN, extract - 1);
     const ratioAt = (percent: number) => extractFlow / (k.supply * rpmAtPercent(percent, curve));
     const candidates = [...new Set([Math.floor(exact), Math.ceil(exact)].map(value => Math.min(high, Math.max(low, value))))].sort((a, b) => a - b);
     const supply = candidates.reduce((best, percent) => Math.abs(ratioAt(percent) - target) < Math.abs(ratioAt(best) - target) ? percent : best, candidates[0]);
@@ -159,7 +161,7 @@ export function airflowPlan(data: Record<string, unknown>, profiles: AirflowProf
   const levels: Record<string, PlanLevel> = {};
   let base: number | null = null;
   let min: number | null = null;
-  for (let level = 1; level <= 6; level++) {
+  for (const level of levelsOf(running)) {
     const profile = running[String(level)];
     if (!profile) return null;
     const entry = measured[String(level)] ?? {};
@@ -187,7 +189,7 @@ export function airflowPlan(data: Record<string, unknown>, profiles: AirflowProf
     };
   }
   const reachable = base !== null;
-  const baseLevel = base ?? 6;
+  const baseLevel = base ?? Math.max(...levelsOf(running));
   return {
     volume_m3: Math.round(volume), supply_required_m3h: Math.round(supplyRequired), extract_required_m3h: Math.round(extractRequired),
     required_air_changes_per_hour: volume ? round2(supplyRequired / volume) : null,

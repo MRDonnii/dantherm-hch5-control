@@ -171,12 +171,13 @@ export type LevelPlan = Record<string, { supply_m3h?: number; extract_m3h?: numb
 /** Lowest fan level whose (estimated or measured) airflow covers the design. */
 export function recommendedLevel(result: Result, levels: LevelPlan | undefined): number | null {
   if (!levels || !result.rooms.length) return null;
-  for (let level = 1; level <= 6; level += 1) {
+  const steps = Object.keys(levels).map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+  for (const level of steps) {
     const entry = levels[String(level)];
     if (!entry) continue;
     if ((entry.supply_m3h ?? 0) >= result.supplyTotal * LS_TO_M3H && (entry.extract_m3h ?? 0) >= result.extractTotal * LS_TO_M3H) return level;
   }
-  return 6;
+  return steps.length ? steps[steps.length - 1] : null;
 }
 
 /** Values for Indstillinger → Hus og luftmængde derived from the rooms. */

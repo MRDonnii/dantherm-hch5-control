@@ -75,9 +75,11 @@ def clean_project(raw: object) -> dict:
         try:
             level = int(level)
         except (TypeError, ValueError) as error:
-            raise BalancingError("Måletrin skal være 1–6") from error
+            raise BalancingError("Måletrin skal være 1–4") from error
         if not 1 <= level <= 6:
-            raise BalancingError("Måletrin skal være 1–6")
+            raise BalancingError("Måletrin skal være 1–4")
+        # Reports saved with the six-step controller: 5 and 6 were its top steps.
+        level = min(4, level)
     else:
         level = None
     return {"rooms": rooms, "meta": meta, "measure_level": level}

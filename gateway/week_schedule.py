@@ -40,7 +40,7 @@ def _time(value: object, label: str) -> str:
     return text
 
 
-def normalize(raw: object) -> dict[str, list[dict[str, object]]]:
+def normalize(raw: object, max_level: int = 6) -> dict[str, list[dict[str, object]]]:
     """Validate and sort periods; raises ScheduleError on bad input."""
     if not isinstance(raw, dict):
         raise ScheduleError("Ugeplanen skal være et objekt med ugedage 0..6")
@@ -67,9 +67,9 @@ def normalize(raw: object) -> dict[str, list[dict[str, object]]]:
             try:
                 level = int(period.get("level"))
             except (TypeError, ValueError) as error:
-                raise ScheduleError("Periodens trin skal være 1..6") from error
-            if not 1 <= level <= 6:
-                raise ScheduleError("Periodens trin skal være 1..6")
+                raise ScheduleError(f"Periodens trin skal være 1..{max_level}") from error
+            if not 1 <= level <= max_level:
+                raise ScheduleError(f"Periodens trin skal være 1..{max_level}")
             mode = period.get("mode", "set")
             if mode not in MODES:
                 raise ScheduleError("Periodens type skal være set eller min")

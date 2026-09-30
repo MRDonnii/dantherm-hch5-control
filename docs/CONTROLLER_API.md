@@ -70,7 +70,7 @@ Leased Home Assistant room measurements. They are never written directly to Modb
 }
 ```
 
-Pi derives levels 1–6 from worst-room CO2/RH and a 10-minute RH rise trigger. Priority changes how early a room reacts, but a severe normal-priority measurement still beats a mild high-priority measurement. Disabled and monitor-only rooms never control ventilation. The HCH5/HAC1 local CO2/RH sensors remain part of the decision. Stale leased input automatically falls back to Local Auto with the configured downshift/boost protection.
+Pi derives levels 1–4 (or 1–6 with six-step control, `fan_step_count`) from worst-room CO2/RH and a 10-minute RH rise trigger. Priority changes how early a room reacts, but a severe normal-priority measurement still beats a mild high-priority measurement. Disabled and monitor-only rooms never control ventilation. The HCH5/HAC1 local CO2/RH sensors remain part of the decision. Stale leased input automatically falls back to Local Auto with the configured downshift/boost protection.
 
 At most 32 rooms are accepted. Invalid metadata or out-of-range measurements return HTTP 400 instead of being silently used. Bypass is status-only in this beta; non-`auto` commands are rejected because the verified hardware sequence is not documented.
 
@@ -87,3 +87,10 @@ Rooms sent to `/api/controller/inputs` can also serve as measurement sources cho
 ## Master rule
 
 The user-facing temporary **OFF** control stops ventilation for a selected duration and then restores the prior operating state; it does not disable RS485 master arbitration. Pi becomes master automatically whenever the RS485 bus is healthy and HCP4 is absent. Any detected HCP4 FC06/FC16 activity immediately pauses Pi writes. During `unknown` arbitration state writes are blocked.
+
+## Fan steps
+
+`fan_step_count` is `4` (default, Dantherm HCP4/HRC 2) or `6` (free table). Posting `{"fan_step_count": 6}` switches at once and moves every stored step choice to the step with the nearest fan gears; the other model's values are kept.
+
+With four steps the steps come from `fan_settings`: `{"supply": 46..91, "extract": 46..91, "offset": 10..30, "max_supply": supply..100, "max_extract": extract..100}` (partial objects are merged). Steps 1 and 2 are step 3 minus two and one offsets (at least gear 1); step 4 is the maximum. A `profiles` patch is still accepted for step 3 (commissioning) and step 4 (maximum). Manual step 4 returns to step 3 after four hours (`max_level_remaining_seconds`). With six steps `profiles` sets extract/supply per step as before. `profiles`, `fan_levels` and `max_level` in the state always describe the steps the unit runs.
+

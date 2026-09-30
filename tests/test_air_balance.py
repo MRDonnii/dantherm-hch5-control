@@ -17,7 +17,7 @@ from diagnostics import Diagnostics  # noqa: E402
 
 HOUSE = {"house_area_m2": 180, "ceiling_height_m": 2.3, "house_bathrooms": 1, "house_utility_rooms": 1}
 CURVE = {"rpm_at_0": 557.0, "rpm_per_percent": 24.0, "samples": 6}
-EXTRACT_LADDER = {str(level): {"extract": extract} for level, extract in zip(range(1, 7), (25, 40, 55, 70, 85, 100))}
+REFERENCE_FANS = {"extract": 70, "supply": 55, "offset": 25}
 
 
 def exchanger(t1, t3, supply_m3h, extract_m3h, *, ntu=9.0, supply_fan_w=0.0, extract_fan_w=0.0):
@@ -52,17 +52,17 @@ class BalancedProfileTests(unittest.TestCase):
             self.assertGreater(values["supply"], previous)
             self.assertTrue(values["reached"])
             previous = values["supply"]
-        # The fixed 12 % gap of the default profiles is far off at level 1.
+        # Equal gears on equal ducts give no underpressure at all.
         default = state.balance_status()["levels"]
-        self.assertGreater(default[1]["current_excess_percent"], 25)
-        self.assertLess(default[6]["current_excess_percent"], 12)
+        self.assertEqual(default[1]["current_excess_percent"], 0.0)
+        self.assertEqual(default[4]["current_excess_percent"], 0.0)
 
     def test_stronger_supply_ducts_get_a_lower_supply_percentage(self):
         state = self.make_state()
         equal = balanced_profiles(state.data, state.data["profiles"])
         state.configure({"balance_ratio_mode": "fixed", "balance_duct_ratio": 1.14})
         stronger = balanced_profiles(state.data, state.data["profiles"])
-        for level in range(1, 7):
+        for level in range(1, 5):
             self.assertLess(stronger[level]["supply"], equal[level]["supply"])
             self.assertLessEqual(abs(stronger[level]["excess_percent"] - 5.0), 1.5)
 
@@ -70,9 +70,10 @@ class BalancedProfileTests(unittest.TestCase):
         state = self.make_state()
         state.set_fan_curve(CURVE)
         snapshot = state.configure({"balance_enabled": True, "balance_ratio_mode": "fixed",
-                                    "balance_duct_ratio": 1.14, "profiles": EXTRACT_LADDER})
+                                    "balance_duct_ratio": 1.14, "fan_settings": REFERENCE_FANS})
         pairs = {level: (values["supply"], values["extract"]) for level, values in snapshot["profiles"].items()}
-        self.assertEqual(pairs, {1: (17, 25), 2: (30, 40), 3: (42, 55), 4: (55, 70), 5: (67, 85), 6: (80, 100)})
+        # Extract follows the Dantherm ladder 70 - 25 - 25 and 100; supply is balanced.
+        self.assertEqual(pairs, {1: (13, 20), 2: (34, 45), 3: (55, 70), 4: (80, 100)})
         self.assertEqual(snapshot["airflow_plan"]["base_level"], 3)
         self.assertEqual(snapshot["balance"]["duct_ratio_source"], "fixed")
 
@@ -84,21 +85,20 @@ class BalancedProfileTests(unittest.TestCase):
         state.configure({"profiles": {str(level): {"extract": values["extract"], "supply": values["supply"]}
                                       for level, values in state.data["profiles"].items()}})
         with self.assertRaises(ControllerError):
-            state.configure({"profiles": {"2": {"supply": balanced[2] + 3}}})
+            state.configure({"profiles": {"3": {"supply": balanced[3] - 3}}})
         # Changing extract moves supply with it.
-        state.configure({"profiles": {"3": {"extract": 60}}})
+        state.configure({"fan_settings": {"extract": 70}})
         self.assertGreater(state.data["profiles"][3]["supply"], balanced[3])
-        after = {level: values["supply"] for level, values in state.data["profiles"].items()}
-        state.configure({"balance_enabled": False})
-        self.assertEqual({level: values["supply"] for level, values in state.data["profiles"].items()}, after)
-        state.configure({"profiles": {"2": {"supply": after[2] + 1}}})
-        self.assertEqual(state.data["profiles"][2]["supply"], after[2] + 1)
+        # Off: the supply fan runs its own commissioned gears again.
+        state.configure({"balance_enabled": False, "fan_settings": {"supply": 60}})
+        self.assertEqual({level: values["supply"] for level, values in state.data["profiles"].items()},
+                         {1: 10, 2: 35, 3: 60, 4: 100})
 
-    def test_extract_must_still_rise_from_level_to_level(self):
+    def test_step_3_must_stay_in_the_dantherm_range(self):
         state = self.make_state(balance_enabled=True)
         before = dict(state.data["profiles"])
         with self.assertRaises(ControllerError):
-            state.configure({"profiles": {"3": {"extract": 30}}})
+            state.configure({"fan_settings": {"extract": 30}})
         self.assertEqual(state.data["profiles"], before)
 
     def test_a_rejected_patch_changes_nothing(self):
@@ -110,20 +110,21 @@ class BalancedProfileTests(unittest.TestCase):
 
     def test_measured_airflow_on_both_sides_sets_the_duct_ratio(self):
         state = self.make_state()
-        # Installer measured level 3 (43/55 %): supply 230, extract 205 m3/h.
+        # Installer measured level 3 (gear 55/64): supply 230, extract 205 m3/h.
+        state.configure({"fan_settings": {"supply": 55}})
         state.configure({"airflow_measured": {"3": {"supply": 230, "extract": 205}}})
         measured = state.data["airflow_measured"]["3"]
-        self.assertEqual((measured["supply_percent"], measured["extract_percent"]), (43, 55))
+        self.assertEqual((measured["supply_percent"], measured["extract_percent"]), (55, 64))
         k = side_constants(state.data)
         self.assertEqual(k["source"], "measured")
         curve = {"rpm_at_0": 557.0, "rpm_per_percent": 24.0}
-        expected = (230 / rpm_at_percent(43, curve)) / (205 / rpm_at_percent(55, curve))
+        expected = (230 / rpm_at_percent(55, curve)) / (205 / rpm_at_percent(64, curve))
         self.assertAlmostEqual(k["ratio"], expected, places=3)
         state.configure({"balance_enabled": True})
         plan = state.airflow_plan()
         # The measured value no longer matches the new supply percentage, so
         # level 3 supply is the fitted estimate; extract stays measured.
-        self.assertNotEqual(state.data["profiles"][3]["supply"], 43)
+        self.assertNotEqual(state.data["profiles"][3]["supply"], 55)
         self.assertEqual(plan["levels"][3]["extract_m3h"], 205)
         self.assertEqual(state.balance_status()["duct_ratio_source"], "measured")
         for values in state.balance_status()["levels"].values():
@@ -131,13 +132,14 @@ class BalancedProfileTests(unittest.TestCase):
 
     def test_measurements_keep_the_percentage_they_were_taken_at(self):
         state = self.make_state()
+        state.configure({"fan_settings": {"supply": 60}})
         state.configure({"airflow_measured": {"2": {"supply": 150}}})
-        state.configure({"profiles": {"2": {"supply": 30}}})
+        state.configure({"fan_settings": {"supply": 62}})
         # Saving the form again with the same value keeps the old percentage.
         state.configure({"airflow_measured": {"2": {"supply": 150}}})
-        self.assertEqual(state.data["airflow_measured"]["2"]["supply_percent"], 28)
+        self.assertEqual(state.data["airflow_measured"]["2"]["supply_percent"], 35)
         self.assertFalse(state.airflow_plan()["levels"][2]["measured"])
-        state.configure({"airflow_measured": {"2": {"supply": 158, "supply_percent": 30}}})
+        state.configure({"airflow_measured": {"2": {"supply": 158, "supply_percent": 37}}})
         self.assertTrue(state.airflow_plan()["levels"][2]["measured"])
         with self.assertRaises(ControllerError):
             state.configure({"airflow_measured": {"2": {"supply": 158, "supply_percent": 130}}})
@@ -155,7 +157,7 @@ class BalancedProfileTests(unittest.TestCase):
         self.assertFalse(state.set_balance_learned({"windows": [], "ratio": None, "ratio_in_use": 1.15, "confidence": "none"}))
         self.assertEqual(state.balance_status()["duct_ratio_source"], "learned")
         self.assertEqual(state.balance_status()["duct_ratio_source"], "learned")
-        self.assertLess(state.data["profiles"][6]["supply"], equal[6]["supply"])
+        self.assertLess(state.data["profiles"][4]["supply"], equal[4]["supply"])
         state.configure({"balance_ratio_mode": "fixed"})
         self.assertEqual(state.data["profiles"], equal)
         state.configure({"balance_ratio_mode": "auto", "balance_learning_reset": True})
@@ -283,7 +285,7 @@ class RuntimeBalanceTests(unittest.TestCase):
         runtime.change_log_path = Path(temp.name) / "change-log.jsonl"
         runtime.configure({**HOUSE, "balance_enabled": True}, apply=False)
         equal = {level: values["supply"] for level, values in runtime.config.data["profiles"].items()}
-        level = runtime.config.data["profiles"][5]
+        level = runtime.config.data["profiles"][3]
         curve = {"rpm_at_0": 557.0, "rpm_per_percent": 24.0}
         supply_rpm, extract_rpm = rpm_at_percent(level["supply"], curve), rpm_at_percent(level["extract"], curve)
         k = side_constants(runtime.config.data)
@@ -308,7 +310,7 @@ class RuntimeBalanceTests(unittest.TestCase):
         self.assertAlmostEqual(learned["ratio"], 1.15, delta=0.03)
         self.assertIsNotNone(learned["ratio_in_use"])
         self.assertEqual(runtime.config.balance_status()["duct_ratio_source"], "learned")
-        self.assertLess(runtime.config.data["profiles"][5]["supply"], equal[5])
+        self.assertLess(runtime.config.data["profiles"][3]["supply"], equal[3])
         self.assertTrue(any(event["source"] == "luftbalance" for event in runtime.change_log))
         snapshot = runtime.snapshot()
         self.assertIn(snapshot["balance_live"]["state"], ("settling", "measuring", "measured"))

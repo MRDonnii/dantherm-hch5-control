@@ -35,48 +35,64 @@ class ControllerTests(unittest.TestCase):
         with self.assertRaises(ControllerError):
             migrated.configure({"enabled": False})
 
-    def test_six_profiles_are_monotonic_and_balanced(self):
+    def test_four_dantherm_steps_follow_the_commissioning(self):
         state, _ = self.make()
         profiles = state.data["profiles"]
-        self.assertEqual(set(profiles), set(range(1, 7)))
-        for level in range(1, 7):
-            self.assertGreater(profiles[level]["extract"], profiles[level]["supply"])
-        self.assertEqual((profiles[1]["extract"], profiles[1]["supply"]), (25, 13))
-        self.assertEqual((profiles[3]["extract"], profiles[3]["supply"]), (55, 43))
-        self.assertEqual((profiles[5]["extract"], profiles[5]["supply"]), (85, 73))
-        self.assertEqual((profiles[6]["extract"], profiles[6]["supply"]), (100, 88))
+        self.assertEqual(set(profiles), {1, 2, 3, 4})
+        pairs = {level: (p["extract"], p["supply"]) for level, p in profiles.items()}
+        # Step 3 = gear 64, steps 2 and 1 one and two offsets (25) below, step 4 = gear 100.
+        self.assertEqual(pairs, {1: (14, 14), 2: (39, 39), 3: (64, 64), 4: (100, 100)})
+        state.configure({"fan_settings": {"extract": 80, "supply": 70, "offset": 20, "max_supply": 90}})
+        pairs = {level: (p["extract"], p["supply"]) for level, p in state.data["profiles"].items()}
+        self.assertEqual(pairs, {1: (40, 30), 2: (60, 50), 3: (80, 70), 4: (100, 90)})
 
     def test_manual_level_uses_profile(self):
         state, engine = self.make()
-        state.configure({"mode": "manual", "manual_level": 4})
+        state.configure({"mode": "manual", "manual_level": 3})
         result = engine.resolve()
-        self.assertEqual(result["effective_level"], 4)
-        self.assertEqual((result["effective_profile"]["extract"], result["effective_profile"]["supply"]), (70, 58))
+        self.assertEqual(result["effective_level"], 3)
+        self.assertEqual((result["effective_profile"]["extract"], result["effective_profile"]["supply"]), (64, 64))
+
+    def test_manual_step_4_returns_to_step_3_after_four_hours(self):
+        state, engine = self.make()
+        state.configure({"mode": "manual", "manual_level": 4})
+        until = state.data["max_level_until"]
+        self.assertAlmostEqual(until - time.time(), 4 * 3600, delta=5)
+        self.assertEqual(engine.resolve(now=until - 60)["effective_level"], 4)
+        self.assertEqual(engine.resolve(now=until + 1)["effective_level"], 3)
+        self.assertEqual(state.data["manual_level"], 3)
+        self.assertIsNone(state.data["max_level_until"])
 
     def test_profile_can_be_calibrated(self):
         state, engine = self.make()
-        state.configure({"profiles": {"4": {"extract": 72, "supply": 60}}})
-        state.configure({"mode": "manual", "manual_level": 4})
+        # Older clients edit step 3 and 4 directly; that is the commissioning.
+        state.configure({"profiles": {"3": {"extract": 72, "supply": 60}, "4": {"supply": 90}}})
+        self.assertEqual(state.data["fan_settings"], {"supply": 60, "extract": 72, "offset": 25, "max_supply": 90, "max_extract": 100})
+        state.configure({"mode": "manual", "manual_level": 2})
         result = engine.resolve()
-        self.assertEqual(result["effective_profile"]["extract"], 72)
-        self.assertEqual(result["effective_profile"]["supply"], 60)
+        self.assertEqual((result["effective_profile"]["extract"], result["effective_profile"]["supply"]), (47, 35))
+        with self.assertRaises(ControllerError):
+            state.configure({"profiles": {"2": {"extract": 50}}})
 
-    def test_rejects_supply_not_below_extract(self):
+    def test_rejects_supply_above_extract(self):
         state, _ = self.make()
         with self.assertRaises(ControllerError):
-            state.configure({"profiles": {"3": {"extract": 50, "supply": 50}}})
+            state.configure({"fan_settings": {"extract": 50, "supply": 55}})
+        state.configure({"fan_settings": {"extract": 50, "supply": 50}})
 
-    def test_rejects_non_monotonic_profiles(self):
+    def test_rejects_values_outside_the_dantherm_ranges(self):
         state, _ = self.make()
-        with self.assertRaises(ControllerError):
-            state.configure({"profiles": {"4": {"extract": 54, "supply": 42}}})
+        for bad in ({"extract": 45}, {"supply": 92, "extract": 92}, {"offset": 9}, {"offset": 31},
+                    {"max_extract": 60}, {"max_supply": 101}):
+            with self.assertRaises(ControllerError, msg=bad):
+                state.configure({"fan_settings": bad})
 
     def test_rh_raises_local_auto(self):
         state, engine = self.make()
         state.configure({"mode": "local_auto", "rh_setpoint": 50})
         engine.update_measurements(rh=61, co2=600)
         result = engine.resolve()
-        self.assertGreaterEqual(result["effective_level"], 5)
+        self.assertEqual(result["effective_level"], 4)
         self.assertIn("RH", result["effective_reason"])
 
     def test_co2_raises_local_auto(self):
@@ -84,7 +100,7 @@ class ControllerTests(unittest.TestCase):
         state.configure({"mode": "local_auto", "co2_setpoint": 800})
         engine.update_measurements(rh=40, co2=1250)
         result = engine.resolve()
-        self.assertEqual(result["effective_level"], 6)
+        self.assertEqual(result["effective_level"], 4)
         self.assertIn("CO2", result["effective_reason"])
 
     def test_downshift_waits_for_hysteresis_and_delay(self):
@@ -92,21 +108,24 @@ class ControllerTests(unittest.TestCase):
         state.configure({"mode": "local_auto", "downshift_delay_seconds": 30})
         engine.update_measurements(rh=70, co2=1800)
         high = engine.resolve(now=1000)
-        self.assertEqual(high["effective_level"], 6)
+        self.assertEqual(high["effective_level"], 4)
         engine.boost_until = 0
         engine.update_measurements(rh=40, co2=500)
         still_high = engine.resolve(now=1010)
-        self.assertEqual(still_high["effective_level"], 6)
+        self.assertEqual(still_high["effective_level"], 4)
         low = engine.resolve(now=1040)
         self.assertEqual(low["effective_level"], state.data["local_normal_level"])
 
     def test_smart_auto_uses_exact_ha_target_when_fresh(self):
         state, engine = self.make()
         state.configure({"mode": "smart_auto"})
-        state.heartbeat("high", requested_level=5, reason="CO2 Bedroom")
-        self.assertEqual(engine.resolve()["effective_level"], 5)
+        state.heartbeat("high", requested_level=2, reason="CO2 Bedroom")
+        self.assertEqual(engine.resolve()["effective_level"], 2)
+        state.heartbeat("boost", requested_level=4, reason="RH Bathroom")
+        self.assertEqual(engine.resolve()["effective_level"], 4)
+        # A six-step integration asking for 6 gets the maximum.
         state.heartbeat("boost", requested_level=6, reason="RH Bathroom")
-        self.assertEqual(engine.resolve()["effective_level"], 6)
+        self.assertEqual(state.data["ha_requested_level"], 4)
 
     def test_smart_auto_falls_back_to_local(self):
         state, engine = self.make()
@@ -173,7 +192,7 @@ class ControllerTests(unittest.TestCase):
             set_fireplace=lambda enabled: calls.append(("fireplace", enabled)),
             set_afterheat_setpoint=lambda value: None,
         ))
-        state.configure({"mode": "manual", "manual_level": 4,
+        state.configure({"mode": "manual", "manual_level": 2,
                          "fireplace_minutes": 15})
         engine.apply()
         self.assertTrue(state.snapshot()["fireplace"])
@@ -183,9 +202,9 @@ class ControllerTests(unittest.TestCase):
         self.assertFalse(expired["fireplace"])
         self.assertEqual(expired["fireplace_remaining_seconds"], 0)
         self.assertEqual(expired["mode"], "manual")
-        self.assertEqual(expired["effective_level"], 4)
-        self.assertEqual(calls.count(("fan", 70, 58)), 2)
-        self.assertEqual(calls[-2:], [("fireplace", False), ("fan", 70, 58)])
+        self.assertEqual(expired["effective_level"], 2)
+        self.assertEqual(calls.count(("fan", 39, 39)), 2)
+        self.assertEqual(calls[-2:], [("fireplace", False), ("fan", 39, 39)])
 
     def test_fireplace_timer_only_accepts_predefined_durations(self):
         state, _ = self.make()
@@ -206,7 +225,7 @@ class ControllerTests(unittest.TestCase):
         state.configure({"mode": "manual", "manual_level": 3})
         engine.apply()
         engine.apply()
-        self.assertEqual(calls.count(("fan", 55, 43)), 1)
+        self.assertEqual(calls.count(("fan", 64, 64)), 1)
         self.assertEqual(calls.count(("fireplace", False)), 1)
 
     def test_apply_afterheat_only_when_explicit(self):

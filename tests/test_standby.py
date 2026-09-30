@@ -33,7 +33,7 @@ def _engine(tmp_path):
 def test_standby_switches_the_unit_off_and_back_on(tmp_path):
     state, engine, hw = _engine(tmp_path)
     engine.apply()
-    assert ("fan_pair", (55, 43)) in hw.calls
+    assert ("fan_pair", (64, 64)) in hw.calls
     hw.calls.clear()
     state.configure({"standby_minutes": -1})
     result = engine.apply()
@@ -44,7 +44,7 @@ def test_standby_switches_the_unit_off_and_back_on(tmp_path):
     hw.calls.clear()
     state.configure({"standby_minutes": 0})
     engine.apply()
-    assert hw.calls.index(("standby", False)) < hw.calls.index(("fan_pair", (55, 43)))
+    assert hw.calls.index(("standby", False)) < hw.calls.index(("fan_pair", (64, 64)))
 
 
 def test_timed_standby_ends_by_itself(tmp_path):
@@ -80,7 +80,7 @@ def test_bonfire_switches_the_unit_off_too(tmp_path):
     hw.calls.clear()
     state.configure({"bonfire_minutes": 0})
     engine.apply()
-    assert hw.calls.index(("standby", False)) < hw.calls.index(("fan_pair", (55, 43)))
+    assert hw.calls.index(("standby", False)) < hw.calls.index(("fan_pair", (64, 64)))
 
 
 def test_until_tomorrow_morning_is_the_next_seven_oclock():

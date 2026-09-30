@@ -19,6 +19,7 @@ class ModernControllerExtensionTests(unittest.TestCase):
 
     def test_quick_boost_is_timed_overlay_without_changing_base_mode(self):
         engine = self.make_engine()
+        engine.config.configure({"fan_step_count": 6})
         engine.config.configure({"mode": "local_auto", "quick_boost_level": 5, "quick_boost_minutes": 15})
         engine.update_measurements(rh=40, co2=600)
         result = engine.resolve()

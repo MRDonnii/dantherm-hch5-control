@@ -499,10 +499,11 @@ class ControllerRuntime:
                 try:
                     max_level = int(raw_values["max_level"])
                 except (TypeError, ValueError) as error:
-                    raise ControllerError(f"max_level for {name} skal være 1..6") from error
+                    raise ControllerError(f"max_level for {name} skal være 1..{self.config.max_level()}") from error
                 if not 1 <= max_level <= 6:
-                    raise ControllerError(f"max_level for {name} skal være 1..6")
-                values["max_level"] = max_level
+                    raise ControllerError(f"max_level for {name} skal være 1..{self.config.max_level()}")
+                # 5 and 6 from the six-step controller mean the maximum.
+                values["max_level"] = min(self.config.max_level(), max_level)
             temp = self._measurement(raw_values, "temperature", -30, 60)
             rh = self._measurement(raw_values, "humidity", 0, 100)
             co2 = self._measurement(raw_values, "co2", 250, 10000)
@@ -545,22 +546,21 @@ class ControllerRuntime:
             self.apply_once()
         return self.snapshot()
 
-    @staticmethod
-    def _priority_level(level: int, priority: str) -> int:
+    def _priority_level(self, level: int, priority: str) -> int:
         """Adjust response speed without allowing mild rooms to hide severe ones."""
-        if priority == "low" and level < 6:
+        top = self.config.max_level()
+        if priority == "low" and level < top:
             return max(1, level - 1)
-        if priority == "high" and level < 6:
-            return min(6, level + 1)
-        if priority == "critical" and level < 6:
-            return min(6, level + 2)
+        if priority == "high" and level < top:
+            return min(top, level + 1)
+        if priority == "critical" and level < top:
+            return min(top, level + 2)
         return level
 
-    @staticmethod
-    def _metric_level(value: float, setpoint: float, step: float,
+    def _metric_level(self, value: float, setpoint: float, step: float,
                       hysteresis: float, normal: int) -> int:
         if value > setpoint:
-            return min(6, normal + max(1, int((value - setpoint + step - 0.0001) // step)))
+            return min(self.config.max_level(), normal + max(1, int((value - setpoint + step - 0.0001) // step)))
         if value <= setpoint - hysteresis:
             distance = setpoint - hysteresis - value
             return max(1, normal - max(1, int((distance + step - 0.0001) // step)))
@@ -644,7 +644,7 @@ class ControllerRuntime:
             if len(fresh) >= 2:
                 rise = fresh[-1][1] - fresh[0][1]
                 if rise >= 7.0:
-                    raw = min(6, normal + 3 + int((rise - 7.0) // 5.0))
+                    raw = min(self.config.max_level(), normal + 3 + int((rise - 7.0) // 5.0))
                     priority = str(values.get("priority", "auto"))
                     adjusted = self._priority_level(raw, priority)
                     if self._is_bathroom(name, values):
@@ -661,7 +661,7 @@ class ControllerRuntime:
             return normal, "normal", "No enabled control measurements", None, None
         adjusted, _raw, _value, room, metric, reason = max(candidates)
         adjusted = min(int(d["local_max_level"]), max(int(d["local_min_level"]), adjusted))
-        demand = "low" if adjusted <= 2 else "normal" if adjusted == 3 else "high" if adjusted <= 5 else "boost"
+        demand = "low" if adjusted <= 2 else "normal" if adjusted == 3 else "boost" if adjusted >= self.config.max_level() else "high"
         return adjusted, demand, reason, room, metric
 
     def _bathroom_candidate(
@@ -677,7 +677,7 @@ class ControllerRuntime:
         d = self.config.data
         setpoint = float(values.get("rh_setpoint") or d["bathroom_rh_setpoint"])
         hysteresis = float(values.get("rh_hysteresis") or d["bathroom_rh_hysteresis"])
-        top = max(normal, min(6, int(values.get("max_level") or d["bathroom_max_level"])))
+        top = max(normal, min(self.config.max_level(), int(values.get("max_level") or d["bathroom_max_level"])))
         end = setpoint - hysteresis
         episode = self._bathroom_episodes.get(name)
         if episode is None:

@@ -13,7 +13,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
+import fan_steps
 import week_schedule
+from fan_steps import MAX_LEVEL, MAX_LEVEL_HOURS, NOMINAL_LEVEL, STEP_COUNTS
 from onewire_extras import clean_roles
 from advanced_control import (
     BALANCE_EXCESS_DEFAULT,
@@ -57,14 +59,8 @@ STANDBY_MORNING_HOUR = 7
 STANDBY_MINUTES_RANGE = (10, 7 * 24 * 60)
 STANDBY_PROFILE = {"extract": 0, "supply": 0, "name": "Slukket"}
 
-DEFAULT_PROFILES = {
-    1: {"extract": 25, "supply": 13, "name": "Lav"},
-    2: {"extract": 40, "supply": 28, "name": "Lav+"},
-    3: {"extract": 55, "supply": 43, "name": "Normal"},
-    4: {"extract": 70, "supply": 58, "name": "Høj"},
-    5: {"extract": 85, "supply": 73, "name": "Høj+"},
-    6: {"extract": 100, "supply": 88, "name": "Boost"},
-}
+# Four Dantherm steps derived from the commissioning (fan_steps.py).
+DEFAULT_PROFILES = fan_steps.ladder(fan_steps.DEFAULT_FAN_SETTINGS)
 
 DEFAULT_SCHEDULE = {
     str(day): {"enabled": True, "start": "07:00", "end": "22:00", "level": 3}
@@ -113,23 +109,18 @@ def _copy_schedule(schedule: dict | None = None) -> dict[str, dict[str, object]]
     return result
 
 
-def validate_profile(extract: int, supply: int) -> None:
-    if not 10 <= supply <= 99:
-        raise ControllerError("Indblæsning skal være 10..99 %")
-    if not 11 <= extract <= 100:
-        raise ControllerError("Udsugning skal være 11..100 %")
-    if extract <= supply:
-        raise ControllerError("Udsugning skal være højere end indblæsning")
-    if extract - supply > 35:
-        raise ControllerError("Forskellen mellem udsugning og indblæsning er for stor")
-
-
 def validate_ladder(profiles: dict[int, dict[str, object]]) -> None:
-    for values in profiles.values():
-        validate_profile(int(values["extract"]), int(values["supply"]))
-    for level in range(2, 7):
-        if profiles[level]["extract"] <= profiles[level - 1]["extract"] or profiles[level]["supply"] <= profiles[level - 1]["supply"]:
-            raise ControllerError("Niveauerne skal stige i både udsugning og indblæsning")
+    try:
+        fan_steps.validate_ladder(profiles)
+    except ValueError as error:
+        raise ControllerError(str(error)) from error
+
+
+def clean_fan_settings(value: object, base: dict | None = None) -> dict[str, int]:
+    try:
+        return fan_steps.clean_fan_settings(value, base)
+    except ValueError as error:
+        raise ControllerError(str(error)) from error
 
 
 def _validate_time(value: object, label: str) -> str:
@@ -209,7 +200,7 @@ class ControllerState:
         "manual_level": 3,
         "local_normal_level": 3,
         "local_min_level": 1,
-        "local_max_level": 6,
+        "local_max_level": MAX_LEVEL,
         "rh_setpoint": 50.0,
         "rh_hysteresis": 3.0,
         "co2_setpoint": 800,
@@ -244,16 +235,16 @@ class ControllerState:
         "night_start": "22:00",
         "night_end": "06:00",
         "night_level": 2,
-        "night_air_quality_max_level": 4,
+        "night_air_quality_max_level": NOMINAL_LEVEL,
         "bathroom_rh_setpoint": 65.0,
         "bathroom_rh_hysteresis": 5.0,
-        "bathroom_max_level": 6,
+        "bathroom_max_level": MAX_LEVEL,
         "vacation_enabled": False,
         "vacation_level": 1,
         "vacation_until": None,
         "vacation_from": None,
         "quick_boost_until": None,
-        "quick_boost_level": 6,
+        "quick_boost_level": MAX_LEVEL,
         "quick_boost_minutes": 0,
         "bonfire_until": None,
         "bonfire_minutes": 0,
@@ -265,7 +256,7 @@ class ControllerState:
         "cooling_hysteresis": 0.5,
         "cooling_outdoor_min": 12.0,
         "cooling_min_delta": 1.5,
-        "cooling_level": 4,
+        "cooling_level": NOMINAL_LEVEL,
         "cooling_start_delay_seconds": 180,
         "cooling_min_on_seconds": 600,
         "cooling_min_off_seconds": 300,
@@ -317,10 +308,24 @@ class ControllerState:
         "pm25_setpoint": 25.0,
         "pm25_step": 15.0,
         "pm25_hysteresis": 5.0,
-        "pm25_max_level": 5,
+        "pm25_max_level": NOMINAL_LEVEL,
         "pm25_ignored_rooms": [],
         # Extra DS18B20 sensors on the Pi's 1-Wire bus: {sensor_id: {"role", "name"}}.
         "onewire_roles": {},
+        # Step control: 4 = Dantherm's four steps, 6 = the free six-step table.
+        "fan_step_count": 4,
+        # Four steps: commissioning as on the HCP4/HRC2: step-3 gear per fan,
+        # the offset down to steps 2 and 1 and the step-4 maximum per fan.
+        "fan_settings": dict(fan_steps.DEFAULT_FAN_SETTINGS),
+        # Six steps: extract/supply gear per step, kept while four steps run.
+        "six_step_profiles": None,
+        # Measured airflow of the step control not in use (it belongs to its steps).
+        "airflow_measured_4": {},
+        "airflow_measured_6": {},
+        # Four steps: step 4 chosen by hand runs for MAX_LEVEL_HOURS, then step 3.
+        "max_level_until": None,
+        # What the upgrade from six steps kept.
+        "fan_steps_migration": None,
         "effective_source": "local_auto",
         "effective_level": 3,
         "effective_reason": "Controller starting",
@@ -333,6 +338,7 @@ class ControllerState:
         self.balance_error: str | None = None
         self.data = dict(self.DEFAULTS)
         self.data["profiles"] = _copy_profiles()
+        self.data["six_step_profiles"] = _copy_profiles(fan_steps.SIX_DEFAULT_PROFILES)
         self.data["schedule"] = _copy_schedule()
         self.data["updated_at"] = time.time()
         self.load()
@@ -344,17 +350,20 @@ class ControllerState:
             return
         if not isinstance(saved, dict):
             return
+        try:
+            saved, migrated = fan_steps.migrate_six_steps(saved)
+        except (KeyError, TypeError, ValueError):
+            migrated = False
+        if migrated:
+            backup = self.path.with_name(self.path.name + ".six-steps.bak")
+            try:
+                if not backup.exists():
+                    backup.write_text(self.path.read_text(encoding="utf-8"), encoding="utf-8")
+            except OSError:
+                pass
         for key in self.DEFAULTS:
             if key in saved:
                 self.data[key] = saved[key]
-        if isinstance(saved.get("profiles"), dict):
-            try:
-                profiles = _copy_profiles(saved["profiles"])
-                if set(profiles) == set(range(1, 7)):
-                    validate_ladder(profiles)
-                    self.data["profiles"] = profiles
-            except (ControllerError, KeyError, TypeError, ValueError):
-                pass
         if isinstance(saved.get("schedule"), dict):
             try:
                 self.data["schedule"] = _copy_schedule(saved["schedule"])
@@ -362,28 +371,54 @@ class ControllerState:
                 pass
         self._sanitize()
         self._rebalance()
+        if migrated:
+            self.save()
 
     def _sanitize(self) -> None:
         if self.data["mode"] not in VALID_MODES:
             self.data["mode"] = "local_auto"
         if self.data.get("afterheat_coil") not in VALID_AFTERHEAT_COILS:
             self.data["afterheat_coil"] = "electric"
+        if self.data.get("fan_step_count") not in STEP_COUNTS:
+            self.data["fan_step_count"] = 4
+        top = self.max_level()
+        try:
+            six = _copy_profiles(self.data.get("six_step_profiles") or fan_steps.SIX_DEFAULT_PROFILES)
+            validate_ladder(six)
+            if len(six) != 6:
+                raise ControllerError("six")
+        except (ControllerError, KeyError, TypeError, ValueError, AttributeError):
+            six = _copy_profiles(fan_steps.SIX_DEFAULT_PROFILES)
+        self.data["six_step_profiles"] = six
         for key, default in (
             ("manual_level", 3), ("local_normal_level", 3),
-            ("local_min_level", 1), ("local_max_level", 6),
+            ("local_min_level", 1), ("local_max_level", top),
             ("ha_requested_level", 3), ("night_level", 2),
-            ("night_air_quality_max_level", 4), ("bathroom_max_level", 6),
-            ("vacation_level", 1), ("quick_boost_level", 6), ("cooling_level", 4),
+            ("night_air_quality_max_level", NOMINAL_LEVEL), ("bathroom_max_level", top),
+            ("vacation_level", 1), ("quick_boost_level", top), ("cooling_level", NOMINAL_LEVEL),
         ):
             try:
                 value = int(self.data[key])
             except (TypeError, ValueError):
                 value = default
-            self.data[key] = min(6, max(1, value))
+            self.data[key] = min(top, max(1, value))
         if self.data["local_min_level"] > self.data["local_max_level"]:
-            self.data["local_min_level"], self.data["local_max_level"] = 1, 6
+            self.data["local_min_level"], self.data["local_max_level"] = 1, top
         self.data["local_normal_level"] = min(self.data["local_max_level"], max(self.data["local_min_level"], self.data["local_normal_level"]))
         self.data["ha_requested_level"] = min(self.data["local_max_level"], max(self.data["local_min_level"], self.data["ha_requested_level"]))
+        try:
+            self.data["fan_settings"] = clean_fan_settings(self.data.get("fan_settings") or {})
+        except ControllerError:
+            self.data["fan_settings"] = dict(fan_steps.DEFAULT_FAN_SETTINGS)
+        try:
+            max_until = float(self.data["max_level_until"]) if self.data.get("max_level_until") else None
+        except (TypeError, ValueError):
+            max_until = None
+        if self.dantherm_steps() and self.data["mode"] == "manual" and self.data["manual_level"] == MAX_LEVEL:
+            # Step 4 by hand always has an end, also for files without one.
+            self.data["max_level_until"] = max_until or time.time() + MAX_LEVEL_HOURS * 3600
+        else:
+            self.data["max_level_until"] = None
         if self.data["bypass"] not in VALID_BYPASS:
             self.data["bypass"] = "off"
         if self.data["fireplace"] and self.data["bypass"] == "on":
@@ -437,7 +472,7 @@ class ControllerState:
             self.data["vacation_from"] = None
         if self.data.get("schedule_periods") is not None:
             try:
-                self.data["schedule_periods"] = week_schedule.normalize(self.data["schedule_periods"])
+                self.data["schedule_periods"] = week_schedule.normalize(self.data["schedule_periods"], self.max_level())
             except week_schedule.ScheduleError:
                 self.data["schedule_periods"] = None
         try:
@@ -499,7 +534,7 @@ class ControllerState:
             try:
                 values["start"] = _validate_time(values["start"], "Tidsplan start")
                 values["end"] = _validate_time(values["end"], "Tidsplan slut")
-                values["level"] = min(6, max(1, int(values["level"])))
+                values["level"] = min(top, max(1, int(values["level"])))
                 values["enabled"] = bool(values["enabled"])
             except (ControllerError, TypeError, ValueError):
                 values.update(enabled=True, start="07:00", end="22:00", level=3)
@@ -521,6 +556,7 @@ class ControllerState:
             except (TypeError, ValueError):
                 self.data[key] = self.DEFAULTS[key]
         for key, low, high in self.ADVANCED_INTS:
+            high = self.max_level() if high is None else high  # step choices
             try:
                 self.data[key] = min(high, max(low, int(self.data.get(key, self.DEFAULTS[key]))))
             except (TypeError, ValueError):
@@ -565,7 +601,7 @@ class ControllerState:
         ("airflow_max_m3h", 100, 1500), ("sizing_reduced_percent", 30, 100),
         ("afterheat_room_min", 10, 35), ("afterheat_room_max", 10, 35),
         ("afterheat_room_step_minutes", 2, 60), ("fireplace_afterrun_minutes", 0, 120),
-        ("fireplace_max_hours", 1, 24), ("dry_max_level", 1, 6), ("pm25_max_level", 1, 6),
+        ("fireplace_max_hours", 1, 24), ("dry_max_level", 1, None), ("pm25_max_level", 1, None),
     )
 
     @staticmethod
@@ -598,8 +634,7 @@ class ControllerState:
         cleaned["last"] = value.get("last") if isinstance(value.get("last"), dict) else None
         return cleaned
 
-    @staticmethod
-    def _clean_airflow(value: object) -> dict[str, dict[str, int]]:
+    def _clean_airflow(self, value: object) -> dict[str, dict[str, int]]:
         """Measured airflow per level (m3/h), each at the fan percentage it was measured at."""
         if value in (None, ""):
             return {}
@@ -610,9 +645,9 @@ class ControllerState:
             try:
                 level = int(raw_level)
             except (TypeError, ValueError) as error:
-                raise ControllerError("Luftmængde kun for trin 1..6") from error
-            if level not in range(1, 7) or not isinstance(values, dict):
-                raise ControllerError("Luftmængde kun for trin 1..6")
+                raise ControllerError(f"Luftmængde kun for trin 1..{self.max_level()}") from error
+            if not 1 <= level <= self.max_level() or not isinstance(values, dict):
+                raise ControllerError(f"Luftmængde kun for trin 1..{self.max_level()}")
             entry: dict[str, int] = {}
             for side in ("supply", "extract"):
                 raw = values.get(side)
@@ -683,29 +718,69 @@ class ControllerState:
             self.save()
             return changed
 
-    def _rebalance(self, *, strict: bool = False) -> bool:
-        """Write the balanced supply percentages into the level profiles.
+    def max_level(self) -> int:
+        return 6 if self.data.get("fan_step_count") == 6 else MAX_LEVEL
 
-        The profiles stay what the unit runs, so the engine, the airflow plan
-        and Home Assistant need no second set. Returns True when a supply
-        percentage changed. strict raises when no valid ladder comes out
-        (a user change); otherwise the profiles are left as they were.
+    def dantherm_steps(self) -> bool:
+        return self.max_level() == MAX_LEVEL
+
+    def base_profiles(self) -> dict[int, dict[str, object]]:
+        """Steps before the balance: the Dantherm ladder or the six-step table."""
+        if self.dantherm_steps():
+            return _copy_profiles(fan_steps.ladder(self.data["fan_settings"]))
+        return _copy_profiles(self.data["six_step_profiles"])
+
+    def _set_step_count(self, count: int) -> None:
+        """Switch between four and six steps; every step choice follows."""
+        if count not in STEP_COUNTS:
+            raise ControllerError("Trinstyring skal være 4 eller 6 trin")
+        if count == self.max_level():
+            return
+        old_profiles = _copy_profiles(self.data["profiles"])
+        old_count = self.max_level()
+        self.data[f"airflow_measured_{old_count}"] = self.data.get("airflow_measured") or {}
+        self.data["airflow_measured"] = self.data.get(f"airflow_measured_{count}") or {}
+        self.data["fan_step_count"] = count
+        self._rebalance()
+        moved = fan_steps.remap_levels(self.data, old_profiles, self.data["profiles"])
+        for key in fan_steps.LEVEL_KEYS + ("schedule", "schedule_periods"):
+            if key in moved:
+                self.data[key] = moved[key]
+        self.data["local_min_level"] = 1
+        self.data["local_max_level"] = count
+        self.data["max_level_until"] = None
+
+    def _rebalance(self, *, strict: bool = False) -> bool:
+        """Build the four steps from the commissioning, balanced if chosen.
+
+        Extract always follows the Dantherm ladder. Without the balance the
+        supply fan does too; with it, supply on every step is solved so
+        extract stays the chosen share above supply in m3/h. The profiles
+        stay what the unit runs, so the engine, the airflow plan and Home
+        Assistant need no second set. Returns True when a step changed.
+        strict raises when no valid ladder comes out (a user change);
+        otherwise the unbalanced Dantherm ladder is used.
         """
-        if not self.data.get("balance_enabled"):
-            self.balance_error = None
-            return False
-        profiles = _copy_profiles(self.data["profiles"])
-        for level, values in balanced_profiles(self.data, profiles).items():
-            profiles[level]["supply"] = int(values["supply"])
-        try:
-            validate_ladder(profiles)
-        except ControllerError as error:
-            self.balance_error = f"Luftbalancen kan ikke lave gyldige trin: {error}"
-            if strict:
-                raise ControllerError(self.balance_error) from error
-            return False
+        profiles = self.base_profiles()
         self.balance_error = None
-        changed = profiles != self.data["profiles"]
+        if self.data.get("balance_enabled"):
+            balanced = _copy_profiles(profiles)
+            for level, values in balanced_profiles(self.data, balanced).items():
+                balanced[level]["supply"] = int(values["supply"])
+            try:
+                validate_ladder(balanced)
+                profiles = balanced
+            except ControllerError as error:
+                self.balance_error = f"Luftbalancen kan ikke lave gyldige trin: {error}"
+                if strict:
+                    raise ControllerError(self.balance_error) from error
+        if not self.balance_error:
+            try:
+                validate_ladder(profiles)
+            except ControllerError:
+                if strict:
+                    raise
+        changed = profiles != self.data.get("profiles")
         self.data["profiles"] = profiles
         return changed
 
@@ -784,7 +859,7 @@ class ControllerState:
                 "rh_setpoint", "rh_hysteresis", "co2_setpoint", "co2_hysteresis", "co2_offset",
                 "auto_step_rh", "auto_step_co2", "downshift_delay_seconds",
                 "boost_hold_seconds", "ha_timeout_seconds", "bypass", "fireplace",
-                "fireplace_minutes", "afterheat_setpoint", "afterheat_enabled", "afterheat_coil", "t3_setpoint", "t5_setpoint", "profiles", "schedule_enabled",
+                "fireplace_minutes", "afterheat_setpoint", "afterheat_enabled", "afterheat_coil", "t3_setpoint", "t5_setpoint", "profiles", "fan_settings", "fan_step_count", "schedule_enabled",
                 "schedule", "night_enabled", "night_start", "night_end", "night_level",
                 "night_air_quality_max_level", "bathroom_rh_setpoint",
                 "bathroom_rh_hysteresis", "bathroom_max_level",
@@ -798,6 +873,13 @@ class ControllerState:
             unknown = set(patch) - allowed
             if unknown:
                 raise ControllerError(f"Ukendt controller-felt: {sorted(unknown)[0]}")
+            if "fan_step_count" in patch:
+                try:
+                    self._set_step_count(int(patch["fan_step_count"]))
+                except (TypeError, ValueError) as error:
+                    raise ControllerError("Trinstyring skal være 4 eller 6 trin") from error
+            top = self.max_level()
+            was_max = self.data["mode"] == "manual" and self.data["manual_level"] == top
             if "mode" in patch:
                 if patch["mode"] not in VALID_MODES:
                     raise ControllerError("Ugyldig controller-mode")
@@ -805,9 +887,13 @@ class ControllerState:
             for key in ("manual_level", "local_normal_level", "local_min_level", "local_max_level", "night_level", "night_air_quality_max_level", "bathroom_max_level", "vacation_level", "quick_boost_level", "cooling_level"):
                 if key in patch:
                     value = int(patch[key])
-                    if not 1 <= value <= 6:
-                        raise ControllerError(f"{key} skal være 1..6")
+                    if not 1 <= value <= top:
+                        raise ControllerError(f"{key} skal være 1..{top}")
                     self.data[key] = value
+            if self.dantherm_steps() and self.data["mode"] == "manual" and self.data["manual_level"] == MAX_LEVEL and (
+                    not was_max or "manual_level" in patch):
+                # Choosing step 4 (again) starts its four hours.
+                self.data["max_level_until"] = time.time() + MAX_LEVEL_HOURS * 3600
             for key, low, high in (
                 ("rh_setpoint", 25.0, 80.0), ("rh_hysteresis", 1.0, 10.0),
                 ("bathroom_rh_setpoint", 35.0, 90.0), ("bathroom_rh_hysteresis", 1.0, 20.0),
@@ -858,7 +944,7 @@ class ControllerState:
             if "schedule_periods" in patch:
                 try:
                     self.data["schedule_periods"] = (
-                        None if patch["schedule_periods"] is None else week_schedule.normalize(patch["schedule_periods"]))
+                        None if patch["schedule_periods"] is None else week_schedule.normalize(patch["schedule_periods"], top))
                 except week_schedule.ScheduleError as error:
                     raise ControllerError(str(error)) from error
             if "quick_boost_minutes" in patch:
@@ -922,8 +1008,8 @@ class ControllerState:
                         schedule[day]["end"] = _validate_time(values["end"], "Tidsplan slut")
                     if "level" in values:
                         level = int(values["level"])
-                        if not 1 <= level <= 6:
-                            raise ControllerError("Tidsplan-niveau skal være 1..6")
+                        if not 1 <= level <= top:
+                            raise ControllerError(f"Tidsplan-niveau skal være 1..{top}")
                         schedule[day]["level"] = level
                 self.data["schedule"] = schedule
             if "bypass" in patch:
@@ -980,42 +1066,39 @@ class ControllerState:
                 if not isinstance(patch["afterheat_enabled"], bool):
                     raise ControllerError("afterheat_enabled skal være boolean")
                 self.data["afterheat_enabled"] = patch["afterheat_enabled"]
-            if "profiles" in patch:
+            if "fan_settings" in patch:
+                self.data["fan_settings"] = clean_fan_settings(patch["fan_settings"], self.data["fan_settings"])
+            if "profiles" in patch and not self.dantherm_steps():
+                self._configure_six_steps(patch)
+            elif "profiles" in patch:
+                # Older clients edit steps directly: step 3 is the commissioning
+                # and step 4 the maximum; steps 1 and 2 follow the offset.
                 incoming = patch["profiles"]
                 if not isinstance(incoming, dict):
                     raise ControllerError("profiles skal være et objekt")
-                balance_was_on = self.data.get("balance_enabled") is True
-                balance_on = patch.get("balance_enabled", balance_was_on) is True
-                profiles = _copy_profiles(self.data["profiles"])
+                settings = dict(self.data["fan_settings"])
                 for raw_level, values in incoming.items():
                     level = int(raw_level)
-                    if level not in range(1, 7) or not isinstance(values, dict):
-                        raise ControllerError("Kun niveau 1..6 understøttes")
-                    extract = int(values.get("extract", profiles[level]["extract"]))
-                    supply = int(values.get("supply", profiles[level]["supply"]))
-                    if balance_on:
-                        # The balance solves supply from extract; resending the
-                        # current value (a form saving every field) is fine.
-                        if balance_was_on and supply != profiles[level]["supply"]:
+                    if not 1 <= level <= MAX_LEVEL or not isinstance(values, dict):
+                        raise ControllerError("Kun trin 1..4 understøttes")
+                    current = self.data["profiles"][level]
+                    for side in ("supply", "extract"):
+                        if side not in values or int(values[side]) == int(current[side]):
+                            continue
+                        if level < NOMINAL_LEVEL:
+                            raise ControllerError("Trin 1 og 2 følger gearafstanden. Ændr trin 3 eller gearafstanden")
+                        if side == "supply" and self.data.get("balance_enabled"):
                             raise ControllerError("Indblæsningen styres af luftbalancen. Ændr udsugningen, eller slå luftbalancen fra for at sætte indblæsningen selv")
-                        if not 11 <= extract <= 100:
-                            raise ControllerError("Udsugning skal være 11..100 %")
-                        profiles[level]["extract"] = extract
-                    else:
-                        validate_profile(extract, supply)
-                        profiles[level].update(extract=extract, supply=supply)
-                    if "name" in values:
-                        name = str(values["name"]).strip()
-                        if not name or len(name) > 24:
-                            raise ControllerError("Profilnavn skal være 1..24 tegn")
-                        profiles[level]["name"] = name
-                if balance_on:
-                    for level in range(2, 7):
-                        if profiles[level]["extract"] <= profiles[level - 1]["extract"]:
-                            raise ControllerError("Udsugningen skal stige fra trin til trin")
-                else:
-                    validate_ladder(profiles)
-                self.data["profiles"] = profiles
+                        settings[side if level == NOMINAL_LEVEL else f"max_{side}"] = int(values[side])
+                if settings["max_supply"] < settings["supply"]:
+                    settings["max_supply"] = settings["supply"]
+                if settings["max_extract"] < settings["extract"]:
+                    settings["max_extract"] = settings["extract"]
+                self.data["fan_settings"] = clean_fan_settings(settings)
+            if (not self.dantherm_steps() and patch.get("balance_enabled") is False
+                    and self.data.get("balance_enabled")):
+                # Six steps: switching the balance off keeps the balanced supply.
+                self.data["six_step_profiles"] = _copy_profiles(self.data["profiles"])
             self._configure_advanced(patch)
             self._sanitize()
             self._rebalance(strict=True)
@@ -1053,6 +1136,42 @@ class ControllerState:
         "pm25_max_level": "Maks. trin ved PM2.5",
     }
 
+    def _configure_six_steps(self, patch: dict[str, object]) -> None:
+        """Six steps: extract and supply gear set per step, as before."""
+        incoming = patch["profiles"]
+        if not isinstance(incoming, dict):
+            raise ControllerError("profiles skal være et objekt")
+        balance_was_on = self.data.get("balance_enabled") is True
+        balance_on = patch.get("balance_enabled", balance_was_on) is True
+        running = self.data["profiles"]
+        table = _copy_profiles(self.data["six_step_profiles"])
+        for raw_level, values in incoming.items():
+            level = int(raw_level)
+            if not 1 <= level <= 6 or not isinstance(values, dict):
+                raise ControllerError("Kun trin 1..6 understøttes")
+            extract = int(values.get("extract", table[level]["extract"]))
+            supply = int(values.get("supply", running[level]["supply"]))
+            if balance_on:
+                # The balance solves supply from extract; resending the
+                # current value (a form saving every field) is fine.
+                if balance_was_on and supply != running[level]["supply"]:
+                    raise ControllerError("Indblæsningen styres af luftbalancen. Ændr udsugningen, eller slå luftbalancen fra for at sætte indblæsningen selv")
+                table[level]["extract"] = extract
+            else:
+                table[level].update(extract=extract, supply=supply)
+            if "name" in values:
+                name = str(values["name"]).strip()
+                if not name or len(name) > 24:
+                    raise ControllerError("Profilnavn skal være 1..24 tegn")
+                table[level]["name"] = name
+        if balance_on:
+            for level in range(2, 7):
+                if table[level]["extract"] <= table[level - 1]["extract"]:
+                    raise ControllerError("Udsugningen skal stige fra trin til trin")
+        else:
+            validate_ladder(table)
+        self.data["six_step_profiles"] = table
+
     def _configure_advanced(self, patch: dict[str, object]) -> None:
         for key in self.BOOL_KEYS:
             if key in patch:
@@ -1079,6 +1198,7 @@ class ControllerState:
                     raise ControllerError(f"{self.ADVANCED_LABELS[key]} skal være {low:g}..{high:g}")
                 self.data[key] = value
         for key, low, high in self.ADVANCED_INTS:
+            high = self.max_level() if high is None else high  # step choices
             if key in patch:
                 try:
                     value = int(patch[key])
@@ -1122,8 +1242,11 @@ class ControllerState:
     def heartbeat(self, demand: str = "normal", *, requested_level: int | None = None, valid_for_s: int | None = None, reason: str | None = None, bathroom_drying: bool = False) -> dict[str, object]:
         if demand not in VALID_DEMANDS:
             raise ControllerError("Ugyldigt HA-demand")
+        # Older integrations still ask for 5 or 6: that is the maximum.
         if requested_level is not None and not 1 <= int(requested_level) <= 6:
-            raise ControllerError("HA requested level skal være 1..6")
+            raise ControllerError(f"HA requested level skal være 1..{self.max_level()}")
+        if requested_level is not None:
+            requested_level = min(self.max_level(), int(requested_level))
         if valid_for_s is not None and not 30 <= int(valid_for_s) <= 900:
             raise ControllerError("HA lease skal være 30..900 sekunder")
         with self.lock:
@@ -1178,6 +1301,23 @@ class ControllerState:
             self.data["updated_at"] = now
             self.save()
 
+    def _expire_max_level(self, now: float | None = None) -> None:
+        """Step 4 chosen by hand returns to step 3, like the HCP4 panel."""
+        now = now or time.time()
+        until = self.data.get("max_level_until")
+        if until is None:
+            return
+        try:
+            active_until = float(until)
+        except (TypeError, ValueError):
+            active_until = 0.0
+        if active_until <= now:
+            if self.dantherm_steps() and self.data["mode"] == "manual" and self.data["manual_level"] == MAX_LEVEL:
+                self.data["manual_level"] = NOMINAL_LEVEL
+            self.data["max_level_until"] = None
+            self.data["updated_at"] = now
+            self.save()
+
     def _expire_bonfire(self, now: float | None = None) -> None:
         now = now or time.time()
         until = self.data.get("bonfire_until")
@@ -1215,6 +1355,7 @@ class ControllerState:
             self._expire_vacation(now)
             self._expire_quick_boost(now)
             self._expire_bonfire(now)
+            self._expire_max_level(now)
             result = dict(self.data)
             result["profiles"] = _copy_profiles(self.data["profiles"])
             result["schedule"] = _copy_schedule(self.data["schedule"])
@@ -1229,6 +1370,19 @@ class ControllerState:
             bonfire_until = result.get("bonfire_until")
             result["bonfire_remaining_seconds"] = max(0, int(float(bonfire_until) - now)) if bonfire_until else 0
             result["bonfire_active"] = bool(result["bonfire_remaining_seconds"])
+            max_until = result.get("max_level_until")
+            result["max_level_remaining_seconds"] = max(0, int(float(max_until) - now)) if max_until else 0
+            result["fan_levels"] = list(range(1, self.max_level() + 1))
+            result["max_level"] = self.max_level()
+            result["six_step_profiles"] = _copy_profiles(self.data["six_step_profiles"])
+            result["fan_steps"] = {
+                "settings": dict(self.data["fan_settings"]),
+                "ladder": _copy_profiles(fan_steps.ladder(self.data["fan_settings"])),
+                "nominal_range": list(fan_steps.NOMINAL_RANGE),
+                "offset_range": list(fan_steps.OFFSET_RANGE),
+                "offset_default": fan_steps.OFFSET_DEFAULT,
+                "max_level_hours": MAX_LEVEL_HOURS,
+            }
             standby_until = result.get("standby_until")
             result["standby_active"] = result.get("standby") is True
             result["standby_remaining_seconds"] = max(0, int(float(standby_until) - now)) if standby_until else None
@@ -1617,9 +1771,13 @@ class ControllerEngine:
             self.config._expire_fireplace(now)
             self.config._expire_vacation(now)
             self.config._expire_quick_boost(now)
+            self.config._expire_max_level(now)
             d = self.config.data
             if d["mode"] == "manual":
                 source, level, reason = "manual", int(d["manual_level"]), "Manuelt valgt niveau"
+                if self.config.dantherm_steps() and level == MAX_LEVEL and d.get("max_level_until"):
+                    remaining = max(0, math.ceil((float(d["max_level_until"]) - now) / 60))
+                    reason = f"Trin 4 (maksimum) · tilbage til trin 3 om ca. {remaining} min"
             elif d["mode"] == "smart_auto":
                 seen = d.get("ha_last_seen")
                 lease = min(int(d["ha_timeout_seconds"]), int(d.get("ha_valid_for_seconds", d["ha_timeout_seconds"])))

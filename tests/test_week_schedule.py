@@ -79,8 +79,15 @@ class EngineScheduleTests(unittest.TestCase):
 
     def test_min_period_raises(self):
         engine = self.make_engine()
-        engine.config.configure({"schedule_enabled": True, "schedule_periods": self.all_day(5, "min")})
+        engine.config.configure({"schedule_enabled": True, "schedule_periods": self.all_day(4, "min")})
         engine.update_measurements(rh=40, co2=600)
+        self.assertEqual(engine.resolve(now=time.time())["effective_level"], 4)
+        with self.assertRaises(ControllerError):
+            engine.config.configure({"schedule_periods": self.all_day(5, "min")})
+        # Six steps: the period follows to the step with the nearest fan gears.
+        engine.config.configure({"fan_step_count": 6})
+        self.assertEqual(engine.config.data["schedule_periods"]["0"][0]["level"], 6)
+        engine.config.configure({"schedule_periods": self.all_day(5, "min")})
         self.assertEqual(engine.resolve(now=time.time())["effective_level"], 5)
 
     def test_snapshot_exposes_now_and_invalid_periods_are_rejected(self):

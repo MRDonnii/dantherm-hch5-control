@@ -12,14 +12,17 @@ from controller_runtime import ControllerRuntime
 
 
 class ControllerRuntimeTests(unittest.TestCase):
-    def make_runtime(self, gateway_state=None):
+    def make_runtime(self, gateway_state=None, steps=4):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        return ControllerRuntime(
+        runtime = ControllerRuntime(
             gateway_state=gateway_state or {},
             hardware=HardwareAdapter(),
             state_path=Path(temp.name) / "controller.json",
         )
+        if steps == 6:
+            runtime.config.configure({"fan_step_count": 6, "local_normal_level": 3})
+        return runtime
 
     @staticmethod
     def decision(runtime, rooms):
@@ -158,6 +161,13 @@ class ControllerRuntimeTests(unittest.TestCase):
         expected = {250: 1, 700: 2, 800: 3, 900: 4, 1100: 5, 1300: 6}
         for co2, level in expected.items():
             with self.subTest(co2=co2):
+                runtime = self.make_runtime(steps=6)
+                self.assertEqual(self.decision(runtime, {"Room": {"co2": co2}}), level)
+
+    def test_smart_auto_uses_the_four_dantherm_steps_from_co2(self):
+        expected = {250: 1, 700: 2, 800: 3, 900: 4, 1300: 4}
+        for co2, level in expected.items():
+            with self.subTest(co2=co2):
                 runtime = self.make_runtime()
                 self.assertEqual(self.decision(runtime, {"Room": {"co2": co2}}), level)
 
@@ -182,14 +192,14 @@ class ControllerRuntimeTests(unittest.TestCase):
         runtime = self.make_runtime()
         self.assertGreaterEqual(
             self.decision(runtime, {"Utility": {"humidity": 58, "room_type": "normal"}}),
-            5,
+            4,
         )
 
     def test_room_priority_changes_mild_response(self):
         cases = (("low", 3), ("auto", 4), ("normal", 4), ("high", 5), ("critical", 6))
         for priority, expected in cases:
             with self.subTest(priority=priority):
-                runtime = self.make_runtime()
+                runtime = self.make_runtime(steps=6)
                 self.assertEqual(
                     self.decision(runtime, {"Room": {"co2": 900, "priority": priority}}),
                     expected,
@@ -207,7 +217,7 @@ class ControllerRuntimeTests(unittest.TestCase):
         self.assertEqual(snapshot["smart_max_co2_room"], "Monitor")
 
     def test_severe_auto_room_beats_mild_high_priority_room(self):
-        runtime = self.make_runtime()
+        runtime = self.make_runtime(steps=6)
         self.assertEqual(self.decision(runtime, {
             "Severe": {"co2": 1300, "priority": "auto"},
             "Mild": {"co2": 850, "priority": "high"},
@@ -216,7 +226,7 @@ class ControllerRuntimeTests(unittest.TestCase):
 
     def test_unit_sensor_is_combined_with_home_assistant_rooms(self):
         runtime = self.make_runtime({"co2": 1300, "humidity": 40})
-        self.assertEqual(self.decision(runtime, {"Bedroom": {"co2": 600}}), 6)
+        self.assertEqual(self.decision(runtime, {"Bedroom": {"co2": 600}}), 4)
         self.assertEqual(runtime.smart_controlling_room, "HCH5 / lokale sensorer")
 
     def test_invalid_metadata_measurement_and_room_count_are_rejected(self):
