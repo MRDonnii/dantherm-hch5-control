@@ -97,6 +97,18 @@ class FanStepTests(unittest.TestCase):
         self.assertIsNone(state.data["max_level_until"])
         self.assertEqual(engine.resolve(now=time.time() + 5 * 3600)["effective_level"], 4)
 
+    def test_vacation_may_go_below_the_auto_minimum(self):
+        state = self.state()
+        engine = ControllerEngine(state)
+        state.configure({"mode": "smart_auto", "local_min_level": 2, "vacation_level": 1})
+        state.heartbeat("low", requested_level=1, reason="CO2 lav")
+        self.assertEqual(engine.resolve()["effective_level"], 2)
+        state.configure({"vacation_enabled": True})
+        result = engine.resolve()
+        self.assertEqual((result["effective_level"], result["effective_source"]), (1, "vacation"))
+        state.configure({"vacation_enabled": False})
+        self.assertEqual(engine.resolve()["effective_level"], 2)
+
     def test_step_choice_is_validated(self):
         state = self.state()
         for bad in (5, "x", None):

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.1
+
+- **Vacation runs its own step:** *Auto minimumsniveau* is meant for an occupied house, so vacation is no longer lifted to it. With the minimum at step 2 and the vacation step at 1, vacation now runs step 1; the house-size minimum (*Reduceret minimum*) still applies. Home Assistant can switch vacation on and off (integration 0.8.1-beta.12), for example from the house mode.
+- Changes by Claude AI.
+
 ## 1.4.0
 
 - **Dantherm's four steps (new default):** the controller now runs the fan steps the way Dantherm's HCP4 panel and HRC 2 do (HCH 5 installation and service manual). Step 3 is the nominal airflow the house is commissioned to: supply and extract each get their own gear 46–91. Steps 2 and 1 lie one and two offsets below step 3 on both fans (factory 25 gears, 10–30 like the HRC 2), and step 4 is the maximum, per fan from step 3 up to gear 100. Step 4 chosen by hand runs for four hours and then returns to step 3, as on Dantherm's panel. Supply may never run a higher gear than extract.
