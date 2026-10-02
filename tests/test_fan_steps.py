@@ -109,6 +109,17 @@ class FanStepTests(unittest.TestCase):
         state.configure({"vacation_enabled": False})
         self.assertEqual(engine.resolve()["effective_level"], 2)
 
+    def test_manual_steps_ignore_the_auto_limits(self):
+        state = self.state()
+        engine = ControllerEngine(state)
+        state.configure({"local_min_level": 2, "local_max_level": 3, "mode": "manual", "manual_level": 1})
+        self.assertEqual(engine.resolve()["effective_level"], 1)
+        state.configure({"manual_level": 4})
+        self.assertEqual(engine.resolve()["effective_level"], 4)
+        # Automatic control still keeps within the Auto limits.
+        state.configure({"mode": "local_auto"})
+        self.assertLessEqual(engine.resolve()["effective_level"], 3)
+
     def test_step_choice_is_validated(self):
         state = self.state()
         for bad in (5, "x", None):

@@ -1693,9 +1693,11 @@ class ControllerEngine:
 
         if d.get("fireplace"):
             effective_bypass = "off"
-        # Vacation chooses its own step: the Auto minimum is for an occupied house.
-        auto_floor = 1 if flags["vacation_active"] else int(d["local_min_level"])
-        level = min(int(d["local_max_level"]), max(auto_floor, int(level)))
+        # The Auto limits are for automatic control: a step chosen by hand is
+        # never moved by them, and vacation chooses its own (lower) step.
+        if d["mode"] != "manual" or source != "manual":
+            auto_floor = 1 if flags["vacation_active"] else int(d["local_min_level"])
+            level = min(int(d["local_max_level"]), max(auto_floor, int(level)))
         standby_until = d.get("standby_until")
         flags["standby_active"] = d.get("standby") is True and (standby_until is None or float(standby_until) > now_ts)
         if flags["standby_active"]:

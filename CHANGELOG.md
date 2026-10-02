@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.2
+
+- **A step chosen by hand is used as chosen:** *Auto minimumsniveau* and *Auto maksimumsniveau* also clamped manual mode, so with the minimum at step 2 manual step 1 ran step 2. The Auto limits now only apply to automatic control (Local Auto, Smart Auto, schedule, night and the timed functions on top of them).
+- Changes by Claude AI.
+
 ## 1.4.1
 
 - **Vacation runs its own step:** *Auto minimumsniveau* is meant for an occupied house, so vacation is no longer lifted to it. With the minimum at step 2 and the vacation step at 1, vacation now runs step 1; the house-size minimum (*Reduceret minimum*) still applies. Home Assistant can switch vacation on and off (integration 0.8.1-beta.12), for example from the house mode.
