@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.7
+
+- **The Auto range survives a switch between 4 and 6 steps:** switching set *Auto minimumsniveau* back to 1. It now moves to the step with the nearest fan gears like every other step choice, and an Auto maximum at the top step stays at the top step.
+- Changes by Claude AI.
+
 ## 1.4.6
 
 - **Updates install again after users were added:** `update.sh` only accepted the old single-owner login file and refused to update once the WebUI had stored it in the multi-user format ("webui-auth.json is incomplete"). It now accepts both formats and still requires at least one complete login. Includes 1.4.5.

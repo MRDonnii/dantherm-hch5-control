@@ -120,6 +120,15 @@ class FanStepTests(unittest.TestCase):
         state.configure({"mode": "local_auto"})
         self.assertLessEqual(engine.resolve()["effective_level"], 3)
 
+    def test_auto_minimum_follows_a_step_switch(self):
+        state = self.state(SIX_STEP_FILE)
+        state.configure({"local_min_level": 2})
+        state.configure({"fan_step_count": 6})
+        # 4-step step 2 (45/34) is nearest to 6-step step 2 (40/30); the top stays the top.
+        self.assertEqual((state.data["local_min_level"], state.data["local_max_level"]), (2, 6))
+        state.configure({"fan_step_count": 4})
+        self.assertEqual((state.data["local_min_level"], state.data["local_max_level"]), (2, 4))
+
     def test_step_choice_is_validated(self):
         state = self.state()
         for bad in (5, "x", None):

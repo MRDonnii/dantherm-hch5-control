@@ -738,6 +738,7 @@ class ControllerState:
             return
         old_profiles = _copy_profiles(self.data["profiles"])
         old_count = self.max_level()
+        old_top_max = int(self.data["local_max_level"]) >= old_count
         self.data[f"airflow_measured_{old_count}"] = self.data.get("airflow_measured") or {}
         self.data["airflow_measured"] = self.data.get(f"airflow_measured_{count}") or {}
         self.data["fan_step_count"] = count
@@ -746,8 +747,11 @@ class ControllerState:
         for key in fan_steps.LEVEL_KEYS + ("schedule", "schedule_periods"):
             if key in moved:
                 self.data[key] = moved[key]
-        self.data["local_min_level"] = 1
-        self.data["local_max_level"] = count
+        # The Auto range follows like every other step choice; an Auto
+        # maximum at the top step stays at the top step.
+        if old_top_max:
+            self.data["local_max_level"] = count
+        self.data["local_min_level"] = min(self.data["local_min_level"], self.data["local_max_level"])
         self.data["max_level_until"] = None
 
     def _rebalance(self, *, strict: bool = False) -> bool:
