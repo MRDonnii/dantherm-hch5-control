@@ -110,7 +110,11 @@ if [[ -f ${auth_file} ]]; then
 import json, sys
 with open(sys.argv[1], encoding="utf-8") as handle:
     data = json.load(handle)
-if not isinstance(data, dict) or not data.get("username") or not data.get("salt") or not data.get("password_hash"):
+def complete(user):
+    return isinstance(user, dict) and all(user.get(key) for key in ("username", "salt", "password_hash"))
+# Format 2 (webui_auth.py) holds several users; format 1 held a single owner.
+users = data.get("users") if isinstance(data, dict) else None
+if not (complete(data) or (isinstance(users, list) and any(complete(user) for user in users))):
     raise SystemExit("webui-auth.json is incomplete")
 print("WebUI owner store: OK")
 PY
