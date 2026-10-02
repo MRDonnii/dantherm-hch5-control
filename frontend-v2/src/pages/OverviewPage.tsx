@@ -352,6 +352,16 @@ export function OverviewPage() {
                 <div className="climate-metric neutral"><Flame size={21}/><span>Eftervarme effekt</span><strong>{whole(number(controller.afterheat_power_w))} <small>W</small></strong><em>Varme tilført luften</em><i style={{ width: `${Math.min(100, (number(controller.afterheat_power_w) ?? 0) / 20)}%` }}/></div>
               </div>
             </>}
+            {/* Extract duct loss: the HA average of the rooms with an extract valve against T3 and the loft. */}
+            {number(controller.extract_rooms_temperature) !== null && <>
+              <div className="pro-card-head compact air-calc-head"><div><h2>Udsugningskanaler · afkøling på loftet</h2><p>Rum med udsugning → T3 ved anlægget{number(controller.attic_temperature) !== null ? ` · loft ${temp(number(controller.attic_temperature))}` : ""}</p></div></div>
+              <div className="climate-metrics">
+                <div className="climate-metric neutral"><span className="metric-heat">≋</span><span>Udsugningsrum</span><strong>{temp(number(controller.extract_rooms_temperature))}</strong><em>Gennemsnit fra Home Assistant</em></div>
+                <div className="climate-metric cyan"><Wind size={21}/><span>T3 ved anlægget</span><strong>{temp(number(controller.extract_duct_loss_k) === null ? null : number(controller.extract_rooms_temperature)! - number(controller.extract_duct_loss_k)!)}</strong><em>Udsugning ind i veksleren</em></div>
+                <div className="climate-metric neutral"><Gauge size={21}/><span>Afkøling</span><strong>{number(controller.extract_duct_loss_k) === null ? "—" : `${number(controller.extract_duct_loss_k)!.toLocaleString("da-DK", { maximumFractionDigits: 1 })} K`}</strong><em>Rum − T3</em></div>
+                <div className={`climate-metric ${(number(controller.extract_duct_loss_percent) ?? 0) > 15 ? "neutral" : "green"}`}><Snowflake size={21}/><span>Andel tabt</span><strong>{number(controller.extract_duct_loss_percent) === null ? "—" : `${whole(number(controller.extract_duct_loss_percent))} %`}</strong><em title="Afkølingen delt med forskellen mellem rummene og loftet. En isoleret, tæt kanal giver få procent.">af forskellen rum − loft</em></div>
+              </div>
+            </>}
           </article>
         </div>
         <div className="dashboard-col dashboard-col-side">

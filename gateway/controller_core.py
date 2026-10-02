@@ -299,6 +299,9 @@ class ControllerState:
         # Humidity demand only counts when outdoor air actually dries the house.
         "humidity_smart_enabled": False,
         "outdoor_humidity_source": "",
+        # HA room (control off) whose temperature is the average of the rooms
+        # with an extract valve; compared with T3 it shows the extract duct loss.
+        "duct_extract_source": "",
         "humidity_margin_gm3": 0.5,
         "dry_protection_enabled": False,
         "dry_rh_limit": 30.0,
@@ -569,6 +572,7 @@ class ControllerState:
             ("afterheat_room_source", True, "auto"),
             ("fireplace_auto_source", False, ""),
             ("outdoor_humidity_source", False, ""),
+            ("duct_extract_source", False, ""),
         ):
             try:
                 self.data[key] = valid_source(self.data.get(key), allow_fixed=allow_fixed,
@@ -1119,7 +1123,7 @@ class ControllerState:
         "afterheat_room_min", "afterheat_room_max", "afterheat_room_step_minutes",
         "afterheat_room_source", "fireplace_auto_enabled", "fireplace_auto_source",
         "fireplace_auto_on_temp", "fireplace_auto_off_temp", "fireplace_afterrun_minutes",
-        "fireplace_max_hours", "humidity_smart_enabled", "outdoor_humidity_source",
+        "fireplace_max_hours", "humidity_smart_enabled", "outdoor_humidity_source", "duct_extract_source",
         "humidity_margin_gm3", "dry_protection_enabled", "dry_rh_limit", "dry_max_level",
         "onewire_roles", "pm25_enabled", "pm25_setpoint", "pm25_step", "pm25_hysteresis",
         "pm25_max_level", "pm25_ignored_rooms",
@@ -1217,7 +1221,7 @@ class ControllerState:
             raise ControllerError("Pejs stop skal være lavere end pejs start")
         for key, allow_fixed in (
             ("afterheat_room_source", True), ("fireplace_auto_source", False),
-            ("outdoor_humidity_source", False),
+            ("outdoor_humidity_source", False), ("duct_extract_source", False),
         ):
             if key in patch:
                 try:

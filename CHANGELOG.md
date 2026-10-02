@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.8
+
+- **Extract duct cooling on the overview:** choose an HA room with the average temperature of the rooms with an extract valve (*Indstillinger → Følere → Udsugningsrum*). The overview then shows the rooms, T3 at the unit, how much the extract air cools on its way through the loft and that loss as a share of the difference between the rooms and the loft. The share does not change with the weather, so a leak or a poorly insulated duct shows as a steady number. The values are also in the controller state for Home Assistant (`extract_rooms_temperature`, `extract_duct_loss_k`, `extract_duct_loss_percent`). The extract room is a measurement only and is left out of the house average.
+- Changes by Claude AI.
+
 ## 1.4.7
 
 - **The Auto range survives a switch between 4 and 6 steps:** switching set *Auto minimumsniveau* back to 1. It now moves to the step with the nearest fan gears like every other step choice, and an Auto maximum at the top step stays at the top step.

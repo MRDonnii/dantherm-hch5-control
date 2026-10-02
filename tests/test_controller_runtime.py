@@ -264,3 +264,21 @@ class ControllerRuntimeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExtractDuctLossTests(unittest.TestCase):
+    def test_extract_duct_loss_against_the_extract_rooms_and_the_loft(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        runtime = ControllerRuntime(gateway_state={"extract_temp": 20.0}, hardware=HardwareAdapter(),
+                                    state_path=Path(temp.name) / "controller.json")
+        runtime.onewire.by_role = lambda role: 10.0 if role == "attic" else None
+        runtime.configure({"duct_extract_source": "room:Udsugningsrum"}, apply=False)
+        runtime.room_inputs({"source": "home_assistant", "valid_for_s": 180, "rooms": {
+            "Udsugningsrum": {"temperature": 23.0, "control": False}, "Hus": {"temperature": 22.0, "control": False}}})
+        snapshot = runtime.snapshot()
+        self.assertEqual(snapshot["extract_rooms_temperature"], 23.0)
+        self.assertEqual(snapshot["extract_duct_loss_k"], 3.0)
+        self.assertEqual(snapshot["extract_duct_loss_percent"], 23.1)
+        # The extract rooms are a measurement only, not part of the house average.
+        self.assertEqual(snapshot["measurements"]["room"], 22.0)

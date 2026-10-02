@@ -206,11 +206,27 @@ class ControllerRuntime:
     def _source_room_names(self) -> set[str]:
         """HA rooms used as stove/outdoor sensors, never as indoor air quality."""
         names = set()
-        for key in ("fireplace_auto_source", "outdoor_humidity_source"):
+        for key in ("fireplace_auto_source", "outdoor_humidity_source", "duct_extract_source"):
             name = source_room(self.config.data.get(key))
             if name:
                 names.add(name)
         return names
+
+    def _extract_duct_loss(self) -> dict[str, float | None]:
+        """How much the extract air cools on its way from the rooms to the unit (T3).
+
+        The rooms are an HA room chosen in duct_extract_source (the average of
+        the rooms with an extract valve). The share is the loss divided by the
+        difference between the rooms and the loft, so it does not change with
+        the weather: a leak or a poorly insulated duct shows as a steady share.
+        """
+        rooms = self._source_value(self.config.data.get("duct_extract_source"), "temperature")
+        t3 = self._safe_number(self._first(self.gateway_state, "extract_temp", "extract_temperature"), -30, 60)
+        loft = self.onewire.by_role("attic")
+        loss = round(rooms - t3, 2) if rooms is not None and t3 is not None else None
+        span = rooms - loft if rooms is not None and isinstance(loft, (int, float)) else None
+        share = round(loss / span * 100, 1) if loss is not None and span is not None and span >= 3 else None
+        return {"extract_rooms_temperature": rooms, "extract_duct_loss_k": loss, "extract_duct_loss_percent": share}
 
     def _source_value(self, source: object, kind: str) -> float | None:
         name = source_room(source)
@@ -975,6 +991,7 @@ class ControllerRuntime:
             "actual_supply_before_heater_estimate": self._before_heater_estimate(),
             "onewire_sensors": onewire_sensors,
             "attic_temperature": self.onewire.by_role("attic"),
+            **self._extract_duct_loss(),
             "actual_supply_before_heater_temperature_source": before_source,
             "actual_supply_before_heater_age_seconds": round(sample_age, 1) if sample_age is not None else None,
             "actual_supply_air_temperature": after_heater,

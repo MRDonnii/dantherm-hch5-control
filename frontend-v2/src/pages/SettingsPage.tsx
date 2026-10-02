@@ -41,7 +41,7 @@ export const CONTROLLER_KEYS = [
   "sizing_enabled", "house_area_m2", "ceiling_height_m", "house_bathrooms", "house_utility_rooms",
   "airflow_max_m3h", "sizing_reduced_percent", "airflow_measured",
   "balance_enabled", "balance_extract_excess_percent", "balance_ratio_mode", "balance_duct_ratio", "fan_settings",
-  "humidity_smart_enabled", "outdoor_humidity_source", "humidity_margin_gm3",
+  "humidity_smart_enabled", "outdoor_humidity_source", "humidity_margin_gm3", "duct_extract_source",
   "dry_protection_enabled", "dry_rh_limit", "dry_max_level",
   "fireplace_auto_enabled", "fireplace_auto_source", "fireplace_auto_on_temp", "fireplace_auto_off_temp",
   "fireplace_afterrun_minutes", "fireplace_max_hours", "onewire_roles",
@@ -264,6 +264,9 @@ export function SettingsPage() {
             <td><input className="settings-table-name" aria-label={`${sensor.id} ${lang === "da" ? "navn" : "name"}`} maxLength={32} placeholder={entry.role === "none" ? "" : t(roleLabel[entry.role] ?? roleLabel.other)} value={entry.name} onChange={e => setOnewire(sensor.id, { name: e.target.value })}/></td>
           </tr>; })())}</tbody></table></div>}
       <p className="settings-help">{lang === "da" ? "T2-føleren skal sidde i indblæsningskanalen mellem enheden og varmefladen, mindst 20–30 cm fra fladen. Loftføleren skal hænge i skygge væk fra tagpladerne." : "The T2 sensor belongs in the supply duct between the unit and the afterheat coil, at least 20–30 cm from the coil. Hang the loft sensor in shade away from the roof."}</p>
+          <div className="settings-grid">
+        <label>{lang === "da" ? "Udsugningsrum (gennemsnit)" : "Extract rooms (average)"}<select value={s(form.duct_extract_source)} onChange={e => set("duct_extract_source", e.target.value)}><option value="">{t(T.none)}</option>{roomOptions(form.duct_extract_source)}</select><Help>{lang === "da" ? "Et rum i HCH5 Control-integrationen med gennemsnittet af rummene med udsugningsventil (styring slået fra). Sammenholdt med T3 viser oversigten, hvor meget udsugningsluften køles af på vej til anlægget – i grader og som andel af forskellen mellem rummene og loftet. En fast andel uanset luftmængde peger på utætheder; en isoleret kanal giver kun få procent." : "A room in the HCH5 Control integration with the average of the rooms with an extract valve (control off). Against T3 the overview shows how much the extract air cools on its way to the unit, in degrees and as a share of the difference between the rooms and the loft. A steady share at every airflow points to leaks; an insulated duct gives only a few percent."}</Help></label>
+      </div>
     </Card>,
     house: <>
       <Card title={lang === "da" ? "Trinstyring" : "Step control"} lead={steps === 4
