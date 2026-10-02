@@ -60,22 +60,41 @@ class DiagnosticsTest(unittest.TestCase):
     def test_sfp_reference_and_filter_clogging(self):
         d = Diagnostics()
         t = T0
+        gears = {"actual_fan_extract_percent": 45, "actual_fan_supply_percent": 34}
+        # Fresh filters (unit counter at hour 2): the clean power is learned per gear pair.
         for _ in range(40):
             t += 10
-            r = d.update(winter(), t)
+            r = d.update(winter(filter_hours_since_change=2, **gears), t)
         self.assertEqual(r["specific_fan_power"], 900)
         self.assertEqual(r["filter_power_ratio"], 1.0)
-        for _ in range(60):
+        self.assertTrue(r["filter_reference_learning"])
+        self.assertEqual(r["filter_reference_gears"], "45/34")
+        # Weeks later the same gears draw 20 % less: the filter is clogging.
+        for _ in range(460):
             t += 10
-            r = d.update(winter(unit_power_w=40.0), t)
-        self.assertGreaterEqual(r["filter_power_ratio"], 1.3)
-        for _ in range(400):
-            t += 10
-            r = d.update(winter(unit_power_w=40.0), t)
+            r = d.update(winter(filter_hours_since_change=900, unit_power_w=24.0, **gears), t)
+        self.assertAlmostEqual(r["filter_power_change_percent"], -20.0, places=1)
+        self.assertFalse(r["filter_reference_learning"])
         self.assertIn("filter_clogging", {a["code"] for a in r["diagnostics_alarms"]})
-        # Filter change: life jumps up, the reference starts over.
-        r = d.update(winter(unit_power_w=40.0, filter_life_percent=100), t + 10)
+        # Other gears have no reference yet and say nothing.
+        r = d.update(winter(filter_hours_since_change=900, actual_fan_extract_percent=70, actual_fan_supply_percent=55), t + 10)
         self.assertIsNone(r["filter_power_ratio"])
+        # Filter change on the unit: the counter starts again and so does the reference.
+        r = d.update(winter(filter_hours_since_change=0, **gears), t + 20)
+        self.assertEqual(d.filter_reference, {})
+        self.assertIsNone(r["filter_power_ratio"])
+
+    def test_filter_reference_survives_a_restart(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "diagnostics.json"
+            d = Diagnostics(path)
+            gears = {"actual_fan_extract_percent": 20, "actual_fan_supply_percent": 13}
+            for step in range(35):
+                d.update(winter(filter_hours_since_change=1, unit_power_w=12.9, **gears), T0 + step * 10)
+            d.save()
+            again = Diagnostics(path)
+            self.assertAlmostEqual(again.filter_reference["20/13"]["w"], 12.9, places=3)
+            self.assertEqual(again.filter_hours, 1)
 
     def test_energy_is_integrated_persisted_and_resets_daily(self):
         with tempfile.TemporaryDirectory() as tmp:

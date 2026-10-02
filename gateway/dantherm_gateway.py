@@ -65,6 +65,14 @@ BYPASS_TRAVEL_CODES = {64: "opening", 32: "closing"}
 FIREPLACE_DURATION_SECONDS = 15 * 60
 FILTER_INTERVAL_MIN_DAYS = 90
 FILTER_INTERVAL_MAX_DAYS = 360
+# HAC1 block 1024 (slave 1, FC3, 6 words) holds the unit's own filter counter,
+# verified 2026-10-02 with the reset button on the unit: [1, period months,
+# life (255 = 100 %), hours since reset, 0, 0]. The button reset it from
+# [1, 12, 249, 235] to [1, 12, 255, 0] with nothing on the bus; a power cut
+# leaves it alone. Life falls by one per period/255 (34.4 h at 12 months),
+# like FILTER_LIFE on the Dantherm-built Danfoss Air units.
+FILTER_HOURS_PER_MONTH = 730
+FILTER_UNIT_FRESH_SECONDS = 3 * 3600
 CONTROL_STEPS = {
     "manual_1": (25, 13),
     "manual_2": (55, 43),
@@ -676,6 +684,8 @@ class Gateway:
         self.last_bus_health_publish = 0.0
         self.last_master_poll = 0.0
         self.filter_command_until = 0.0
+        # Latest block 1024 from the unit: months, life (0..255), hours, time read.
+        self.filter_unit: dict[str, float] | None = None
         self.last_explicit_mode_command = 0.0
         self.pending_night_transition_until = 0.0
         self.night_mode_state_path = Path(
@@ -1061,6 +1071,9 @@ class Gateway:
             "filter_life_percent": ("sensor", "Filter – Levetid", "%", None, "measurement"),
             "filter_status": ("sensor", "Filter – Status", None, None, None),
             "filter_source": ("sensor", "Filter – Datakilde", None, None, None),
+            "filter_hours_since_change": ("sensor", "Filter – Timer siden skift", "h", "duration", "measurement"),
+            "filter_period_months": ("sensor", "Filter – Periode (måneder)", None, None, None),
+            "filter_life_raw": ("sensor", "Diagnostik – Filterlevetid råværdi", None, None, "measurement"),
             "filter_alarm": ("binary_sensor", "Filter – Alarm", None, "problem", None),
             "hac1_connected": ("binary_sensor", "Diagnostik – HAC1 forbindelse", None, "connectivity", None),
             "fireplace": ("binary_sensor", "Drift – Pejsefunktion", None, None, None),
@@ -1247,7 +1260,47 @@ class Gateway:
             self.state["bypass_travel_started_monotonic"] = None
             self.publish("bypass_travel_direction", BYPASS_TRAVEL_CODES.get(raw))
 
+    def apply_filter_block(self, values: list[int], source: str):
+        """Take the unit's filter counter from block 1024 (see FILTER_HOURS_PER_MONTH)."""
+        if (
+            len(values) != 6 or values[0] != 1 or not 3 <= values[1] <= 12
+            or not 0 <= values[2] <= 255 or not 0 <= values[3] <= 20000
+        ):
+            return
+        months, life, hours = values[1], values[2], values[3]
+        previous = self.filter_unit
+        self.filter_unit = {"months": months, "life": life, "hours": hours, "read_at": time.time()}
+        changed_at = time.time() - hours * 3600
+        if previous is not None and hours + 1 < previous["hours"]:
+            LOG.info("Filter nulstillet på anlægget: %s -> %s timer", previous["hours"], hours)
+            self.publish("filter_changed_at", round(changed_at), source=source)
+        elif self.state.get("filter_changed_at") is None:
+            self.publish("filter_changed_at", round(changed_at), source=source)
+        self.publish("filter_period_months", months, source=source)
+        self.publish("filter_life_raw", life, source=source)
+        self.publish("filter_hours_since_change", hours, source=source)
+        # Keep the Pi's own timer in step, so it is right if the block goes quiet.
+        interval = max(FILTER_INTERVAL_MIN_DAYS, min(FILTER_INTERVAL_MAX_DAYS, round(months * FILTER_HOURS_PER_MONTH / 24)))
+        if interval != self.filter_interval_days or abs(self.filter_reset_epoch - changed_at) > 2 * 3600:
+            self.filter_interval_days = interval
+            self.filter_reset_epoch = changed_at
+            self.save_filter_state()
+        self.publish_filter_status()
+
     def publish_filter_status(self):
+        unit = self.filter_unit
+        if unit is not None and time.time() - unit["read_at"] <= FILTER_UNIT_FRESH_SECONDS:
+            period_hours = unit["months"] * FILTER_HOURS_PER_MONTH
+            remaining = max(0, math.ceil((period_hours - unit["hours"]) / 24))
+            percent = max(0, min(100, round(unit["life"] * 100 / 255)))
+            status = "overskredet" if remaining <= 0 else "skift_snart" if remaining <= 30 else "ok"
+            self.publish("filter_interval", round(period_hours / 24))
+            self.publish("filter_days_remaining", remaining)
+            self.publish("filter_life_percent", percent)
+            self.publish("filter_status", status)
+            self.publish("filter_alarm", remaining <= 0)
+            self.publish("filter_source", "Anlæg (HAC1)")
+            return
         if not self.filter_enabled:
             return
         elapsed_days = max(0.0, (time.time() - self.filter_reset_epoch) / 86400.0)
@@ -1323,6 +1376,13 @@ class Gateway:
                             "afterheat_setpoint", selection,
                             source="passive_hcp4_hac1_register_186",
                         )
+            return
+        if slave == 1 and fn == 3 and len(frame) == 17 and frame[2] == 12:
+            # Only block 1024 is read as six holding registers from slave 1.
+            self.apply_filter_block(
+                [int.from_bytes(frame[i : i + 2], "big") for i in range(3, 15, 2)],
+                "hac1_block_1024_passive",
+            )
             return
         if slave == 0x40 and fn == 3 and len(frame) == 15 and frame[2] == 10:
             values = [int.from_bytes(frame[i : i + 2], "big") for i in range(3, 13, 2)]
@@ -1940,6 +2000,7 @@ class Gateway:
             self.publish("hac1_connected", False)
         if main1024 is not None:
             self.publish("mk1_block_1024", ",".join(map(str, main1024)))
+            self.apply_filter_block(main1024, "hac1_block_1024_active")
         if main1032 is not None:
             self.publish("mk1_block_1032", ",".join(map(str, main1032)))
         if hac205 is not None:

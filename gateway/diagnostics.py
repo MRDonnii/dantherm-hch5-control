@@ -10,9 +10,11 @@ Assistant show.
   has its own protection; this warns earlier and shows when it happens.
 - Alarms: each condition must hold for a while before it is raised, and
   clears on its own when the condition is gone.
-- Fan power (SFP) and filter: specific fan power, W per m3/s, per level.
-  The lowest value seen for a level after a filter change is the clean
-  reference; a rising ratio means the filter or a grille is clogging.
+- Fan power (SFP) and filter: specific fan power, W per m3/s. The fans hold
+  their speed per gear whatever the filter, so a clogging filter shows as the
+  power at the same gears moving away from the clean reference: the mean
+  power per gear pair in the first days after the filters are changed (the
+  unit's own counter, HAC1 block 1024, reset by the button on the unit).
 - Energy: recovered heat, afterheat and the unit's own consumption are
   integrated to kWh totals that survive restarts, plus today's values.
 - Air balance: once the ducts are known (measured airflow or the learned
@@ -50,7 +52,7 @@ ALARM_TEXT = {
     "afterheat_no_lift": "Eftervarmen kalder, men luften bliver ikke varmere: ventil, pumpe eller luft i fladen",
     "sensor_missing": "En 1-Wire-føler med en rolle svarer ikke",
     "bus_unhealthy": "Ingen sund RS485-forbindelse til anlægget",
-    "filter_clogging": "Ventilatorerne bruger mere strøm end med rent filter: filter eller rist stopper til",
+    "filter_clogging": "Ventilatorernes strøm ved samme gear afviger fra rene filtre: filter eller rist stopper til",
     "balance_overpressure": "Overtryk i huset: indblæsningen giver mere luft end udsugningen, så fugtig luft kan presses ud i konstruktionen. Slå luftbalancen til",
 }
 ALARM_SEVERITY = {
@@ -66,8 +68,16 @@ ALARM_SEVERITY = {
 }
 FROST_WATCH_T4 = 3.0
 FROST_RISK_T4 = 0.5
-# Filter ratio against the clean reference at which the alarm is raised.
-FILTER_CLOGGING_RATIO = 1.25
+# Clean-filter reference: power per fan gear pair, learned this many hours
+# after a filter change. Measured 2026-10-02 at gears 20/13..100/80: washed
+# and new filters were within 0.5 % in rpm and watts, so the deviation shows
+# real clogging, not noise. The alarm limit is a first value until dirty
+# filters have been measured.
+FILTER_LEARN_HOURS = 72
+FILTER_DEVIATION_PERCENT = 15.0
+FILTER_MIN_POWER_W = 5.0
+FILTER_WINDOW_SAMPLES = 30
+FILTER_REFERENCE_WEIGHT = 360
 # Extract below supply by more than this (in % of supply) counts as overpressure.
 OVERPRESSURE_PERCENT = 3.0
 SAVE_EVERY = 300.0
@@ -91,9 +101,11 @@ class Diagnostics:
         self.active: dict[str, float] = {}
         self.energy = {"recovered_kwh": 0.0, "afterheat_kwh": 0.0, "unit_kwh": 0.0}
         self.today = {"date": "", "recovered_kwh": 0.0, "afterheat_kwh": 0.0, "unit_kwh": 0.0}
-        # Clean SFP per fan level, learned after each filter change.
-        self.sfp_reference: dict[str, float] = {}
-        self.sfp_window: dict[str, list[float]] = {}
+        # Clean power per fan gear pair ("extract/supply"), learned after each filter change.
+        self.filter_reference: dict[str, dict[str, float]] = {}
+        self.filter_window: list[float] = []
+        self.filter_pair: str | None = None
+        self.filter_hours: float | None = None
         self.filter_marker: object = None
         self.last_update: float | None = None
         self.last_save = 0.0
@@ -114,16 +126,20 @@ class Diagnostics:
         today = saved.get("today", {})
         if isinstance(today, dict):
             self.today.update({k: today[k] for k in self.today if k in today})
-        refs = saved.get("sfp_reference", {})
+        refs = saved.get("filter_reference", {})
         if isinstance(refs, dict):
-            self.sfp_reference = {str(k): float(v) for k, v in refs.items() if _num(v)}
+            self.filter_reference = {
+                str(k): {"w": float(v["w"]), "n": float(v.get("n", 1))}
+                for k, v in refs.items() if isinstance(v, dict) and _num(v.get("w"))}
+        self.filter_hours = _num(saved.get("filter_hours"))
         self.filter_marker = saved.get("filter_marker")
 
     def save(self) -> None:
         if not self.path:
             return
         payload = {"energy": self.energy, "today": self.today,
-                   "sfp_reference": self.sfp_reference, "filter_marker": self.filter_marker}
+                   "filter_reference": self.filter_reference, "filter_hours": self.filter_hours,
+                   "filter_marker": self.filter_marker}
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             fd, tmp = tempfile.mkstemp(prefix=".diagnostics-", dir=self.path.parent)
@@ -134,8 +150,8 @@ class Diagnostics:
             LOG.warning("Unable to save diagnostics state: %s", error)
 
     def reset_filter_reference(self) -> None:
-        self.sfp_reference.clear()
-        self.sfp_window.clear()
+        self.filter_reference.clear()
+        self.filter_window.clear()
         self.save()
 
     # ---- update ------------------------------------------------------
@@ -155,7 +171,6 @@ class Diagnostics:
             extract_recovery = (t3 - t4) / (t3 - t1) * 100
         power = _num(s.get("unit_power_w"))
         airflow = _num(s.get("supply_airflow_estimate_m3h"))
-        level = s.get("effective_level")
         cold = t1 is not None and t3 is not None and t3 - t1 >= 8
 
         # Frost: T4 near zero with the core in use.
@@ -166,30 +181,52 @@ class Diagnostics:
             elif t4 <= FROST_WATCH_T4:
                 frost_state = "watch"
 
-        # SFP and filter: stable level, fresh power and a known airflow.
-        sfp = None
-        filter_ratio = None
-        # A filter reset shows as the remaining filter life jumping up.
+        # SFP: fan power per airflow.
+        sfp = power / (airflow / 3600.0) if power is not None and airflow else None
+
+        # Filter: a change shows as the unit's hour counter starting again
+        # (or, without it, the remaining filter life jumping up).
+        hours = _num(s.get("filter_hours_since_change"))
         life = _num(s.get("filter_life_percent"))
-        if life is not None:
+        if hours is not None:
+            if self.filter_hours is not None and hours + 1 < self.filter_hours:
+                self.reset_filter_reference()
+            self.filter_hours = hours
+        elif life is not None:
             previous = _num(self.filter_marker)
             if previous is not None and life - previous >= 20:
-                self.sfp_reference.clear()
-                self.sfp_window.clear()
+                self.reset_filter_reference()
+        if life is not None:
             self.filter_marker = life
-        if power is not None and airflow and level is not None:
-            sfp = power / (airflow / 3600.0)
-            key = str(level)
-            window = self.sfp_window.setdefault(key, [])
-            window.append(sfp)
-            del window[:-60]
-            if len(window) >= 30:
-                average = sum(window) / len(window)
-                reference = self.sfp_reference.get(key)
-                if reference is None or average < reference:
-                    self.sfp_reference[key] = average
-                    reference = average
-                filter_ratio = average / reference if reference else None
+        learning = hours is not None and hours <= FILTER_LEARN_HOURS
+        filter_ratio = None
+        extract_gear = _num(s.get("actual_fan_extract_percent"))
+        supply_gear = _num(s.get("actual_fan_supply_percent"))
+        steady = (
+            power is not None and power >= FILTER_MIN_POWER_W
+            and extract_gear is not None and supply_gear is not None
+            and s.get("standby_active") is not True and s.get("bonfire_active") is not True
+            and not s.get("actual_bypass_travel_direction")
+        )
+        pair = f"{int(extract_gear)}/{int(supply_gear)}" if steady else None
+        if pair != self.filter_pair:
+            self.filter_pair = pair
+            self.filter_window = []
+        if pair is not None:
+            self.filter_window.append(power)
+            del self.filter_window[:-FILTER_WINDOW_SAMPLES]
+        reference = self.filter_reference.get(pair) if pair else None
+        if pair is not None and len(self.filter_window) >= FILTER_WINDOW_SAMPLES:
+            average = sum(self.filter_window) / len(self.filter_window)
+            if learning or reference is None and hours is None:
+                # Running mean of the clean power at this gear pair.
+                entry = self.filter_reference.setdefault(pair, {"w": average, "n": 0.0})
+                entry["n"] = min(FILTER_REFERENCE_WEIGHT, entry["n"] + 1)
+                entry["w"] += (average - entry["w"]) / entry["n"]
+                reference = entry
+            if reference:
+                filter_ratio = average / reference["w"]
+        filter_change = None if filter_ratio is None else (filter_ratio - 1.0) * 100.0
 
         # Energy: integrate the watts over the step.
         today = datetime.fromtimestamp(now).strftime("%Y-%m-%d")
@@ -220,7 +257,8 @@ class Diagnostics:
                 and _num(s.get("afterheat_lift")) is not None and _num(s.get("afterheat_lift")) < 0.5,
             "sensor_missing": missing,
             "bus_unhealthy": s.get("rs485_healthy") is False,
-            "filter_clogging": filter_ratio is not None and filter_ratio >= FILTER_CLOGGING_RATIO,
+            "filter_clogging": filter_change is not None and not learning
+                and abs(filter_change) >= FILTER_DEVIATION_PERCENT,
             # The fireplace function makes overpressure on purpose.
             "balance_overpressure": s.get("fireplace") is not True and s.get("actual_fireplace") is not True
                 and _num(s.get("balance_running_excess_percent")) is not None
@@ -253,7 +291,11 @@ class Diagnostics:
             "frost_state": frost_state,
             "extract_recovery_percent": None if extract_recovery is None else round(max(0.0, min(100.0, extract_recovery)), 1),
             "specific_fan_power": None if sfp is None else round(sfp),
-            "filter_power_ratio": None if filter_ratio is None else round(filter_ratio, 2),
+            "filter_power_ratio": None if filter_ratio is None else round(filter_ratio, 3),
+            "filter_power_change_percent": None if filter_change is None else round(filter_change, 1),
+            "filter_reference_learning": learning,
+            "filter_reference_pairs": len(self.filter_reference),
+            "filter_reference_gears": self.filter_pair if self.filter_pair in self.filter_reference else None,
             "recovered_energy_kwh": round(self.energy["recovered_kwh"], 3),
             "afterheat_energy_kwh": round(self.energy["afterheat_kwh"], 3),
             "unit_energy_kwh": round(self.energy["unit_kwh"], 3),

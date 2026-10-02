@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.3
+
+- **Filter status from the unit itself:** HAC1 keeps its own filter counter in block 1024 (slave 1), which the Pi already read without naming it: period in months (3–12), remaining life as 0–255 and hours since the filter was reset. Verified on 2026-10-02 with the filter reset button on the unit (from 249/235 h to 255/0 h, with nothing on the bus); a power cut leaves the counter alone. *Filter*, days left, status and the change date in the WebUI, MQTT and Home Assistant now come from it, also passively while the HCP4 is master, instead of the Pi's own timer, which now follows the unit.
+- **Clogging measured at the same fan gears:** the fans hold their speed per gear whatever the filter (washed and new filters were within 0.5 % in rpm and watts at all four steps), so the clean reference is now the mean power per gear pair during the first 72 hours after a filter change, and *Filter · strøm* shows how far the power at the running gears has moved from it. The old per-level minimum gave nonsense at low steps (11.9 at step 1) and no longer matched after the change to four steps. The alarm is raised at ±15 % until dirty filters have been measured.
+- Changes by Claude AI.
+
 ## 1.4.2
 
 - **A step chosen by hand is used as chosen:** *Auto minimumsniveau* and *Auto maksimumsniveau* also clamped manual mode, so with the minimum at step 2 manual step 1 ran step 2. The Auto limits now only apply to automatic control (Local Auto, Smart Auto, schedule, night and the timed functions on top of them).

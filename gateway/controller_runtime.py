@@ -955,6 +955,10 @@ class ControllerRuntime:
             "actual_bypass_travel_seconds": travel_seconds,
             "bypass_travel_expected_seconds": BYPASS_TRAVEL_SECONDS,
             "actual_fireplace": self._first(self.gateway_state, "fireplace"),
+            # The unit's own filter counter (HAC1 block 1024, reset by the button on the unit).
+            **{key: self.gateway_state.get(key) for key in (
+                "filter_life_percent", "filter_days_remaining", "filter_status", "filter_alarm", "filter_source",
+                "filter_period_months", "filter_hours_since_change", "filter_changed_at", "filter_life_raw")},
             "actual_afterheat": self._first(self.gateway_state, "afterheat_active"),
             "actual_afterheat_setpoint": self._first(self.gateway_state, "afterheat_setpoint"),
             "actual_afterheat_selection": self._first(self.gateway_state, "afterheat_selection"),
@@ -1147,6 +1151,7 @@ class ControllerRuntime:
                 "extract_temperature": self._safe_number(self._first(state, "extract_temp", "extract_temperature"), -30, 60),
                 "exhaust_temperature": self._safe_number(self._first(state, "exhaust_temp", "exhaust_temperature"), -50, 60),
                 "filter_life_percent": state.get("filter_life_percent"),
+                "filter_hours_since_change": state.get("filter_hours_since_change"),
             })
             return self.diagnostics.update(feed, now)
         except Exception as error:  # diagnostics must never stop the controller
