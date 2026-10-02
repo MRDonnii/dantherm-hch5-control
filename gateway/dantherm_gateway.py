@@ -1703,6 +1703,16 @@ class Gateway:
         # releases the bus. After the header, one more read collects the
         # CRC bytes so they are never left in the buffer.
         header = frame[:6]
+        # Captured 2026-10-02 (457 writes in 30 min): HAC1 always answered
+        # after ~51 ms, but in ~5 % of the acks the FIRST bytes were garbled
+        # on the line turnaround (10 00 B9.., 40 41 00 B9.., C0 10 00 B9..),
+        # so the strict header match failed, the write was repeated and both
+        # tries could fail. The register, count and first CRC byte of the
+        # proper ack identify it as well. Our own frame continues with the
+        # byte count after register and count, so it never matches (guarded
+        # for the rare CRC byte equal to the byte count).
+        crc = crc16(header).to_bytes(2, "little")
+        tail = frame[2:6] + crc[:1] if crc[0] != frame[6] else None
         for _attempt in range(2):
             if not self.wait_quiet(ser):
                 raise RuntimeError("RS485 bus did not become quiet")
@@ -1718,6 +1728,9 @@ class Gateway:
                     self.last_afterheat_block_at = time.monotonic()
                     return
                 header_seen = index >= 0
+                if tail is not None and tail in received:
+                    self.last_afterheat_block_at = time.monotonic()
+                    return
         raise RuntimeError(f"missing FC16 acknowledgement for register {start}")
 
     def _afterheat_temperature_words(self, ser: serial.Serial) -> list[int]:

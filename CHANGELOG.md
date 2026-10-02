@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.4
+
+- **No more "missing FC16 acknowledgement" for the afterheat:** a capture of 457 setpoint writes on 2026-10-02 showed that HAC1 always answers after about 51 ms, but in about 5 % of the answers the first bytes are garbled when the bus turns around (`10 00 B9 …`, `40 41 00 B9 …`, `C0 10 00 B9 …`). The Pi required a perfect start, so it repeated the write, and when both answers were garbled it logged the error (about 50 times a day) and left a late answer on the bus that master arbitration could mistake for another master. The acknowledgement is now also recognised by its register, count and CRC; replayed against the capture, all 914 writes to registers 180 and 185 are acknowledged at the first try.
+- Changes by Claude AI.
+
 ## 1.4.3
 
 - **Filter status from the unit itself:** HAC1 keeps its own filter counter in block 1024 (slave 1), which the Pi already read without naming it: period in months (3–12), remaining life as 0–255 and hours since the filter was reset. Verified on 2026-10-02 with the filter reset button on the unit (from 249/235 h to 255/0 h, with nothing on the bus); a power cut leaves the counter alone. *Filter*, days left, status and the change date in the WebUI, MQTT and Home Assistant now come from it, also passively while the HCP4 is master, instead of the Pi's own timer, which now follows the unit.

@@ -57,13 +57,15 @@ def hac1_ack(frame, corrupt_crc=False):
     return ack[:7] + b"\xff" if corrupt_crc else ack
 
 
-def wire_hac1_acks(gateway, corrupt_crc=False, truncate=False):
+def wire_hac1_acks(gateway, corrupt_crc=False, truncate=False, garble=None):
     writes = []
     replies = []
 
     def serial_write(_ser, data, reason):
         writes.append((data, reason))
         ack = hac1_ack(data, corrupt_crc)
+        if garble is not None:
+            ack = garble(ack)
         replies.append(ack[:7] if truncate else ack)
         return len(data)
 
@@ -262,6 +264,20 @@ class BypassAndDiscoveryTests(unittest.TestCase):
         serial = type("Serial", (), {"flush": lambda self: None})()
         self.assertEqual(gateway.write_afterheat_setpoint(serial, 23), 23)
         self.assertEqual(len(writes), 1)
+
+    def test_afterheat_accepts_ack_with_garbled_first_bytes(self):
+        # Seen on the live bus 2026-10-02: the line turnaround eats or flips the first bytes.
+        for garble in (lambda ack: ack[1:], lambda ack: ack[:1] + b"\x41" + ack[2:],
+                       lambda ack: b"\xc0" + ack[1:]):
+            gateway = make_gateway()
+            gateway.state.update({
+                "outdoor_temp": 14.15, "supply_temp": 20.94,
+                "extract_temp": 20.77, "exhaust_temp": 14.65,
+            })
+            writes = wire_hac1_acks(gateway, garble=garble)
+            serial = type("Serial", (), {"flush": lambda self: None})()
+            self.assertEqual(gateway.write_afterheat_setpoint(serial, 21), 21)
+            self.assertEqual(len(writes), 1)  # accepted at once, no repeat
 
     def test_afterheat_chain_missing_acknowledgement_fails_after_retry(self):
         gateway = make_gateway()
