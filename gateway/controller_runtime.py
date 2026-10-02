@@ -26,6 +26,9 @@ from master_arbitration import MasterArbitrator, RtuFrameStream
 from sensor_freshness import fresh_sensor_value, sensor_sample_age
 from weather_bridge import humidity_at_t1, validate_weather
 
+# Plausible T5 (HRC2 room sensor) range; anything else means no HRC2.
+ROOM_T5_RANGE = (5.0, 40.0)
+
 LOG = logging.getLogger("passivelink-controller")
 VALID_PRIORITIES = {"auto", "low", "normal", "high", "critical"}
 # The HCH5 runs its bypass damper for about three minutes either way
@@ -172,17 +175,23 @@ class ControllerRuntime:
             "hrc2_t5_temperature",
             "room_temperature",
         )
-        self.engine.update_measurements(
-            rh=self._first(state, "humidity", "relative_humidity"),
-            co2=self._first(state, "co2"),
-            outdoor=self._first(state, "outdoor_temp", "outdoor_temperature"),
-            room=room,
-        )
+        # T5 is the HRC2 remote's own sensor. Without an HRC2 the unit keeps
+        # its last word (seen stuck at 22.42 C for days) or 0 after a power
+        # cut, so only values in a living-room range count.
+        room = self._safe_number(room, ROOM_T5_RANGE[0], ROOM_T5_RANGE[1])
         extract_temp = self._safe_number(
             self._first(state, "extract_temp", "extract_temperature"), -30, 60
         )
         room_temperature, room_source = self._afterheat_room_temperature(room, extract_temp)
         self.afterheat_room_source_used = room_source if room_temperature is not None else None
+        # Free cooling and the afterheat use the same room temperature: by
+        # default the HA room average, else the extract air (T3).
+        self.engine.update_measurements(
+            rh=self._first(state, "humidity", "relative_humidity"),
+            co2=self._first(state, "co2"),
+            outdoor=self._first(state, "outdoor_temp", "outdoor_temperature"),
+            room=room_temperature,
+        )
         self.engine.set_external({
             "extract_temp": extract_temp,
             "outdoor_rh": self._outdoor_humidity(),

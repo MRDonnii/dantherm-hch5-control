@@ -133,7 +133,16 @@ class ControllerRuntimeTests(unittest.TestCase):
         self.assertIsNone(snapshot["actual_supply_before_heater_temperature"])
         self.assertIsNone(snapshot["actual_supply_air_temperature"])
         self.assertIsNone(snapshot["actual_afterheat_frost_temperature"])
-        self.assertIsNone(snapshot["measurements"]["room"])
+        # The stale T5 is not used; without HA rooms the room is the extract air (T3).
+        self.assertEqual(snapshot["measurements"]["room"], 20.1)
+
+    def test_free_cooling_uses_the_ha_room_average_not_a_missing_hrc2(self):
+        # Without an HRC2 the unit reports T5 as 0 after a power cut.
+        runtime = self.make_runtime({"hrc2_t5_temperature": 0.0, "hrc2_t5_temperature_sample_monotonic": time.monotonic(),
+                                     "extract_temp": 22.0})
+        runtime.room_inputs({"source": "home_assistant", "valid_for_s": 180, "rooms": {
+            "Hus": {"temperature": 23.4, "control": False}}})
+        self.assertEqual(runtime.snapshot()["measurements"]["room"], 23.4)
 
     def test_generic_temperature_timestamp_does_not_refresh_t2(self):
         runtime = self.make_runtime({

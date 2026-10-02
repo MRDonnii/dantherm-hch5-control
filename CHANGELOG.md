@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.5
+
+- **Free cooling uses the real room temperature:** it took the room temperature from T5, the HRC2 remote's own sensor. Without an HRC2 the unit only repeats its last T5 word (seen stuck at 22.42 °C for days) and reports 0 after a power cut, so free cooling compared the outdoor air with 0 °C and never started. Free cooling now uses the same room temperature as the afterheat: by default the average of the Home Assistant rooms, else the extract air (T3). T5 only counts between 5 and 40 °C.
+- Changes by Claude AI.
+
 ## 1.4.4
 
 - **No more "missing FC16 acknowledgement" for the afterheat:** a capture of 457 setpoint writes on 2026-10-02 showed that HAC1 always answers after about 51 ms, but in about 5 % of the answers the first bytes are garbled when the bus turns around (`10 00 B9 …`, `40 41 00 B9 …`, `C0 10 00 B9 …`). The Pi required a perfect start, so it repeated the write, and when both answers were garbled it logged the error (about 50 times a day) and left a late answer on the bus that master arbitration could mistake for another master. The acknowledgement is now also recognised by its register, count and CRC; replayed against the capture, all 914 writes to registers 180 and 185 are acknowledged at the first try.
