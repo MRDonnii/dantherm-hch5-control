@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.9
+
+- **Corrections for the duct cooling:** room sensors and T3 can both be a little off, and on a well-sealed duct those errors are as large as the loss itself. *Indstillinger → Følere* now has *Korrektion udsugningsrum* and *Korrektion T3* (−3 to +3 K). They are added to the rooms and T3 in the duct cooling only; regulation, the house average and the T3 shown elsewhere are unchanged. Measure them against a reference thermometer, e.g. a probe held next to T3.
+- Changes by Claude AI.
+
 ## 1.4.8
 
 - **Extract duct cooling on the overview:** choose an HA room with the average temperature of the rooms with an extract valve (*Indstillinger → Følere → Udsugningsrum*). The overview then shows the rooms, T3 at the unit, how much the extract air cools on its way through the loft and that loss as a share of the difference between the rooms and the loft. The share does not change with the weather, so a leak or a poorly insulated duct shows as a steady number. The values are also in the controller state for Home Assistant (`extract_rooms_temperature`, `extract_duct_loss_k`, `extract_duct_loss_percent`). The extract room is a measurement only and is left out of the house average.

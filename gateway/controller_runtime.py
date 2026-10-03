@@ -219,9 +219,14 @@ class ControllerRuntime:
         the rooms with an extract valve). The share is the loss divided by the
         difference between the rooms and the loft, so it does not change with
         the weather: a leak or a poorly insulated duct shows as a steady share.
+        The corrections are known sensor errors added to the rooms and T3.
         """
         rooms = self._source_value(self.config.data.get("duct_extract_source"), "temperature")
         t3 = self._safe_number(self._first(self.gateway_state, "extract_temp", "extract_temperature"), -30, 60)
+        if rooms is not None:
+            rooms = round(rooms + float(self.config.data.get("duct_rooms_offset_k") or 0.0), 2)
+        if t3 is not None:
+            t3 += float(self.config.data.get("duct_t3_offset_k") or 0.0)
         loft = self.onewire.by_role("attic")
         loss = round(rooms - t3, 2) if rooms is not None and t3 is not None else None
         span = rooms - loft if rooms is not None and isinstance(loft, (int, float)) else None
