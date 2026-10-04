@@ -306,6 +306,7 @@ class ControllerState:
         # only; nothing else uses them.
         "duct_rooms_offset_k": 0.0,
         "duct_t3_offset_k": 0.0,
+        "t2_offset_k": 0.0,
         "humidity_margin_gm3": 0.5,
         "dry_protection_enabled": False,
         "dry_rh_limit": 30.0,
@@ -603,6 +604,7 @@ class ControllerState:
         ("humidity_margin_gm3", 0.0, 3.0), ("dry_rh_limit", 15.0, 45.0),
         ("balance_extract_excess_percent", 0.0, 20.0), ("balance_duct_ratio", 0.7, 1.5),
         ("duct_rooms_offset_k", -3.0, 3.0), ("duct_t3_offset_k", -3.0, 3.0),
+        ("t2_offset_k", -3.0, 3.0),
         ("pm25_setpoint", 5.0, 200.0), ("pm25_step", 2.0, 100.0), ("pm25_hysteresis", 1.0, 50.0),
     )
     ADVANCED_INTS = (
@@ -1130,6 +1132,7 @@ class ControllerState:
         "fireplace_auto_on_temp", "fireplace_auto_off_temp", "fireplace_afterrun_minutes",
         "fireplace_max_hours", "humidity_smart_enabled", "outdoor_humidity_source", "duct_extract_source",
         "duct_rooms_offset_k", "duct_t3_offset_k",
+        "t2_offset_k",
         "humidity_margin_gm3", "dry_protection_enabled", "dry_rh_limit", "dry_max_level",
         "onewire_roles", "pm25_enabled", "pm25_setpoint", "pm25_step", "pm25_hysteresis",
         "pm25_max_level", "pm25_ignored_rooms",
@@ -1147,6 +1150,7 @@ class ControllerState:
         "dry_max_level": "Maks. trin ved tør luft",
         "balance_extract_excess_percent": "Udsugning over indblæsning", "balance_duct_ratio": "Kanalforhold",
         "duct_rooms_offset_k": "Korrektion udsugningsrum", "duct_t3_offset_k": "Korrektion T3",
+        "t2_offset_k": "Korrektion T2",
         "pm25_setpoint": "PM2.5-grænse", "pm25_step": "PM2.5 pr. trin", "pm25_hysteresis": "PM2.5-hysterese",
         "pm25_max_level": "Maks. trin ved PM2.5",
     }

@@ -11,11 +11,12 @@ from advanced_control import supply_air_metrics
 class SupplyAirMetricsTest(unittest.TestCase):
     def test_winter_values_from_measured_t2(self):
         # 0 C outdoor, 22 C extract, T2 19.8 C after the core, coil lifts to 21.8 C at 150 m3/h.
-        m = supply_air_metrics(0.0, 22.0, 19.8, 21.8, 150.0, False)
-        self.assertEqual(m["supply_recovery_percent"], 90.0)
-        self.assertEqual(m["recovered_heat_w"], round(19.8 * 150 / 3600 * 1206))
-        self.assertEqual(m["afterheat_lift"], 2.0)
-        self.assertEqual(m["afterheat_power_w"], round(2.0 * 150 / 3600 * 1206))
+        m = supply_air_metrics(0.0, 22.0, 19.8, 21.8, 150.0, False, 0.4)
+        self.assertEqual(m["corrected_t2_temperature"], 20.2)
+        self.assertEqual(m["supply_recovery_percent"], 91.8)
+        self.assertEqual(m["recovered_heat_w"], round(20.2 * 150 / 3600 * 1206))
+        self.assertEqual(m["afterheat_lift"], 1.6)
+        self.assertEqual(m["afterheat_power_w"], round(1.6 * 150 / 3600 * 1206))
 
     def test_nothing_without_t2(self):
         self.assertTrue(all(v is None for v in supply_air_metrics(0.0, 22.0, None, 21.8, 150.0, False).values()))

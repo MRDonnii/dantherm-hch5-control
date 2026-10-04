@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.12
+
+- Add a configurable T2-only offset for the derived exchanger percentage and coil difference. The user's measured +0.4 °C correction reduces the displayed T2AH−T2 difference by 0.4 °C. T2AH, raw sensor telemetry and heating control remain unchanged. Mark corrected T2 readings in the overview.
+
 ## 1.4.11
 
 - Correct the exchanger's main reading to use the measured T2 immediately after the unit, before the heating coil. T2AH is a metre downstream of the coil and can read warmer even while afterheat is commanded off, so it cannot isolate the exchanger. Show the T2-based result as approximate; flag a difference of at least 0.5 K with afterheat off so sensor bias and passive heating are not mistaken for exchanger performance. Keep the T3/T4 exhaust-side percentage separate. Raw temperatures remain unchanged.

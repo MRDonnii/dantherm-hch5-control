@@ -1033,7 +1033,9 @@ class ControllerRuntime:
         result.update(supply_air_metrics(
             outdoor, extract, before_heater, after_heater, supply_m3h,
             self._first(self.gateway_state, "bypass_active") is True,
+            float(self.config.data.get("t2_offset_k") or 0.0),
         ))
+        result["t2_offset_k"] = self.config.data.get("t2_offset_k", 0.0)
         return result
 
     def _supply_airflow(self, level: object) -> float | None:

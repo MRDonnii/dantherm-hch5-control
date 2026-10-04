@@ -35,12 +35,12 @@ describe("exchanger reading", () => {
   it("shows the measured T2 result and flags disagreement with T2AH while afterheat is off", async () => {
     api.requestJson.mockImplementation(async (endpoint: string) => {
       if (endpoint === "/state.json") return { outdoor_temp: 12.4, extract_temp: 23.2, exhaust_temp: 13.7, heating_coil_after_temperature: 21.7, bypass_active: false };
-      if (endpoint === "/api/controller/state?compact=1") return { actual_afterheat: false, actual_supply_before_heater_temperature: 20.7, actual_supply_air_temperature: 21.7, supply_recovery_percent: 77 };
+      if (endpoint === "/api/controller/state?compact=1") return { actual_afterheat: false, actual_supply_before_heater_temperature: 20.7, actual_supply_air_temperature: 21.7, corrected_t2_temperature: 21.1, t2_offset_k: 0.4, afterheat_lift: 0.6, supply_recovery_percent: 80.6 };
       if (endpoint === "/api/auth/status") return { csrf: "test" };
       throw new Error(endpoint);
     });
     render(<OverviewPage/>);
-    expect(await screen.findByText("T2 ≈77%", { selector: "text" })).toBeTruthy();
+    expect(await screen.findByText("T2 ≈81%", { selector: "text" })).toBeTruthy();
     expect(screen.getByText(/T2\/T2AH afviger/)).toBeTruthy();
   });
 });

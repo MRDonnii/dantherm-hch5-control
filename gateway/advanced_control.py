@@ -397,6 +397,7 @@ def supply_air_metrics(
     after_heater: float | None,
     supply_m3h: float | None,
     bypass_open: bool,
+    t2_offset_k: float = 0.0,
 ) -> dict[str, float | None]:
     """What a measured T2 (before the afterheat coil) makes computable.
 
@@ -408,6 +409,7 @@ def supply_air_metrics(
     Airflow is the estimate for the running fan level, so the watts are too.
     """
     result: dict[str, float | None] = {
+        "corrected_t2_temperature": None,
         "supply_recovery_percent": None,
         "recovered_heat_w": None,
         "afterheat_lift": None,
@@ -415,6 +417,8 @@ def supply_air_metrics(
     }
     if before_heater is None:
         return result
+    before_heater += t2_offset_k
+    result["corrected_t2_temperature"] = round(before_heater, 2)
     flow = supply_m3h / 3600.0 * AIR_HEAT_CAPACITY if supply_m3h else None
     if outdoor is not None and not bypass_open:
         if extract is not None and extract - outdoor >= 3:
