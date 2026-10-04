@@ -158,12 +158,12 @@ export function HistoryPage() {
         </article>
 
         <article className="surface history-card">
-          <div className="pro-card-head compact"><div><h2>Varmegenvinding</h2><p>Beregnet virkningsgrad</p></div><Recycle size={20}/></div>
+          <div className="pro-card-head compact"><div><h2>Genvinding · udsugningsside</h2><p>Beregnet fra T1, T3 og T4</p></div><Recycle size={20}/></div>
           {loading ? <div className="history-chart-empty" style={{ height: 200 }}><span>Henter…</span></div> : (
             <HistoryChart
               unit="%"
               samples={samples}
-              series={[{ key: "heat_recovery_efficiency", label: "Virkningsgrad", color: "blue" }]}
+              series={[{ key: "heat_recovery_efficiency", label: "Udsugningsside", color: "blue" }]}
             />
           )}
         </article>

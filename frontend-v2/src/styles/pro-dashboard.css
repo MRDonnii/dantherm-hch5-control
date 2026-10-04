@@ -501,9 +501,12 @@ body[data-sidebar="collapsed"] .app-shell { grid-template-columns: 78px minmax(0
 @media (max-width: 680px) { .hch-control-panel { display: none; } }
 .hch-core-toggle { fill: transparent; stroke: none; cursor: pointer; outline: none; }
 .hch-core-toggle:focus-visible { stroke: rgb(127 208 255 / 70%); stroke-width: 2; stroke-dasharray: 6 5; }
-.hch-recovery-hit { cursor: pointer; outline: none; }
+.hch-recovery-hit { cursor: default; outline: none; }
 .hch-recovery-hit rect { fill: transparent; }
-.hch-recovery-hit:hover rect,.hch-recovery-hit:focus-visible rect { fill: rgb(127 208 255 / 10%); stroke: rgb(127 208 255 / 45%); stroke-width: 1.2; }
+.hch-recovery-hit > .hch-recovery { font-size: 24px; }
+.hch-recovery-history { cursor: pointer; outline: none; }
+.hch-recovery-history:hover,.hch-recovery-history:focus-visible { text-decoration: underline; }
+.hch-recovery-secondary { fill: #d9e8ef; font-size: 16px; font-weight: 700; }
 
 /* Bonfire in the garden: full-width card under the fireplace pair. */
 .bonfire-card { grid-template-columns: 44px minmax(0,1fr) auto; }

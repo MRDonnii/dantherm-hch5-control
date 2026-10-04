@@ -13,6 +13,7 @@ import { usePollHealth, useSinglePoll } from "../lib/connection";
 import { bypassTravel, formatRemaining } from "../lib/bypass";
 import { useTopbarNotice } from "../lib/topbar-notice";
 import { LEVEL_NAMES, MAX_LEVEL_HOURS, levelList, stepCount } from "../lib/fanSteps";
+import { t2ahRecoveryPercent } from "../lib/recovery";
 import "../styles/overview.css";
 import "../styles/history.css";
 
@@ -28,7 +29,7 @@ const SENSOR_HISTORY: Record<string, { title: string; key: string; color: Histor
   flowWater: { title: "Eftervarmevand · Frem", key: "flow_temperature", color: "orange" },
   returnWater: { title: "Eftervarmevand · Retur", key: "return_temperature", color: "blue" },
   waterDelta: { title: "Eftervarmevand · Afkøl", key: "water_delta", color: "green" },
-  recovery: { title: "Varmegenvinding", key: "heat_recovery_efficiency", color: "green", unit: "%" },
+  recovery: { title: "Genvinding · udsugningsside (T3/T4)", key: "heat_recovery_efficiency", color: "green", unit: "%" },
 };
 type HistorySample = Record<string, number | null>;
 
@@ -253,6 +254,7 @@ export function OverviewPage() {
     const value = ((extract - exhaust) / (extract - outdoor)) * 100;
     return value >= 0 && value <= 105 ? Math.round(value) : null;
   }, [bypassActual, outdoor, extract, exhaust]);
+  const t2ahRecovery = t2ahRecoveryPercent(outdoor, extract, afterHeater, heatKnown, heating, bypassActual);
 
   const levelPatch = mode === "manual" ? "manual_level" : "local_normal_level";
   const levels = levelList(controller);
@@ -320,7 +322,7 @@ export function OverviewPage() {
               outdoor={outdoor} extract={extract} exhaust={exhaust} afterHeater={afterHeater} beforeHeater={number(controller.actual_supply_before_heater_temperature)} beforeHeaterEstimate={number(controller.actual_supply_before_heater_estimate)}
               frost={frost} flowWater={flowWater} returnWater={returnWater}
               supplyRpm={supplyRpm} extractRpm={extractRpm} supplyPercent={supplyPercent} extractPercent={extractPercent}
-              bypassActual={bypassActual} bypassRequest={bypassRequest} heating={heating} recovery={recovery}
+              bypassActual={bypassActual} bypassRequest={bypassRequest} heating={heating} recovery={recovery} supplyRecovery={t2ahRecovery}
               busActive={busHealthy} bypassRaw={bypassRaw} afterheatLockout={afterheatLockout} afterheatCoil={controller.afterheat_coil === "water" ? "water" : "electric"}
               bypassTravelDirection={bypassTravelDirection} bypassTravelSeconds={bypassTravelSeconds} bypassTravelTotal={bypassTravelTotal}
               control={online ? describeControl(controller) : null}
@@ -346,7 +348,9 @@ export function OverviewPage() {
             {number(controller.actual_supply_before_heater_temperature) !== null && <>
               <div className="pro-card-head compact air-calc-head"><div><h2>Genvinding og eftervarme · målt T2</h2><p>Luftmængde anslået for aktuelt trin{number(controller.supply_airflow_estimate_m3h) === null ? "" : ` · ${whole(number(controller.supply_airflow_estimate_m3h))} m³/h`}</p></div></div>
               <div className="climate-metrics">
-                <div className="climate-metric green"><Leaf size={21}/><span>Genvinding · indblæsning</span><strong>{whole(number(controller.supply_recovery_percent))} <small>%</small></strong><em>(T2 − T1) / (T3 − T1)</em><i style={{ width: `${Math.max(0, Math.min(100, number(controller.supply_recovery_percent) ?? 0))}%` }}/></div>
+                <div className="climate-metric green"><Leaf size={21}/><span>Veksler · T2AH</span><strong>{whole(t2ahRecovery)} <small>%</small></strong><em>{heating ? "Afventer · eftervarme aktiv" : !heatKnown ? "Afventer status for eftervarme" : "Kun uden eftervarme · (T2AH − T1) / (T3 − T1)"}</em><i style={{ width: `${Math.max(0, Math.min(100, t2ahRecovery ?? 0))}%` }}/></div>
+                <div className="climate-metric neutral"><Leaf size={21}/><span>Reference · T2 før eftervarme</span><strong>{whole(number(controller.supply_recovery_percent))} <small>%</small></strong><em>(T2 − T1) / (T3 − T1)</em><i style={{ width: `${Math.max(0, Math.min(100, number(controller.supply_recovery_percent) ?? 0))}%` }}/></div>
+                <div className="climate-metric neutral"><Leaf size={21}/><span>Genvinding · udsugningsside</span><strong>{whole(recovery)} <small>%</small></strong><em>(T3 − T4) / (T3 − T1)</em><i style={{ width: `${Math.max(0, Math.min(100, recovery ?? 0))}%` }}/></div>
                 <div className="climate-metric cyan"><Wind size={21}/><span>Genvundet varme</span><strong>{whole(number(controller.recovered_heat_w))} <small>W</small></strong><em>Veksler → indblæsning</em><i style={{ width: `${Math.min(100, (number(controller.recovered_heat_w) ?? 0) / 30)}%` }}/></div>
                 <div className="climate-metric neutral"><span className="metric-heat">≋</span><span>Eftervarme løft</span><strong>{temp(number(controller.afterheat_lift))}</strong><em>T2AH − T2</em><i style={{ width: `${Math.max(0, Math.min(100, (number(controller.afterheat_lift) ?? 0) * 10))}%` }}/></div>
                 <div className="climate-metric neutral"><Flame size={21}/><span>Eftervarme effekt</span><strong>{whole(number(controller.afterheat_power_w))} <small>W</small></strong><em>Varme tilført luften</em><i style={{ width: `${Math.min(100, (number(controller.afterheat_power_w) ?? 0) / 20)}%` }}/></div>

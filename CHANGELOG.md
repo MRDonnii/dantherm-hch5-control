@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.10
+
+- The exchanger diagram now shows the temperature gain measured at T2AH as its main percentage, using T1 and T3 for comparison. It shows no exchanger percentage while afterheat is active or its state is unknown, during bypass, or when the temperature span is too small. The old T3/T4 percentage remains visible as the extract-side measurement and keeps its own 24-hour graph. The separate T2 probe reading is labeled as a reference.
+
 ## 1.4.9
 
 - **Corrections for the duct cooling:** room sensors and T3 can both be a little off, and on a well-sealed duct those errors are as large as the loss itself. *Indstillinger → Følere* now has *Korrektion udsugningsrum* and *Korrektion T3* (−3 to +3 K). They are added to the rooms and T3 in the duct cooling only; regulation, the house average and the T3 shown elsewhere are unchanged. Measure them against a reference thermometer, e.g. a probe held next to T3.

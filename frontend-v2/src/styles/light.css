@@ -45,6 +45,7 @@
 :root[data-theme="light"] .hch-cavity-edge{stroke:#acc3d2}
 :root[data-theme="light"] .hch-exchanger-title{fill:#1a262b}
 :root[data-theme="light"] .hch-recovery{fill:#212121;text-shadow:0 2px 8px #f7f7f7}
+:root[data-theme="light"] .hch-recovery-secondary{fill:#34464e}
 :root[data-theme="light"] .hch-bypass rect{fill:#f0f6fa;stroke:#8da8ba}
 :root[data-theme="light"] .hch-bypass text{fill:#374a54}
 :root[data-theme="light"] .bypass-blade{fill:#1798e5}
