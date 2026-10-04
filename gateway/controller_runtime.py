@@ -1001,6 +1001,13 @@ class ControllerRuntime:
             "actual_supply_before_heater_age_seconds": round(sample_age, 1) if sample_age is not None else None,
             "actual_supply_air_temperature": after_heater,
             "actual_supply_air_temperature_source": "hac1_t2ah" if after_heater is not None else None,
+            "t2ah_spike_filter_enabled": self.gateway_state.get("t2ah_spike_filter_enabled") is True,
+            "t2ah_rejected_samples": self.gateway_state.get("t2ah_rejected_samples", 0),
+            "t2ah_last_raw_temperature": self.gateway_state.get("t2ah_last_raw_temperature"),
+            "t2ah_last_raw_age_seconds": (
+                round(time.monotonic() - self.gateway_state["t2ah_last_raw_sample_monotonic"], 1)
+                if isinstance(self.gateway_state.get("t2ah_last_raw_sample_monotonic"), (int, float)) else None
+            ),
             "actual_afterheat_frost_temperature": frost_temperature,
             "actual_afterheat_outdoor_lockout": (
                 None if outdoor is None else outdoor >= AFTERHEAT_OUTDOOR_CUTOFF_C

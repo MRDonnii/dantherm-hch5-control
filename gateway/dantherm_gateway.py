@@ -603,6 +603,11 @@ class Gateway:
         self.device_name = config["device"].get("name", "Dantherm HCH5")
         self.retain = bool(config["mqtt"].get("retain", True))
         self.state: dict[str, object] = {}
+        self.t2ah_spike_filter_enabled = bool(config.get("serial", {}).get("t2ah_spike_filter_enabled", False))
+        self.state["t2ah_spike_filter_enabled"] = self.t2ah_spike_filter_enabled
+        # HAC1 T2AH can produce isolated, multi-degree glitches.
+        # Hold an implausible jump until a second consecutive reading confirms it.
+        self._t2ah_pending: tuple[float, float] | None = None
         self.running = True
         self.last_manual_write = 0.0
         self.control_enabled = bool(config.get("control", {}).get("enabled", False))
@@ -1227,6 +1232,25 @@ class Gateway:
         log("%s=%s", key, payload)
 
     def publish_temperature(self, key: str, value: object, *, source: str | None = None):
+        if (key == "heating_coil_after_temperature" and getattr(self, "t2ah_spike_filter_enabled", False)
+                and isinstance(value, (int, float)) and not isinstance(value, bool)):
+            now = time.monotonic()
+            raw = float(value)
+            self.state["t2ah_last_raw_temperature"] = raw
+            self.state["t2ah_last_raw_sample_monotonic"] = now
+            previous = self.state.get(key)
+            sampled_at = self.state.get("heating_coil_after_temperature_sample_monotonic")
+            if (isinstance(previous, (int, float)) and not isinstance(previous, bool)
+                    and isinstance(sampled_at, (int, float)) and 0 <= now - sampled_at <= 45
+                    and abs(raw - float(previous)) >= 0.8):
+                pending = self._t2ah_pending
+                confirmed = (pending is not None and 0 <= now - pending[1] <= 12
+                             and abs(raw - pending[0]) <= 1.0)
+                if not confirmed:
+                    self._t2ah_pending = (raw, now)
+                    self.state["t2ah_rejected_samples"] = int(self.state.get("t2ah_rejected_samples") or 0) + 1
+                    return
+            self._t2ah_pending = None
         self.publish(key, value, source=source)
         timestamp_keys = SENSOR_SAMPLE_TIMESTAMPS.get(key)
         if (

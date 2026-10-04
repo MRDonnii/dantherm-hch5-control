@@ -86,6 +86,33 @@ def discovery_map(gateway):
 
 
 class BypassAndDiscoveryTests(unittest.TestCase):
+    def test_t2ah_single_spike_is_held_but_repeated_change_is_accepted(self):
+        gateway = make_gateway()
+        gateway.t2ah_spike_filter_enabled = True
+        gateway.publish_temperature("heating_coil_after_temperature", 21.2)
+        first_sample = gateway.state["heating_coil_after_temperature_sample_monotonic"]
+
+        gateway.publish_temperature("heating_coil_after_temperature", 26.1)
+        self.assertEqual(gateway.state["heating_coil_after_temperature"], 21.2)
+        self.assertEqual(gateway.state["heating_coil_after_temperature_sample_monotonic"], first_sample)
+        self.assertEqual(gateway.state["t2ah_last_raw_temperature"], 26.1)
+        self.assertEqual(gateway.state["t2ah_rejected_samples"], 1)
+
+        gateway.publish_temperature("heating_coil_after_temperature", 21.3)
+        self.assertEqual(gateway.state["heating_coil_after_temperature"], 21.3)
+        gateway.publish_temperature("heating_coil_after_temperature", 22.5)
+        self.assertEqual(gateway.state["heating_coil_after_temperature"], 21.3)
+        gateway.publish_temperature("heating_coil_after_temperature", 22.7)
+        self.assertEqual(gateway.state["heating_coil_after_temperature"], 22.7)
+
+    def test_t2ah_stale_previous_value_does_not_block_a_real_new_reading(self):
+        gateway = make_gateway()
+        gateway.t2ah_spike_filter_enabled = True
+        gateway.publish_temperature("heating_coil_after_temperature", 21.2)
+        gateway.state["heating_coil_after_temperature_sample_monotonic"] = time.monotonic() - 50
+        gateway.publish_temperature("heating_coil_after_temperature", 23.0)
+        self.assertEqual(gateway.state["heating_coil_after_temperature"], 23.0)
+
     def test_passive_afterheat_status_has_register_source_and_timestamp(self):
         gateway = make_gateway()
         gateway.last_bus_frame = 0.0
@@ -461,6 +488,14 @@ class UnitSupplyFeedTests(unittest.TestCase):
         self.assertEqual(writes, [(146, 3), (147, 0x0831)])
         self.assertFalse(gateway.feed_unit_supply_temperature_if_due(None, now=101.0))
         self.assertTrue(gateway.feed_unit_supply_temperature_if_due(None, now=103.1))
+
+    def test_rejected_t2ah_spike_is_not_fed_to_the_unit(self):
+        gateway, writes = self.gateway()
+        gateway.t2ah_spike_filter_enabled = True
+        gateway.publish_temperature("heating_coil_after_temperature", 21.0)
+        gateway.publish_temperature("heating_coil_after_temperature", 26.0)
+        self.assertTrue(gateway.feed_unit_supply_temperature_if_due(None, now=100.0))
+        self.assertEqual(writes, [(146, 3), (147, 2100)])
 
     def test_never_writes_without_mastership_or_fresh_t2ah(self):
         gateway, writes = self.gateway(allowed=False)

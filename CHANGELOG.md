@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.13
+
+- Add an optional T2AH spike filter (`serial.t2ah_spike_filter_enabled`, off by default). It holds isolated jumps of at least 0.8 °C until a second reading confirms the change. Rejected samples do not refresh freshness or reach the unit's T2 feed, MQTT, WebUI, or history. Keep the last raw T2AH sample and rejection count in gateway diagnostics. This removes brief spikes but does not calibrate a mismatched physical sensor.
+
 ## 1.4.12
 
 - Add a configurable T2-only offset for the derived exchanger percentage and coil difference. The user's measured +0.4 °C correction reduces the displayed T2AH−T2 difference by 0.4 °C. T2AH, raw sensor telemetry and heating control remain unchanged. Mark corrected T2 readings in the overview.
