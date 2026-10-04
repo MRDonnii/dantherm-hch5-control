@@ -26,7 +26,7 @@ export interface Hch5UnitDiagramProps {
   bypassActual: boolean;
   bypassRequest: string;
   heating: boolean;
-  /** Temperature gain to T2AH, shown only while afterheat is confirmed off. */
+  /** Temperature gain to the measured T2 before the afterheater. */
   supplyRecovery?: number | null;
   /** Temperature drop on the extract side, from T3 to T4. */
   recovery: number | null;
@@ -615,10 +615,10 @@ export function Hch5UnitDiagram(props:Hch5UnitDiagramProps) {
         </g>
       </g>
       <polygon className={`hch-core-toggle${coreOpen ? " open" : ""}`} points={CORE_POINTS} role="button" tabIndex={0} aria-pressed={coreOpen} aria-label={coreOpen ? "Vis veksleren massiv" : "Vis luften gennem veksleren"} onClick={toggleCore} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleCore(); } }}><title>{coreOpen ? "Tryk for at gøre veksleren massiv igen" : "Tryk for at se luften gennem veksleren (1 min)"}</title></polygon>
-      {/* T2AH includes afterheat when active. Keep the T3/T4 history on its own value. */}
+      {/* T2 is before afterheat. Keep the T3/T4 history on its own value. */}
       {!bypassPhase && <g className="hch-recovery-hit">
         <rect x="447" y="249" width="146" height="66" rx="10"/>
-        <text className="hch-recovery" x="520" y="277" textAnchor="middle">{bypassOpen?"BYPASS":`T2AH ${supplyRecovery===null || supplyRecovery===undefined?"—":`${Math.round(supplyRecovery)}%`}`}</text>
+        <text className="hch-recovery" x="520" y="277" textAnchor="middle">{bypassOpen?"BYPASS":`T2 ${supplyRecovery===null || supplyRecovery===undefined?"—":`≈${Math.round(supplyRecovery)}%`}`}</text>
         {!bypassOpen && <g className="hch-recovery-history" role="button" tabIndex={0} aria-label={`Genvinding udsugningsside ${recovery===null?"ukendt":`${recovery} %`}, vis 24 timers graf`} onClick={() => onTemperatureClick?.("recovery")} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onTemperatureClick?.("recovery"); } }}>
           <text className="hch-recovery-secondary" x="520" y="301" textAnchor="middle">T3/T4 {recovery===null?"—":`${recovery}%`}</text>
         </g>}
@@ -645,7 +645,7 @@ export function Hch5UnitDiagram(props:Hch5UnitDiagramProps) {
         <div className="hch-mobile-route"><span>→</span><i/><span>→</span></div>
         <button className="hch-mobile-reading" onClick={() => onTemperatureClick?.("afterHeater")}><small>Tilluft · T2AH</small><strong>{fmt(afterHeater)}</strong></button>
       </div>
-      <div className="hch-mobile-core"><span>VEKSLER · T2AH</span><strong>{supplyRecovery === null ? "—" : `${Math.round(supplyRecovery)}%`}</strong><span>Udsugningsside {recovery === null ? "—" : `${recovery}%`}</span><span className={bypassOpen ? "bypass-open" : ""}>{bypassPhase ? bypassLabel : bypassOpen ? "Bypass åben" : "Bypass lukket"}</span></div>
+      <div className="hch-mobile-core"><span>VEKSLER · T2</span><strong>{supplyRecovery === null ? "—" : `≈${Math.round(supplyRecovery)}%`}</strong><span>Udsugningsside {recovery === null ? "—" : `${recovery}%`}</span><span className={bypassOpen ? "bypass-open" : ""}>{bypassPhase ? bypassLabel : bypassOpen ? "Bypass åben" : "Bypass lukket"}</span></div>
       <div className="hch-mobile-lane extract">
         <button className="hch-mobile-reading" onClick={() => onTemperatureClick?.("extract")}><small>Fraluft · T3</small><strong>{fmt(extract)}</strong></button>
         <div className="hch-mobile-route"><span>→</span><i/><span>→</span></div>

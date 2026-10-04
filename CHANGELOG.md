@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.11
+
+- Correct the exchanger's main reading to use the measured T2 immediately after the unit, before the heating coil. T2AH is a metre downstream of the coil and can read warmer even while afterheat is commanded off, so it cannot isolate the exchanger. Show the T2-based result as approximate; flag a difference of at least 0.5 K with afterheat off so sensor bias and passive heating are not mistaken for exchanger performance. Keep the T3/T4 exhaust-side percentage separate. Raw temperatures remain unchanged.
+
 ## 1.4.10
 
 - The exchanger diagram now shows the temperature gain measured at T2AH as its main percentage, using T1 and T3 for comparison. It shows no exchanger percentage while afterheat is active or its state is unknown, during bypass, or when the temperature span is too small. The old T3/T4 percentage remains visible as the extract-side measurement and keeps its own 24-hour graph. The separate T2 probe reading is labeled as a reference.
