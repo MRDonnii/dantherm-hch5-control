@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.1
+
+- **Stop for Køl right in the row:** while *Køl* runs, a *Stop* button sits next to it in the free-cooling row, like the one for Hurtig boost, so it can be ended early without opening the popup.
+- Changes by Claude AI.
+
 ## 1.5.0
 
 - **Køl:** a new *Køl* button in the free-cooling row on the overview. A popup lets you pick 30 minutes, 1 hour or 2 hours. While it runs, the bypass is open, the unit runs the top step (also above the Auto maximum) and the afterheat is held at 10 °C so it does not warm the outdoor air up again. Afterwards everything returns to normal by itself; your own bypass choice is not changed. It stops for fireplace mode, bonfire and standby. Command: `cool_boost_minutes` (0, 30, 60 or 120); state: `cool_boost_active`, `cool_boost_remaining_seconds`.

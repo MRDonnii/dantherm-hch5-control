@@ -421,6 +421,7 @@ export function OverviewPage() {
                   <div className="function-text"><strong>Frikøling</strong><small>{coolActive ? `Køl aktiv · ${remaining(controller.cool_boost_remaining_seconds)}` : `${coolingLabel(controller.cooling_state)} · ${controller.cooling_enabled === true ? "automatik til" : "slået fra"}`}</small></div>
                   <div className="function-buttons">
                     <button className={coolActive ? "active" : ""} aria-haspopup="dialog" disabled={busy !== null || fireplace || standbyActive} title={fireplace ? "Ikke under pejsefunktion" : "Åbn bypass og kør boost i en periode"} onClick={() => setCoolDialog(true)}>Køl</button>
+                    {coolActive && <button className="stop" disabled={busy !== null} onClick={() => void command("cool-stop", { cool_boost_minutes: 0 }, "Køl stoppet.")}>Stop</button>}
                     <button className={controller.cooling_enabled === true ? "active" : ""} disabled={busy !== null} onClick={() => controller.cooling_enabled !== true && void command("cooling", { cooling_enabled: true }, "Frikøling aktiveret.")}>Til</button>
                     <button className={controller.cooling_enabled !== true ? "active" : ""} disabled={busy !== null} onClick={() => controller.cooling_enabled === true && void command("cooling", { cooling_enabled: false }, "Frikøling deaktiveret.")}>Fra</button>
                   </div>
