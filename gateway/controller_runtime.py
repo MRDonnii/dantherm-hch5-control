@@ -398,6 +398,8 @@ class ControllerRuntime:
             d["fireplace_duration_minutes"] = 15
             d["quick_boost_until"] = None
             d["quick_boost_minutes"] = 0
+            d["cool_boost_until"] = None
+            d["cool_boost_minutes"] = 0
             if started:
                 self.config.save()
         self.fireplace_auto_reason = "switch" if signal else "stove_temperature"

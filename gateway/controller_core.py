@@ -45,6 +45,9 @@ VALID_MODES = {"local_auto", "smart_auto", "manual"}
 VALID_DEMANDS = {"low", "normal", "high", "boost"}
 VALID_BYPASS = {"off", "on"}
 VALID_QUICK_BOOST_MINUTES = {0, 15, 30, 60}
+# Cool: bypass open and the top step for a while, then back to normal.
+VALID_COOL_BOOST_MINUTES = {0, 30, 60, 120}
+COOL_BOOST_AFTERHEAT_SETPOINT = 10
 VALID_AFTERHEAT_COILS = {"electric", "water"}
 # Bonfire in the garden: the unit is switched off (standby pattern) for the
 # chosen time so no smoke is drawn in, then starts again by itself.
@@ -246,6 +249,8 @@ class ControllerState:
         "quick_boost_until": None,
         "quick_boost_level": MAX_LEVEL,
         "quick_boost_minutes": 0,
+        "cool_boost_until": None,
+        "cool_boost_minutes": 0,
         "bonfire_until": None,
         "bonfire_minutes": 0,
         "standby": False,
@@ -497,6 +502,20 @@ class ControllerState:
         else:
             self.data["quick_boost_until"] = quick_boost_until
             self.data["quick_boost_minutes"] = quick_boost_minutes
+        try:
+            cool_boost_until = _parse_until(self.data.get("cool_boost_until"), "Køl slut")
+        except ControllerError:
+            cool_boost_until = None
+        try:
+            cool_boost_minutes = int(self.data.get("cool_boost_minutes", 0))
+        except (TypeError, ValueError):
+            cool_boost_minutes = 0
+        if cool_boost_minutes not in VALID_COOL_BOOST_MINUTES or not cool_boost_until or cool_boost_until <= time.time():
+            self.data["cool_boost_until"] = None
+            self.data["cool_boost_minutes"] = 0
+        else:
+            self.data["cool_boost_until"] = cool_boost_until
+            self.data["cool_boost_minutes"] = cool_boost_minutes
         try:
             bonfire_until = _parse_until(self.data.get("bonfire_until"), "Bål slut")
         except ControllerError:
@@ -879,7 +898,7 @@ class ControllerState:
                 "night_air_quality_max_level", "bathroom_rh_setpoint",
                 "bathroom_rh_hysteresis", "bathroom_max_level",
                 "vacation_enabled", "vacation_level", "vacation_until", "vacation_from", "schedule_periods",
-                "quick_boost_minutes", "quick_boost_level", "bonfire_minutes", "standby_minutes", "cooling_enabled",
+                "quick_boost_minutes", "quick_boost_level", "cool_boost_minutes", "bonfire_minutes", "standby_minutes", "cooling_enabled",
                 "cooling_room_setpoint", "cooling_hysteresis", "cooling_outdoor_min",
                 "cooling_min_delta", "cooling_level", "cooling_start_delay_seconds",
                 "cooling_min_on_seconds", "cooling_min_off_seconds", "cooling_transition_timeout_seconds",
@@ -975,6 +994,19 @@ class ControllerState:
                 if minutes:
                     self.data["bonfire_until"] = None
                     self.data["bonfire_minutes"] = 0
+            if "cool_boost_minutes" in patch:
+                minutes = int(patch["cool_boost_minutes"])
+                if minutes not in VALID_COOL_BOOST_MINUTES:
+                    raise ControllerError("Køl skal være 0, 30, 60 eller 120 minutter")
+                if minutes and self.data.get("fireplace"):
+                    raise ControllerError("Køl kan ikke startes under pejsefunktion")
+                if minutes and self.data.get("standby"):
+                    raise ControllerError("Anlægget er slukket; tænd det først")
+                self.data["cool_boost_minutes"] = minutes
+                self.data["cool_boost_until"] = time.time() + minutes * 60 if minutes else None
+                if minutes:
+                    self.data["bonfire_until"] = None
+                    self.data["bonfire_minutes"] = 0
             if "standby_minutes" in patch:
                 minutes = int(patch["standby_minutes"])
                 low, high = STANDBY_MINUTES_RANGE
@@ -989,6 +1021,7 @@ class ControllerState:
                 if minutes:
                     # Off means off: temporary functions end.
                     self.data["quick_boost_until"], self.data["quick_boost_minutes"] = None, 0
+                    self.data["cool_boost_until"], self.data["cool_boost_minutes"] = None, 0
                     self.data["bonfire_until"], self.data["bonfire_minutes"] = None, 0
                     self.data["fireplace"], self.data["fireplace_until"] = False, None
                     self.data["fireplace_duration_minutes"] = 0
@@ -1006,6 +1039,8 @@ class ControllerState:
                 if minutes:
                     self.data["quick_boost_until"] = None
                     self.data["quick_boost_minutes"] = 0
+                    self.data["cool_boost_until"] = None
+                    self.data["cool_boost_minutes"] = 0
             if "schedule" in patch:
                 incoming = patch["schedule"]
                 if not isinstance(incoming, dict):
@@ -1047,6 +1082,8 @@ class ControllerState:
                 if minutes:
                     self.data["quick_boost_until"] = None
                     self.data["quick_boost_minutes"] = 0
+                    self.data["cool_boost_until"] = None
+                    self.data["cool_boost_minutes"] = 0
                     self.data["bonfire_until"] = None
                     self.data["bonfire_minutes"] = 0
             if "fireplace_minutes" in patch:
@@ -1063,6 +1100,8 @@ class ControllerState:
                 if minutes:
                     self.data["quick_boost_until"] = None
                     self.data["quick_boost_minutes"] = 0
+                    self.data["cool_boost_until"] = None
+                    self.data["cool_boost_minutes"] = 0
                     self.data["bonfire_until"] = None
                     self.data["bonfire_minutes"] = 0
             if "afterheat_setpoint" in patch:
@@ -1320,6 +1359,21 @@ class ControllerState:
             self.data["updated_at"] = now
             self.save()
 
+    def _expire_cool_boost(self, now: float | None = None) -> None:
+        now = now or time.time()
+        until = self.data.get("cool_boost_until")
+        if until is None:
+            return
+        try:
+            active_until = float(until)
+        except (TypeError, ValueError):
+            active_until = 0.0
+        if active_until <= now:
+            self.data["cool_boost_until"] = None
+            self.data["cool_boost_minutes"] = 0
+            self.data["updated_at"] = now
+            self.save()
+
     def _expire_max_level(self, now: float | None = None) -> None:
         """Step 4 chosen by hand returns to step 3, like the HCP4 panel."""
         now = now or time.time()
@@ -1373,6 +1427,7 @@ class ControllerState:
             self._expire_fireplace(now)
             self._expire_vacation(now)
             self._expire_quick_boost(now)
+            self._expire_cool_boost(now)
             self._expire_bonfire(now)
             self._expire_max_level(now)
             result = dict(self.data)
@@ -1386,6 +1441,9 @@ class ControllerState:
             result["fireplace_remaining_seconds"] = max(0, int(float(until) - now)) if until else 0
             boost_until = result.get("quick_boost_until")
             result["quick_boost_remaining_seconds"] = max(0, int(float(boost_until) - now)) if boost_until else 0
+            cool_until = result.get("cool_boost_until")
+            result["cool_boost_remaining_seconds"] = max(0, int(float(cool_until) - now)) if cool_until else 0
+            result["cool_boost_active"] = bool(result["cool_boost_remaining_seconds"])
             bonfire_until = result.get("bonfire_until")
             result["bonfire_remaining_seconds"] = max(0, int(float(bonfire_until) - now)) if bonfire_until else 0
             result["bonfire_active"] = bool(result["bonfire_remaining_seconds"])
@@ -1565,7 +1623,7 @@ class ControllerEngine:
     def _automation_overlay(self, level: int, source: str, reason: str, now_ts: float) -> tuple[int, str, str, str, dict[str, bool]]:
         d = self.config.data
         now = datetime.fromtimestamp(now_ts).astimezone()
-        flags = {"schedule_active": False, "night_active": False, "vacation_active": False, "quick_boost_active": False, "cooling_active": False}
+        flags = {"schedule_active": False, "night_active": False, "vacation_active": False, "quick_boost_active": False, "cooling_active": False, "cool_boost_active": False}
         effective_bypass = "on" if d["bypass"] == "on" else "off"
 
         if self.config.vacation_running(now_ts):
@@ -1710,17 +1768,29 @@ class ControllerEngine:
             remaining = max(1, math.ceil((float(boost_until) - now_ts) / 60))
             reason = f"Quick Boost · trin {int(d['quick_boost_level'])} · ca. {remaining} min tilbage"
 
+        cool_until = d.get("cool_boost_until")
+        if not d.get("fireplace") and cool_until and float(cool_until) > now_ts:
+            # Cool: open the bypass and run the top step, whatever else is going on.
+            flags["cool_boost_active"] = True
+            top = self.config.max_level()
+            level = top
+            effective_bypass = "on"
+            source = "cool_boost"
+            remaining = max(1, math.ceil((float(cool_until) - now_ts) / 60))
+            reason = f"Køl · bypass åben · trin {top} · ca. {remaining} min tilbage"
+
         if d.get("fireplace"):
             effective_bypass = "off"
         # The Auto limits are for automatic control: a step chosen by hand is
         # never moved by them, and vacation chooses its own (lower) step.
-        if d["mode"] != "manual" or source != "manual":
+        if (d["mode"] != "manual" or source != "manual") and source != "cool_boost":
             auto_floor = 1 if flags["vacation_active"] else int(d["local_min_level"])
             level = min(int(d["local_max_level"]), max(auto_floor, int(level)))
         standby_until = d.get("standby_until")
         flags["standby_active"] = d.get("standby") is True and (standby_until is None or float(standby_until) > now_ts)
         if flags["standby_active"]:
             flags["quick_boost_active"] = False
+            flags["cool_boost_active"] = False
             flags["cooling_active"] = False
             self._stop_cooling(now_ts, "standby")
             left = f" · ca. {max(1, math.ceil((float(standby_until) - now_ts) / 60))} min tilbage" if standby_until else " · indtil det tændes"
@@ -1732,6 +1802,7 @@ class ControllerEngine:
             # Smoke outside: the unit is switched off by the standby pattern in apply().
             flags["bonfire_active"] = True
             flags["quick_boost_active"] = False
+            flags["cool_boost_active"] = False
             flags["cooling_active"] = False
             self._stop_cooling(now_ts, "bonfire")
             effective_bypass = "off"
@@ -1794,6 +1865,7 @@ class ControllerEngine:
             self.config._expire_fireplace(now)
             self.config._expire_vacation(now)
             self.config._expire_quick_boost(now)
+            self.config._expire_cool_boost(now)
             self.config._expire_max_level(now)
             d = self.config.data
             if d["mode"] == "manual":
@@ -1821,6 +1893,9 @@ class ControllerEngine:
 
             level, source, reason, effective_bypass, flags = self._automation_overlay(level, source, reason, now)
             afterheat_setpoint, afterheat_reason = self._afterheat_setpoint(now)
+            if flags.get("cool_boost_active"):
+                # Cool lets cold outdoor air in on purpose: the afterheat must not warm it up again.
+                afterheat_setpoint, afterheat_reason = COOL_BOOST_AFTERHEAT_SETPOINT, "Køl: eftervarme holdt nede"
             d["effective_source"] = source
             d["effective_level"] = level
             d["effective_reason"] = reason

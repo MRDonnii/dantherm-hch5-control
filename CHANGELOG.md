@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.0
+
+- **Køl:** a new *Køl* button in the free-cooling row on the overview. A popup lets you pick 30 minutes, 1 hour or 2 hours. While it runs, the bypass is open, the unit runs the top step (also above the Auto maximum) and the afterheat is held at 10 °C so it does not warm the outdoor air up again. Afterwards everything returns to normal by itself; your own bypass choice is not changed. It stops for fireplace mode, bonfire and standby. Command: `cool_boost_minutes` (0, 30, 60 or 120); state: `cool_boost_active`, `cool_boost_remaining_seconds`.
+- Changes by Claude AI.
+
 ## 1.4.13
 
 - Add an optional T2AH spike filter (`serial.t2ah_spike_filter_enabled`, off by default). It holds isolated jumps of at least 0.8 °C until a second reading confirms the change. Rejected samples do not refresh freshness or reach the unit's T2 feed, MQTT, WebUI, or history. Keep the last raw T2AH sample and rejection count in gateway diagnostics. This removes brief spikes but does not calibrate a mismatched physical sensor.

@@ -56,6 +56,11 @@ function whole(value: number | null) {
 }
 const BONFIRE_CHOICES: [number, string][] = [[30, "30 min"], [60, "1 t"], [120, "2 t"], [180, "3 t"]];
 // Presets in the OFF popup; -2 = until 07:00, -1 = until switched on again.
+const COOL_CHOICES: [number, string][] = [
+  [30, "30 min"],
+  [60, "1 time"],
+  [120, "2 timer"],
+];
 const STANDBY_CHOICES: [number, string, string][] = [
   [60, "1 time", "Tænder selv om en time"],
   [240, "4 timer", "Tænder selv om fire timer"],
@@ -109,6 +114,7 @@ export function OverviewPage() {
   const lastAfterheatOn = useRef(20);
   const [activeSensor, setActiveSensor] = useState<string | null>(null);
   const [standbyDialog, setStandbyDialog] = useState(false);
+  const [coolDialog, setCoolDialog] = useState(false);
   const [historySamples, setHistorySamples] = useState<HistorySample[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
@@ -247,6 +253,7 @@ export function OverviewPage() {
       : "Afventer";
   const busHealthy = controller.rs485_healthy === true || unit.bus_traffic === true || unit.available === true;
   const quickBoostActive = (number(controller.quick_boost_remaining_seconds) ?? 0) > 0;
+  const coolActive = (number(controller.cool_boost_remaining_seconds) ?? 0) > 0;
 
   const recovery = useMemo(() => {
     if (bypassActual || outdoor === null || extract === null || exhaust === null || Math.abs(extract - outdoor) < .5) return null;
@@ -409,10 +416,11 @@ export function OverviewPage() {
                     <button className={String(controller.bypass) === "on" ? "active" : ""} disabled={busy !== null || fireplace || bypassMoving} onClick={() => void command("bypass-on", { bypass: "on" }, "Bypass ønskes åben.")}>On</button>
                   </div>
                 </div>
-                <div className={`function-row${controller.cooling_enabled === true ? " active" : ""}`}>
+                <div className={`function-row${controller.cooling_enabled === true || coolActive ? " active" : ""}`}>
                   <span className="function-icon cooling"><Snowflake size={18}/></span>
-                  <div className="function-text"><strong>Frikøling</strong><small>{coolingLabel(controller.cooling_state)} · {controller.cooling_enabled === true ? "automatik til" : "slået fra"}</small></div>
+                  <div className="function-text"><strong>Frikøling</strong><small>{coolActive ? `Køl aktiv · ${remaining(controller.cool_boost_remaining_seconds)}` : `${coolingLabel(controller.cooling_state)} · ${controller.cooling_enabled === true ? "automatik til" : "slået fra"}`}</small></div>
                   <div className="function-buttons">
+                    <button className={coolActive ? "active" : ""} aria-haspopup="dialog" disabled={busy !== null || fireplace || standbyActive} title={fireplace ? "Ikke under pejsefunktion" : "Åbn bypass og kør boost i en periode"} onClick={() => setCoolDialog(true)}>Køl</button>
                     <button className={controller.cooling_enabled === true ? "active" : ""} disabled={busy !== null} onClick={() => controller.cooling_enabled !== true && void command("cooling", { cooling_enabled: true }, "Frikøling aktiveret.")}>Til</button>
                     <button className={controller.cooling_enabled !== true ? "active" : ""} disabled={busy !== null} onClick={() => controller.cooling_enabled === true && void command("cooling", { cooling_enabled: false }, "Frikøling deaktiveret.")}>Fra</button>
                   </div>
@@ -451,6 +459,18 @@ export function OverviewPage() {
             {STANDBY_CHOICES.map(([minutes, label, hint]) => <button key={minutes} type="button" className={standbyActive && number(controller.standby_minutes) === minutes ? "active" : ""} disabled={busy !== null} onClick={() => { setStandbyDialog(false); void command(`standby-${minutes}`, { standby_minutes: minutes }, minutes === -1 ? "Anlægget er slukket, til du tænder igen." : minutes === -2 ? "Anlægget er slukket til i morgen kl. 07:00." : `Anlægget er slukket i ${label}.`); }}><strong>{label}</strong><small>{hint}</small></button>)}
           </div>
           {standbyActive && <button type="button" className="standby-on-action" disabled={busy !== null} onClick={() => { setStandbyDialog(false); void command("standby-stop", { standby_minutes: 0 }, "Anlægget er tændt igen."); }}>Tænd anlægget igen</button>}
+        </section>
+      </div>, document.body)}
+      {coolDialog && createPortal(<div className="sensor-history-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setCoolDialog(false); }}>
+        <section className="standby-dialog surface" role="dialog" aria-modal="true" aria-labelledby="cool-dialog-title">
+          <div className="sensor-history-heading"><div><span className="eyebrow">FRIKØLING</span><h2 id="cool-dialog-title">{coolActive ? "Køl kører" : "Køl huset"}</h2></div><button type="button" aria-label="Luk" onClick={() => setCoolDialog(false)}><X size={20}/></button></div>
+          <p className="standby-dialog-lead">{coolActive
+            ? `Bypass er åben og anlægget kører boost · ${remaining(controller.cool_boost_remaining_seconds)}. Derefter går det tilbage til normal drift.`
+            : `Bypass åbnes, anlægget kører boost, og eftervarmen holdes nede. Bagefter går det selv tilbage til normal drift.${outdoor === null ? "" : ` Udeluft lige nu ${temp(outdoor)}.`}`}</p>
+          <div className="standby-choices">
+            {COOL_CHOICES.map(([minutes, label]) => <button key={minutes} type="button" className={coolActive && number(controller.cool_boost_minutes) === minutes ? "active" : ""} disabled={busy !== null} onClick={() => { setCoolDialog(false); void command(`cool-${minutes}`, { cool_boost_minutes: minutes }, `Køl startet i ${label}.`); }}><strong>{label}</strong><small>Bypass åben og boost</small></button>)}
+          </div>
+          {coolActive && <button type="button" className="standby-on-action" disabled={busy !== null} onClick={() => { setCoolDialog(false); void command("cool-stop", { cool_boost_minutes: 0 }, "Køl stoppet."); }}>Stop køl</button>}
         </section>
       </div>, document.body)}
       {activeSensor && SENSOR_HISTORY[activeSensor] && createPortal(<div className="sensor-history-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setActiveSensor(null); }}>

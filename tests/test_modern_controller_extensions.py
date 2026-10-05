@@ -103,3 +103,51 @@ class ModernControllerExtensionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CoolBoostTests(unittest.TestCase):
+    def make_engine(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        state = ControllerState(Path(temp.name) / "controller.json")
+        return ControllerEngine(state, HardwareAdapter())
+
+    def test_cool_opens_the_bypass_runs_the_top_step_and_holds_the_afterheat_down(self):
+        engine = self.make_engine()
+        engine.config.configure({"mode": "local_auto", "local_max_level": 3, "bypass": "off", "cool_boost_minutes": 60})
+        engine.update_measurements(rh=40, co2=600)
+        result = engine.resolve()
+        self.assertTrue(result["cool_boost_active"])
+        self.assertEqual(result["effective_source"], "cool_boost")
+        self.assertEqual(result["effective_level"], engine.config.max_level())
+        self.assertEqual(result["effective_bypass"], "on")
+        self.assertEqual(result["bypass"], "off")  # the user's own bypass choice is untouched
+        self.assertEqual(result["afterheat_effective_setpoint"], 10)
+        self.assertGreater(result["cool_boost_remaining_seconds"], 3500)
+
+        engine.config.configure({"cool_boost_minutes": 0})
+        result = engine.resolve()
+        self.assertFalse(result["cool_boost_active"])
+        self.assertEqual(result["effective_bypass"], "off")
+        self.assertNotEqual(result["afterheat_effective_setpoint"], 10)
+
+    def test_cool_expires_by_itself(self):
+        engine = self.make_engine()
+        engine.config.configure({"cool_boost_minutes": 30})
+        engine.config.data["cool_boost_until"] = time.time() - 1
+        result = engine.resolve()
+        self.assertFalse(result["cool_boost_active"])
+        self.assertEqual(result["cool_boost_minutes"], 0)
+        self.assertEqual(result["effective_bypass"], "off")
+
+    def test_cool_only_takes_the_offered_durations_and_yields_to_fireplace(self):
+        engine = self.make_engine()
+        with self.assertRaises(Exception):
+            engine.config.configure({"cool_boost_minutes": 45})
+        engine.config.configure({"cool_boost_minutes": 120})
+        engine.config.configure({"fireplace_minutes": 15})
+        result = engine.resolve()
+        self.assertFalse(result["cool_boost_active"])
+        self.assertEqual(result["effective_bypass"], "off")
+        with self.assertRaises(Exception):
+            engine.config.configure({"cool_boost_minutes": 30})
