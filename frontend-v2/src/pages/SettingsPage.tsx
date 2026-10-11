@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Activity, Droplets, Fan, Flame, Gauge, House, Mail, Monitor, Moon, RotateCcw, Save, Scale, ShieldCheck, Snowflake, Thermometer, Users, Wind } from "lucide-react";
+import { Activity, Droplets, Fan, Flame, Gauge, House, Mail, Monitor, Moon, RotateCcw, Save, Scale, ShieldCheck, ShowerHead, Snowflake, Thermometer, Users, Wind } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { postJson, requestJson } from "../lib/api";
 import { airflowPlan, balancedProfiles, effectiveProfiles, sideConstants, type AirflowProfiles, type RatioSource } from "../lib/airflow";
@@ -46,6 +46,7 @@ export const CONTROLLER_KEYS = [
   "fireplace_auto_enabled", "fireplace_auto_source", "fireplace_auto_on_temp", "fireplace_auto_off_temp",
   "fireplace_afterrun_minutes", "fireplace_max_hours", "onewire_roles",
   "pm25_enabled", "pm25_setpoint", "pm25_step", "pm25_hysteresis", "pm25_max_level", "pm25_ignored_rooms",
+  "bathroom_rise_percent", "bathroom_rise_minutes", "bathroom_night_drying", "bathroom_max_minutes", "bathroom_rooms",
 ] as const;
 
 const T = {
@@ -64,7 +65,7 @@ type SectionId = "ui" | "house" | "air" | "humidity" | "night" | "afterheat" | "
 const SECTIONS: { id: SectionId; icon: LucideIcon; title: Text; lead: Text }[] = [
   { id: "house", icon: House, title: { da: "Hus og luftmængde", en: "House and airflow" }, lead: { da: "Grundtrin og luftbalance ud fra boligen", en: "Base level and air balance from the home" } },
   { id: "air", icon: Wind, title: { da: "Luftkvalitet", en: "Air quality" }, lead: { da: "Fugt og CO₂ løfter ventilationen", en: "Humidity and CO₂ raise the ventilation" } },
-  { id: "humidity", icon: Droplets, title: { da: "Fugt og tør luft", en: "Moisture and dry air" }, lead: { da: "Ventilér kun når det faktisk tørrer", en: "Only ventilate when it actually dries" } },
+  { id: "humidity", icon: Droplets, title: { da: "Fugt og tør luft", en: "Moisture and dry air" }, lead: { da: "Badeværelse, fugt og tør luft", en: "Bathroom, humidity and dry air" } },
   { id: "night", icon: Moon, title: { da: "Nat", en: "Night" }, lead: { da: "Lavere trin mens I sover", en: "Lower level while you sleep" } },
   { id: "afterheat", icon: Thermometer, title: { da: "Eftervarme", en: "Afterheat" }, lead: { da: "Indblæsningens temperatur", en: "Supply air temperature" } },
   { id: "cooling", icon: Snowflake, title: { da: "Frikøling", en: "Free cooling" }, lead: { da: "Køl huset med kølig udeluft via bypass", en: "Cool the house with cool outdoor air via bypass" } },
@@ -97,6 +98,76 @@ function initialSection(): SectionId {
 }
 
 function Help({ children }: { children: ReactNode }) { return <small className="settings-field-help">{children}</small>; }
+
+
+type BathroomRoom = { type?: "auto" | "bathroom" | "normal"; rh_setpoint?: number; rh_hysteresis?: number; max_level?: number };
+type BathroomStatus = { name: string; humidity: number | null; rh_setpoint: number; rh_end: number; max_level: number; state: string; drying_minutes: number | null; webui_override: boolean };
+
+/** Bathroom control: common limits, shower detection and a table with settings per room. */
+function BathroomCards({ lang, form, controller, set, maxLevel }: { lang: Lang; form: Data; controller: Data; set: (key: string, value: unknown) => void; maxLevel: number }) {
+  const da = lang === "da";
+  const rooms = (form.bathroom_rooms && typeof form.bathroom_rooms === "object" ? form.bathroom_rooms : {}) as Record<string, BathroomRoom>;
+  const status = new Map((Array.isArray(controller.bathroom_status) ? controller.bathroom_status as BathroomStatus[] : []).map(item => [item.name, item]));
+  const haRooms = Object.keys((controller.smart_ha_rooms && typeof controller.smart_ha_rooms === "object" ? controller.smart_ha_rooms : {}) as Record<string, unknown>);
+  const names = [...new Set([...haRooms, ...Object.keys(rooms)])].sort((a, b) => a.localeCompare(b, "da"));
+  const common = { rh: n(form.bathroom_rh_setpoint, 65), hysteresis: n(form.bathroom_rh_hysteresis, 5), level: n(form.bathroom_max_level, maxLevel) };
+  const change = (name: string, patch: Partial<BathroomRoom>) => {
+    const entry: BathroomRoom = { ...rooms[name], ...patch };
+    const next = { ...rooms };
+    for (const key of ["rh_setpoint", "rh_hysteresis", "max_level"] as const) if (entry[key] === undefined || Number.isNaN(entry[key])) delete entry[key];
+    if ((entry.type ?? "auto") === "auto" && entry.rh_setpoint === undefined && entry.rh_hysteresis === undefined && entry.max_level === undefined) delete next[name];
+    else next[name] = entry;
+    set("bathroom_rooms", next);
+  };
+  const value = (v: number | undefined) => v === undefined ? "" : String(v);
+  const parse = (text: string) => text.trim() === "" ? undefined : Number(text.replace(",", "."));
+  const stateText: Record<string, [string, string]> = {
+    drying: [da ? "Tørrer ud" : "Drying", "drying"], normal: [da ? "Normal" : "Normal", "normal"], expired: [da ? "Tid udløbet" : "Time up", "expired"],
+    view_only: [da ? "Kun visning" : "View only", "normal"], no_humidity: [da ? "Ingen fugtmåling" : "No humidity", "normal"],
+  };
+  return <>
+    <Card title={da ? "Badeværelse" : "Bathroom"} lead={da ? "Fugtgrænse, største trin og hvornår et bad opdages" : "Humidity limit, highest level and how a shower is detected"} icon={ShowerHead}>
+      <div className="settings-grid">
+        <label>{da ? "Fugt start" : "Humidity start"}<input type="number" min="35" max="90" value={common.rh} onChange={e => set("bathroom_rh_setpoint", Number(e.target.value))}/><span>%</span><Help>{da ? "Over denne fugt begynder udtørringen. Badeværelser er naturligt fugtigere, så de får en højere grænse end resten af huset." : "Drying starts above this humidity. Bathrooms are naturally more humid, so they get a higher limit than the rest of the house."}</Help></label>
+        <label>{da ? "Hysterese" : "Hysteresis"}<input type="number" min="1" max="20" value={common.hysteresis} onChange={e => set("bathroom_rh_hysteresis", Number(e.target.value))}/><span>%</span><Help>{da ? "Udtørringen stopper, når fugten er under grænsen minus dette tal." : "Drying ends when humidity is below the limit minus this number."}</Help></label>
+        <label>{da ? "Højeste trin ved udtørring" : "Highest level while drying"}<input type="number" min="1" max={maxLevel} value={common.level} onChange={e => set("bathroom_max_level", Number(e.target.value))}/><Help>{da ? "Ventilationen starter på dette trin og trapper ned mod normal, efterhånden som fugten falder. Sæt det lavere, hvis anlægget larmer for meget." : "Ventilation starts at this level and steps down towards normal as humidity falls. Set it lower if the unit is too loud."}</Help></label>
+        <label>{da ? "Maks. udtørringstid" : "Longest drying time"}<input type="number" min="0" max="720" step="10" value={n(form.bathroom_max_minutes, 0)} onChange={e => set("bathroom_max_minutes", Number(e.target.value))}/><span>min</span><Help>{da ? "Sikkerhed hvis en føler hænger højt: efter så lang tid stopper udtørringen, til fugten har været under slutpunktet. 0 = ingen grænse." : "Safety if a sensor sticks high: after this long drying stops until humidity has been below the end point. 0 = no limit."}</Help></label>
+      </div>
+      <h3 className="settings-subhead">{da ? "Bad opdages før grænsen nås" : "Shower detected before the limit is reached"}</h3>
+      <div className="settings-grid">
+        <label>{da ? "Fugten stiger med" : "Humidity rises by"}<input type="number" min="3" max="20" step="0.5" value={n(form.bathroom_rise_percent, 7)} onChange={e => set("bathroom_rise_percent", Number(e.target.value))}/><span>%-point</span></label>
+        <label>{da ? "på højst" : "within"}<input type="number" min="3" max="30" value={n(form.bathroom_rise_minutes, 10)} onChange={e => set("bathroom_rise_minutes", Number(e.target.value))}/><span>min</span></label>
+        <Help>{da ? "Stiger fugten så hurtigt, regnes det som et bad, og udtørringen starter med det samme, også selvom fugten stadig er under grænsen. Lavere tal giver hurtigere reaktion, men kan også reagere på madlavning." : "If humidity rises this fast it counts as a shower and drying starts at once, even if humidity is still below the limit. Lower numbers react faster but may also react to cooking."}</Help>
+        <label className="check-row"><input type="checkbox" checked={form.bathroom_night_drying !== false} onChange={e => set("bathroom_night_drying", e.target.checked)}/> {da ? "Tør også ud om natten" : "Also dry at night"}</label>
+        <Help>{da ? "Slået til må udtørringen køre med fuld kraft om natten, uanset natsænkningen, og trapper ned af sig selv. Slået fra holder natsænkningen ventilationen nede, også efter et bad." : "On, drying may run at full strength at night regardless of night reduction and steps down by itself. Off, night reduction keeps ventilation down, even after a shower."}</Help>
+      </div>
+    </Card>
+    <Card title={da ? "Rum" : "Rooms"} lead={da ? "Hvilke rum der er badeværelser, og egne grænser pr. rum" : "Which rooms are bathrooms, and limits per room"} icon={ShowerHead}>
+      {names.length === 0
+        ? <p className="settings-help">{da ? "Ingen rum modtaget fra Home Assistant endnu. Når Home Assistant sender rum, kan du her vælge, hvilke der er badeværelser." : "No rooms received from Home Assistant yet. Once Home Assistant sends rooms you can choose which are bathrooms here."}</p>
+        : <div className="settings-table-wrap"><table className="settings-table bathroom-table">
+          <thead><tr><th>{da ? "Rum" : "Room"}</th><th>{da ? "Type" : "Type"}</th><th>{da ? "Fugt start %" : "Start %"}</th><th>{da ? "Hysterese %" : "Hyst. %"}</th><th>{da ? "Højeste trin" : "Highest level"}</th><th>{da ? "Lige nu" : "Now"}</th></tr></thead>
+          <tbody>{names.map(name => {
+            const room = rooms[name] ?? {};
+            const live = status.get(name);
+            const isBathroom = live !== undefined || room.type === "bathroom";
+            const shown = live ? stateText[live.state] : undefined;
+            return <tr key={name} className={isBathroom ? "is-bathroom" : undefined}>
+              <td><strong>{name}</strong>{!haRooms.includes(name) && <small className="bathroom-gone"> {da ? "(sender ikke nu)" : "(not sending)"}</small>}</td>
+              <td><select value={room.type ?? "auto"} onChange={e => change(name, { type: e.target.value as BathroomRoom["type"] })}>
+                <option value="auto">{da ? "Automatisk (efter navn)" : "Automatic (by name)"}</option><option value="bathroom">{da ? "Badeværelse" : "Bathroom"}</option><option value="normal">{da ? "Normalt rum" : "Normal room"}</option>
+              </select></td>
+              <td><input inputMode="decimal" disabled={!isBathroom} placeholder={String(common.rh)} value={value(room.rh_setpoint)} onChange={e => change(name, { rh_setpoint: parse(e.target.value) })}/></td>
+              <td><input inputMode="decimal" disabled={!isBathroom} placeholder={String(common.hysteresis)} value={value(room.rh_hysteresis)} onChange={e => change(name, { rh_hysteresis: parse(e.target.value) })}/></td>
+              <td><input inputMode="numeric" disabled={!isBathroom} placeholder={String(common.level)} value={value(room.max_level)} onChange={e => change(name, { max_level: parse(e.target.value) })}/></td>
+              <td>{live ? <span className={`bathroom-state ${shown?.[1] ?? "normal"}`}>{fmt(live.humidity, lang, 0, " %")} · {shown?.[0]}{live.state === "drying" && live.drying_minutes !== null ? ` ${live.drying_minutes} min` : ""}</span> : <span className="bathroom-state normal">{isBathroom ? "—" : (da ? "Ikke badeværelse" : "Not a bathroom")}</span>}</td>
+            </tr>;
+          })}</tbody>
+        </table></div>}
+      <p className="settings-help">{da ? "Tomme felter bruger de fælles værdier ovenfor. Det du vælger her gælder frem for det, Home Assistant sender, så et rum, der er fejlmappet i Home Assistant, kan rettes her. Husk Gem controller nederst." : "Empty fields use the common values above. What you choose here wins over what Home Assistant sends, so a room mapped wrongly in Home Assistant can be corrected here. Remember Save controller at the bottom."}</p>
+    </Card>
+  </>;
+}
 
 export function SettingsPage() {
   const lang = useLang();
@@ -409,14 +480,6 @@ export function SettingsPage() {
           <label>{lang === "da" ? "Timeout for HA-rumdata" : "HA room data timeout"}<input type="number" min="60" max="3600" step="30" value={n(form.ha_timeout_seconds, 300)} onChange={num("ha_timeout_seconds")}/><span>s</span><Help>{lang === "da" ? "Hører controlleren ikke fra Home Assistant så længe, falder Smart Auto tilbage til anlæggets egne følere." : "If the controller hears nothing from Home Assistant for this long, Smart Auto falls back to the unit's own sensors."}</Help></label>
         </div>
       </Card>
-      <Card title={lang === "da" ? "Badeværelse" : "Bathroom"} lead={lang === "da" ? "Egne grænser for rum med bad" : "Separate limits for rooms with a shower"} icon={Droplets}>
-        <div className="settings-grid">
-          <label>{lang === "da" ? "Fugt start" : "Humidity start"}<input type="number" min="35" max="90" value={n(form.bathroom_rh_setpoint, 65)} onChange={num("bathroom_rh_setpoint")}/><span>%</span><Help>{lang === "da" ? "Badeværelser er naturligt fugtigere, så de får en højere grænse." : "Bathrooms are naturally more humid, so they get a higher limit."}</Help></label>
-          <label>{lang === "da" ? "Hysterese" : "Hysteresis"}<input type="number" min="1" max="20" value={n(form.bathroom_rh_hysteresis, 5)} onChange={num("bathroom_rh_hysteresis")}/><span>%</span></label>
-          <label>{lang === "da" ? "Trin ved udtørring" : "Drying level"}<input type="number" min="1" max={maxLevel} value={n(form.bathroom_max_level, 6)} onChange={num("bathroom_max_level")}/><Help>{lang === "da" ? "Når fugten i badet går over grænsen – eller stiger hurtigt under et bad – starter ventilationen på dette trin og trapper ned mod normal, efterhånden som fugten falder. Slutter under grænse minus hysterese." : "When bathroom humidity passes the limit, or rises quickly during a shower, ventilation starts at this level and steps down towards normal as humidity falls. Ends below the limit minus the hysteresis."}</Help></label>
-          <p className="settings-help">{lang === "da" ? "Gælder rum med rumtypen badeværelse, eller rum med navne som Bad, Bath eller Shower." : "Applies to rooms of type bathroom, or rooms named like Bad, Bath or Shower."}</p>
-        </div>
-      </Card>
       <Card title={lang === "da" ? "Fint støv (PM2.5)" : "Fine dust (PM2.5)"} lead={lang === "da" ? "Valgfrit: rumfølere fra Home Assistant, fx IKEA-sensorer" : "Optional: room sensors from Home Assistant, e.g. IKEA sensors"} icon={Wind}>
         <div className="settings-grid">
           <label className="check-row"><input type="checkbox" checked={form.pm25_enabled === true} onChange={check("pm25_enabled")}/> {lang === "da" ? "Brug PM2.5 til at hæve ventilationen" : "Use PM2.5 to raise the ventilation"}</label>
@@ -460,6 +523,7 @@ export function SettingsPage() {
           <label>{lang === "da" ? "Maks. trin ved tør luft" : "Maximum level in dry air"}<input type="number" min="1" max={maxLevel} value={n(form.dry_max_level, 2)} onChange={num("dry_max_level")}/><Help>{lang === "da" ? "Styres grundtrinnet af husets størrelse, går det aldrig under det reducerede minimum." : "If the base level follows the house size, it never goes below the reduced minimum."}</Help></label>
         </div>
       </Card>
+      <BathroomCards lang={lang} form={form} controller={controller} set={set} maxLevel={maxLevel}/>
     </>,
     night: <Card title={lang === "da" ? "Natdrift" : "Night mode"} lead={lang === "da" ? "Nat og luftkvalitet kæmper ikke mod hinanden" : "Night mode and air quality never fight"} icon={Moon}>
       <div className="settings-grid">

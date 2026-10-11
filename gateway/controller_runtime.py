@@ -200,8 +200,25 @@ class ControllerRuntime:
             "max_room_co2": self._max_room_co2(),
         })
 
+    def _with_room_overrides(self, rooms: dict[str, dict[str, object]]) -> dict[str, dict[str, object]]:
+        """Room settings made in the WebUI win over what Home Assistant sends."""
+        overrides = self.config.data.get("bathroom_rooms") or {}
+        result = {}
+        for name, values in rooms.items():
+            values = dict(values)
+            override = overrides.get(name)
+            if override:
+                if override.get("type", "auto") != "auto":
+                    values["room_type"] = override["type"]
+                for key in ("rh_setpoint", "rh_hysteresis", "max_level"):
+                    if override.get(key) is not None:
+                        values[key] = override[key]
+                values["webui_override"] = True
+            result[name] = values
+        return result
+
     def _fresh_ha_rooms(self) -> dict[str, dict[str, object]]:
-        return self.smart_rooms if self._smart_inputs_fresh() else {}
+        return self._with_room_overrides(self.smart_rooms) if self._smart_inputs_fresh() else {}
 
     def _source_room_names(self) -> set[str]:
         """HA rooms used as stove/outdoor sensors, never as indoor air quality."""
@@ -440,7 +457,7 @@ class ControllerRuntime:
 
     def _rooms_with_unit_sensors(self) -> dict[str, dict[str, object]]:
         """Combine HA rooms with the unit's own local indoor sensors."""
-        combined = {name: dict(values) for name, values in self.smart_rooms.items()}
+        combined = self._with_room_overrides(self.smart_rooms)
         local: dict[str, object] = {
             "enabled": True,
             "control": True,
@@ -548,7 +565,7 @@ class ControllerRuntime:
                 values["humidity"] = round(rh, 2)
                 history = self._room_rh_history[name]
                 history.append((now, rh))
-                while history and now - history[0][0] > 900:
+                while history and now - history[0][0] > 1800:
                     history.popleft()
             if co2 is not None:
                 values["co2"] = round(co2, 0)
@@ -713,19 +730,26 @@ class ControllerRuntime:
         end = setpoint - hysteresis
         episode = self._bathroom_episodes.get(name)
         if episode is None:
-            fresh = [value for ts, value in self._room_rh_history.get(name, ()) if now - ts <= 600]
-            rising = len(fresh) >= 2 and fresh[-1] - fresh[0] >= 7.0
+            window = int(d.get("bathroom_rise_minutes", 10)) * 60
+            fresh = [value for ts, value in self._room_rh_history.get(name, ()) if now - ts <= window]
+            rising = len(fresh) >= 2 and fresh[-1] - fresh[0] >= float(d.get("bathroom_rise_percent", 7.0))
             if humidity > setpoint:
-                episode = {"peak": humidity, "end": end}
+                episode = {"peak": humidity, "end": end, "started": now}
             elif rising:
                 # A shower caught before RH reaches the setpoint ends a little above
                 # where the rise started instead of at the (higher) setpoint end point.
-                episode = {"peak": humidity, "end": min(end, fresh[0] + hysteresis / 2)}
+                episode = {"peak": humidity, "end": min(end, fresh[0] + hysteresis / 2), "started": now}
             else:
                 return None
             self._bathroom_episodes[name] = episode
         if humidity <= episode["end"]:
             del self._bathroom_episodes[name]
+            return None
+        # Safety if the sensor sticks high: stop after the longest drying time and
+        # stay quiet until humidity has been below the end point once.
+        longest = int(d.get("bathroom_max_minutes", 0)) * 60
+        if episode.get("expired") or (longest and now - episode.get("started", now) > longest):
+            episode["expired"] = True
             return None
         episode["peak"] = max(episode["peak"], humidity)
         span = max(0.1, episode["peak"] - episode["end"])
@@ -805,8 +829,47 @@ class ControllerRuntime:
                 "rh_hysteresis": self.config.data.get("bathroom_rh_hysteresis"),
                 "max_level": self.config.data.get("bathroom_max_level"),
                 "night_air_quality_max_level": self.config.data.get("night_air_quality_max_level"),
+                "rise_percent": self.config.data.get("bathroom_rise_percent"),
+                "rise_minutes": self.config.data.get("bathroom_rise_minutes"),
+                "night_drying": self.config.data.get("bathroom_night_drying"),
+                "max_minutes": self.config.data.get("bathroom_max_minutes"),
             },
+            "bathroom_status": self._bathroom_status(rooms),
         }
+
+    def _bathroom_status(self, rooms: dict[str, dict[str, object]]) -> list[dict[str, object]]:
+        """What the bathroom control sees right now, per bathroom."""
+        d = self.config.data
+        now = time.time()
+        status = []
+        for name, values in rooms.items():
+            if not self._is_bathroom(name, values):
+                continue
+            humidity = values.get("humidity")
+            setpoint = float(values.get("rh_setpoint") or d["bathroom_rh_setpoint"])
+            hysteresis = float(values.get("rh_hysteresis") or d["bathroom_rh_hysteresis"])
+            episode = self._bathroom_episodes.get(name)
+            if not isinstance(humidity, (int, float)):
+                state = "no_humidity"
+            elif not values.get("control", True) or not values.get("enabled", True):
+                state = "view_only"
+            elif episode and episode.get("expired"):
+                state = "expired"
+            elif episode:
+                state = "drying"
+            else:
+                state = "normal"
+            status.append({
+                "name": name,
+                "humidity": humidity if isinstance(humidity, (int, float)) else None,
+                "rh_setpoint": setpoint,
+                "rh_end": round(setpoint - hysteresis, 1),
+                "max_level": int(values.get("max_level") or d["bathroom_max_level"]),
+                "state": state,
+                "drying_minutes": round((now - episode["started"]) / 60) if episode and "started" in episode else None,
+                "webui_override": values.get("webui_override") is True,
+            })
+        return status
 
     FAN_STEADY_SECONDS = 30.0
     FAN_CURVE_INTERVAL_SECONDS = 600.0
