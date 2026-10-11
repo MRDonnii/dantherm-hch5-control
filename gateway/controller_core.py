@@ -204,6 +204,7 @@ class ControllerState:
         "local_normal_level": 3,
         "local_min_level": 1,
         "local_max_level": MAX_LEVEL,
+        "air_quality_max_level": MAX_LEVEL,
         "rh_setpoint": 50.0,
         "rh_hysteresis": 3.0,
         "co2_setpoint": 800,
@@ -388,6 +389,9 @@ class ControllerState:
         for key in self.DEFAULTS:
             if key in saved:
                 self.data[key] = saved[key]
+        if "air_quality_max_level" not in saved:
+            # An existing six-step installation must keep its full range.
+            self.data["air_quality_max_level"] = self.max_level()
         if isinstance(saved.get("schedule"), dict):
             try:
                 self.data["schedule"] = _copy_schedule(saved["schedule"])
@@ -417,6 +421,7 @@ class ControllerState:
         for key, default in (
             ("manual_level", 3), ("local_normal_level", 3),
             ("local_min_level", 1), ("local_max_level", top),
+            ("air_quality_max_level", top),
             ("ha_requested_level", 3), ("night_level", 2),
             ("night_air_quality_max_level", NOMINAL_LEVEL), ("bathroom_max_level", top),
             ("vacation_level", 1), ("quick_boost_level", top), ("cooling_level", NOMINAL_LEVEL),
@@ -787,6 +792,7 @@ class ControllerState:
         old_profiles = _copy_profiles(self.data["profiles"])
         old_count = self.max_level()
         old_top_max = int(self.data["local_max_level"]) >= old_count
+        old_top_air = int(self.data["air_quality_max_level"]) >= old_count
         self.data[f"airflow_measured_{old_count}"] = self.data.get("airflow_measured") or {}
         self.data["airflow_measured"] = self.data.get(f"airflow_measured_{count}") or {}
         self.data["fan_step_count"] = count
@@ -799,6 +805,8 @@ class ControllerState:
         # maximum at the top step stays at the top step.
         if old_top_max:
             self.data["local_max_level"] = count
+        if old_top_air:
+            self.data["air_quality_max_level"] = count
         self.data["local_min_level"] = min(self.data["local_min_level"], self.data["local_max_level"])
         self.data["max_level_until"] = None
 
@@ -907,7 +915,7 @@ class ControllerState:
     def _configure(self, patch: dict[str, object]) -> dict[str, object]:
         with self.lock:
             allowed = {
-                "mode", "manual_level", "local_normal_level", "local_min_level", "local_max_level",
+                "mode", "manual_level", "local_normal_level", "local_min_level", "local_max_level", "air_quality_max_level",
                 "rh_setpoint", "rh_hysteresis", "co2_setpoint", "co2_hysteresis", "co2_offset",
                 "auto_step_rh", "auto_step_co2", "downshift_delay_seconds",
                 "boost_hold_seconds", "ha_timeout_seconds", "bypass", "fireplace",
@@ -936,7 +944,7 @@ class ControllerState:
                 if patch["mode"] not in VALID_MODES:
                     raise ControllerError("Ugyldig controller-mode")
                 self.data["mode"] = patch["mode"]
-            for key in ("manual_level", "local_normal_level", "local_min_level", "local_max_level", "night_level", "night_air_quality_max_level", "bathroom_max_level", "vacation_level", "quick_boost_level", "cooling_level"):
+            for key in ("manual_level", "local_normal_level", "local_min_level", "local_max_level", "air_quality_max_level", "night_level", "night_air_quality_max_level", "bathroom_max_level", "vacation_level", "quick_boost_level", "cooling_level"):
                 if key in patch:
                     value = int(patch[key])
                     if not 1 <= value <= top:
@@ -1640,10 +1648,14 @@ class ControllerEngine:
             if delta > 0:
                 wanted = max(wanted, normal + max(1, math.ceil(delta / max(1, int(d["auto_step_co2"])))))
                 reasons.append(f"CO2 {co2:.0f} ppm > {int(d['co2_setpoint'])} ppm")
-        wanted = min(int(d["local_max_level"]), max(int(d["local_min_level"]), wanted))
+        air_cap = max(normal, int(d["air_quality_max_level"]))
+        wanted = min(int(d["local_max_level"]), air_cap, max(int(d["local_min_level"]), wanted))
         rh_clear = not isinstance(rh, (int, float)) or rh <= float(d["rh_setpoint"]) - float(d["rh_hysteresis"])
         co2_clear = not isinstance(co2, (int, float)) or co2 <= int(d["co2_setpoint"]) - int(d["co2_hysteresis"])
         current, held = self._stabilize_auto_level(wanted, now, allow_downshift=rh_clear and co2_clear)
+        if current > air_cap:
+            current = air_cap
+            self.current_auto_level = current
         if held:
             reasons.append(held)
         return current, ", ".join(reasons) if reasons else "RH/CO2 normal"

@@ -33,4 +33,13 @@ describe("SettingsPage", () => {
     expect(markup).toContain(">Manual<");
     expect(markup).not.toContain("Hus og luftmængde");
   });
+
+  it("offers a separate air quality ceiling in the controller form", () => {
+    window.location.hash = "#/settings?section=air";
+    expect(CONTROLLER_KEYS).toContain("air_quality_max_level");
+    const markup = renderToStaticMarkup(<SettingsPage/>);
+    expect(markup).toContain("Maks. trin ved CO₂ og fugt");
+    expect(markup).toContain("Badeværelsesudtørring og PM2.5 har egne grænser.");
+    window.location.hash = "";
+  });
 });

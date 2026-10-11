@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.3
+
+- **Maximum level for general air quality:** *Settings → Luftkvalitet* now has a separate maximum step for CO₂ and ordinary humidity in Local Auto and Smart Auto. The limit takes effect immediately when lowered, including during an existing boost hold. The normal base level may still be higher; bathroom drying and PM2.5 keep their own maximum settings. Existing installations default to their current top step, preserving prior control.
+- The new choice follows the closest fan gears when switching between four and six steps.
+
 ## 1.5.2
 
 - **Bathroom control in one place:** *Indstillinger → Fugt og tør luft* now holds everything for the bathroom (before, three of the settings were hidden under *Luftkvalitet*).
