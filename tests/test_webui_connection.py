@@ -52,12 +52,16 @@ def slow_onewire_service(delay: float) -> ThreadingHTTPServer:
 
 class WebUIConnectionTests(unittest.TestCase):
     def start_server(self, tmp, preheater_url=None):
+        # The server's history thread keeps writing until it is stopped. Its files go in a
+        # directory that is removed only after server.stop (cleanups run last-in first-out);
+        # a `with TemporaryDirectory()` in the test would be removed too early and race it.
+        files = self.enterContext(tempfile.TemporaryDirectory())
         server = ControllerDashboardHttpServer(
             "127.0.0.1", 0, {"bus_traffic": True, "bus_last_frame_age": 0.3}, "Test", preheater_url,
-            web_root=ROOT / "gateway/webui", history_path=Path(tmp) / "history.sqlite3",
+            web_root=ROOT / "gateway/webui", history_path=Path(files) / "history.sqlite3",
             controller_runtime=FakeRuntime(),
         )
-        server.auth.path = Path(tmp) / "auth.json"
+        server.auth.path = Path(files) / "auth.json"
         server.auth.save("admin", "long-test-password", True)
         server.start()
         self.addCleanup(server.stop)

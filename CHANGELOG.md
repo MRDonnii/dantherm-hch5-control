@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.5.2
+
+- **Bathroom control in one place:** *Indstillinger → Fugt og tør luft* now holds everything for the bathroom (before, three of the settings were hidden under *Luftkvalitet*).
+  - Common limits: humidity start, hysteresis and the highest fan level while drying.
+  - **Shower detection** can be tuned: how many %-points humidity must rise within how many minutes (before it was fixed at 7 in 10).
+  - **Dry at night** can be switched off, so night reduction also keeps ventilation down after a shower (default is on, as before).
+  - **Longest drying time** stops drying if a sensor sticks high, until humidity has been below the end point once (0 = no limit, as before).
+- **Settings per room:** a table of the rooms Home Assistant sends. For each room choose *Automatisk (efter navn)*, *Badeværelse* or *Normalt rum*, and optionally its own humidity limit, hysteresis and highest level; empty fields use the common values. What you set in the WebUI wins over what Home Assistant sends, so a room mapped wrongly in Home Assistant can be corrected on the Pi.
+- The table shows what the control sees right now per bathroom: humidity, *Normal*, *Tørrer ud* (with minutes) or *Tid udløbet*.
+- Changes by Claude AI.
+
 ## 1.5.1
 
 - **Stop for Køl right in the row:** while *Køl* runs, a *Stop* button sits next to it in the free-cooling row, like the one for Hurtig boost, so it can be ended early without opening the popup.

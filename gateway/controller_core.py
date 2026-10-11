@@ -242,6 +242,17 @@ class ControllerState:
         "bathroom_rh_setpoint": 65.0,
         "bathroom_rh_hysteresis": 5.0,
         "bathroom_max_level": MAX_LEVEL,
+        # Shower detection: RH rising this many %-points within this many minutes
+        # starts drying before the limit is reached.
+        "bathroom_rise_percent": 7.0,
+        "bathroom_rise_minutes": 10,
+        # Drying may continue at night (the night level does not cap it).
+        "bathroom_night_drying": True,
+        # Safety if a sensor sticks high: stop drying after this many minutes (0 = no limit).
+        "bathroom_max_minutes": 0,
+        # Per room, set in the WebUI; wins over what Home Assistant sends:
+        # {room: {"type": "auto|bathroom|normal", "rh_setpoint", "rh_hysteresis", "max_level"}}
+        "bathroom_rooms": {},
         "vacation_enabled": False,
         "vacation_level": 1,
         "vacation_until": None,
@@ -569,7 +580,8 @@ class ControllerState:
         self._sanitize_advanced()
 
     BOOL_KEYS = ("sizing_enabled", "afterheat_room_enabled", "fireplace_auto_enabled",
-                 "humidity_smart_enabled", "dry_protection_enabled", "balance_enabled", "pm25_enabled")
+                 "humidity_smart_enabled", "dry_protection_enabled", "balance_enabled", "pm25_enabled",
+                 "bathroom_night_drying")
 
     def _sanitize_advanced(self) -> None:
         for key in self.BOOL_KEYS:
@@ -615,6 +627,10 @@ class ControllerState:
             self.data["pm25_ignored_rooms"] = self._clean_room_names(self.data.get("pm25_ignored_rooms"))
         except ControllerError:
             self.data["pm25_ignored_rooms"] = []
+        try:
+            self.data["bathroom_rooms"] = self._clean_bathroom_rooms(self.data.get("bathroom_rooms"))
+        except ControllerError:
+            self.data["bathroom_rooms"] = {}
 
     ADVANCED_FLOATS = (
         ("house_area_m2", 20.0, 1000.0), ("ceiling_height_m", 1.8, 6.0),
@@ -625,6 +641,7 @@ class ControllerState:
         ("duct_rooms_offset_k", -3.0, 3.0), ("duct_t3_offset_k", -3.0, 3.0),
         ("t2_offset_k", -3.0, 3.0),
         ("pm25_setpoint", 5.0, 200.0), ("pm25_step", 2.0, 100.0), ("pm25_hysteresis", 1.0, 50.0),
+        ("bathroom_rise_percent", 3.0, 20.0),
     )
     ADVANCED_INTS = (
         ("house_bathrooms", 0, 10), ("house_utility_rooms", 0, 10),
@@ -632,6 +649,7 @@ class ControllerState:
         ("afterheat_room_min", 10, 35), ("afterheat_room_max", 10, 35),
         ("afterheat_room_step_minutes", 2, 60), ("fireplace_afterrun_minutes", 0, 120),
         ("fireplace_max_hours", 1, 24), ("dry_max_level", 1, None), ("pm25_max_level", 1, None),
+        ("bathroom_rise_minutes", 3, 30), ("bathroom_max_minutes", 0, 720),
     )
 
     @staticmethod
@@ -1175,6 +1193,8 @@ class ControllerState:
         "humidity_margin_gm3", "dry_protection_enabled", "dry_rh_limit", "dry_max_level",
         "onewire_roles", "pm25_enabled", "pm25_setpoint", "pm25_step", "pm25_hysteresis",
         "pm25_max_level", "pm25_ignored_rooms",
+        "bathroom_rise_percent", "bathroom_rise_minutes", "bathroom_night_drying",
+        "bathroom_max_minutes", "bathroom_rooms",
     )
     ADVANCED_LABELS = {
         "house_area_m2": "Boligareal", "ceiling_height_m": "Loftshøjde",
@@ -1192,6 +1212,8 @@ class ControllerState:
         "t2_offset_k": "Korrektion T2",
         "pm25_setpoint": "PM2.5-grænse", "pm25_step": "PM2.5 pr. trin", "pm25_hysteresis": "PM2.5-hysterese",
         "pm25_max_level": "Maks. trin ved PM2.5",
+        "bathroom_rise_percent": "Fugtstigning ved bad", "bathroom_rise_minutes": "Tid for fugtstigning",
+        "bathroom_max_minutes": "Maks. udtørringstid",
     }
 
     def _configure_six_steps(self, patch: dict[str, object]) -> None:
@@ -1288,6 +1310,42 @@ class ControllerState:
                 raise ControllerError(str(error)) from error
         if "pm25_ignored_rooms" in patch:
             self.data["pm25_ignored_rooms"] = self._clean_room_names(patch["pm25_ignored_rooms"])
+        if "bathroom_rooms" in patch:
+            self.data["bathroom_rooms"] = self._clean_bathroom_rooms(patch["bathroom_rooms"])
+
+    def _clean_bathroom_rooms(self, value: object) -> dict[str, dict[str, object]]:
+        """Per-room bathroom settings; empty entries are dropped. Blank = use the common value."""
+        if value in (None, ""):
+            return {}
+        if not isinstance(value, dict) or len(value) > 32:
+            raise ControllerError("Badeværelsesindstillinger skal være et objekt med højst 32 rum")
+        top = self.max_level()
+        cleaned: dict[str, dict[str, object]] = {}
+        for raw_name, raw in value.items():
+            name = str(raw_name).strip()[:64]
+            if not name or not isinstance(raw, dict):
+                continue
+            room_type = raw.get("type", "auto")
+            if room_type not in ("auto", "bathroom", "normal"):
+                raise ControllerError(f"{name}: rumtypen skal være auto, badeværelse eller normal")
+            entry: dict[str, object] = {"type": room_type}
+            for key, low, high, label, kind in (
+                ("rh_setpoint", 35.0, 90.0, "fugtgrænse", float),
+                ("rh_hysteresis", 1.0, 20.0, "hysterese", float),
+                ("max_level", 1, top, "maks. trin", int),
+            ):
+                if raw.get(key) in (None, ""):
+                    continue
+                try:
+                    number = kind(raw[key])
+                except (TypeError, ValueError) as error:
+                    raise ControllerError(f"{name}: {label} skal være et tal") from error
+                if not low <= number <= high:
+                    raise ControllerError(f"{name}: {label} skal være {low:g}..{high:g}")
+                entry[key] = number
+            if len(entry) > 1 or room_type != "auto":
+                cleaned[name] = entry
+        return cleaned
 
     @staticmethod
     def _clean_room_names(value: object) -> list[str]:
@@ -1659,7 +1717,7 @@ class ControllerEngine:
                 # configurable ceiling. This prevents a humid bathroom from repeatedly
                 # forcing full boost while night mode simultaneously tries to reduce it.
                 ha_urgent = source == "ha_smart" and level > int(d["night_level"])
-                if source == "ha_smart" and d.get("ha_bathroom_drying"):
+                if source == "ha_smart" and d.get("ha_bathroom_drying") and d.get("bathroom_night_drying", True):
                     # Drying a bathroom out after a shower is allowed at night too;
                     # it steps down by itself as humidity falls.
                     flags["night_active"] = True
