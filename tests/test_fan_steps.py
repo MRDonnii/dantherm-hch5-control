@@ -14,7 +14,7 @@ from controller_core import ControllerEngine, ControllerError, ControllerState  
 # A six-step controller file as written by 1.3.x: balance on, running manual step 4.
 SIX_STEP_FILE = {
     "mode": "manual", "manual_level": 4, "local_normal_level": 4, "local_min_level": 1, "local_max_level": 6,
-    "night_level": 2, "night_air_quality_max_level": 4, "bathroom_max_level": 6, "vacation_level": 1,
+    "night_level": 2, "night_air_quality_max_level": 4, "air_quality_max_level": 6, "bathroom_max_level": 6, "vacation_level": 1,
     "quick_boost_level": 6, "cooling_level": 4, "dry_max_level": 2, "pm25_max_level": 5,
     "balance_enabled": True, "balance_ratio_mode": "fixed", "balance_duct_ratio": 1.14,
     "fan_curve": {"rpm_at_0": 560.7, "rpm_per_percent": 23.9, "samples": 5},
@@ -50,10 +50,10 @@ class FanStepTests(unittest.TestCase):
         self.assertEqual(self.pairs(state), {1: (20, 13), 2: (45, 34), 3: (70, 55), 4: (100, 80)})
         # Old step 4 was an ordinary step: the unit keeps running exactly as before.
         self.assertEqual((state.data["mode"], state.data["manual_level"]), ("manual", 3))
-        moved = {key: state.data[key] for key in ("local_normal_level", "night_level", "night_air_quality_max_level",
+        moved = {key: state.data[key] for key in ("local_normal_level", "night_level", "night_air_quality_max_level", "air_quality_max_level",
                                                    "bathroom_max_level", "vacation_level", "quick_boost_level",
                                                    "cooling_level", "dry_max_level", "pm25_max_level", "local_max_level")}
-        self.assertEqual(moved, {"local_normal_level": 3, "night_level": 2, "night_air_quality_max_level": 3,
+        self.assertEqual(moved, {"local_normal_level": 3, "night_level": 2, "night_air_quality_max_level": 3, "air_quality_max_level": 4,
                                  "bathroom_max_level": 4, "vacation_level": 1, "quick_boost_level": 4,
                                  "cooling_level": 3, "dry_max_level": 2, "pm25_max_level": 3, "local_max_level": 4})
         # Old step 3 (55/42) is nearest to new step 2 (45/34).
@@ -72,6 +72,7 @@ class FanStepTests(unittest.TestCase):
         self.assertEqual(self.pairs(state), {1: (25, 17), 2: (40, 30), 3: (55, 42), 4: (70, 55), 5: (85, 67), 6: (100, 80)})
         self.assertEqual(state.data["manual_level"], 4)
         self.assertEqual(state.data["bathroom_max_level"], 6)
+        self.assertEqual(state.data["air_quality_max_level"], 6)
         self.assertEqual(state.data["local_max_level"], 6)
         self.assertEqual(state.data["airflow_measured"], SIX_STEP_FILE["airflow_measured"])
         self.assertIsNone(state.data["max_level_until"])

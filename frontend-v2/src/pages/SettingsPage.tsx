@@ -31,7 +31,7 @@ function fmt(v: unknown, lang: Lang, digits = 1, unit = "") {
 
 /** Every controller field this page edits. UI-only preferences stay in localStorage. */
 export const CONTROLLER_KEYS = [
-  "local_normal_level", "rh_setpoint", "rh_hysteresis", "co2_setpoint", "co2_hysteresis", "co2_offset", "ha_timeout_seconds",
+  "local_normal_level", "air_quality_max_level", "rh_setpoint", "rh_hysteresis", "co2_setpoint", "co2_hysteresis", "co2_offset", "ha_timeout_seconds",
   "bathroom_rh_setpoint", "bathroom_rh_hysteresis", "bathroom_max_level",
   "night_enabled", "night_start", "night_end", "night_level", "night_air_quality_max_level",
   "afterheat_setpoint", "afterheat_coil", "afterheat_room_enabled", "afterheat_room_source", "afterheat_room_target",
@@ -240,8 +240,8 @@ export function SettingsPage() {
   const switchSteps = async (count: 4 | 6) => {
     if (!csrf || count === steps) return;
     const question = lang === "da"
-      ? `Skift til ${count} trin? Alle trinvalg (normaltrin, nat, ferie, ugeplan, udtørring, frikøling, PM2.5 og boost) flyttes til det trin, der har nærmest samme ventilatorgear. Du kan skifte tilbage når som helst. Ikke-gemte ændringer på siden forsvinder.`
-      : `Switch to ${count} steps? Every step choice (normal level, night, vacation, week plan, drying, free cooling, PM2.5 and boost) moves to the step with the nearest fan gears. You can switch back at any time. Unsaved changes on the page are lost.`;
+      ? `Skift til ${count} trin? Alle trinvalg (normaltrin, maks. ved luftkvalitet, nat, ferie, ugeplan, udtørring, frikøling, PM2.5 og boost) flyttes til det trin, der har nærmest samme ventilatorgear. Du kan skifte tilbage når som helst. Ikke-gemte ændringer på siden forsvinder.`
+      : `Switch to ${count} steps? Every step choice (normal level, air quality maximum, night, vacation, week plan, drying, free cooling, PM2.5 and boost) moves to the step with the nearest fan gears. You can switch back at any time. Unsaved changes on the page are lost.`;
     if (!window.confirm(question)) return;
     setBusy(true);
     try {
@@ -472,6 +472,7 @@ export function SettingsPage() {
       <Card title={lang === "da" ? "Generel luftkvalitet" : "General air quality"} lead={lang === "da" ? "Gælder Local Auto og Smart Auto" : "Applies to Local Auto and Smart Auto"} icon={Wind}>
         <div className="settings-grid">
           <label>{lang === "da" ? "Normaltrin" : "Normal level"}<input type="number" min="1" max={maxLevel} disabled={sizing} value={sizing ? n(controller.effective_normal_level, 3) : n(form.local_normal_level, 3)} onChange={num("local_normal_level")}/><Help>{sizing ? (lang === "da" ? "Styres lige nu af husets størrelse (se Hus og luftmængde)." : "Currently set by the house size (see House and airflow).") : (lang === "da" ? "Trinnet anlægget kører på, når luften er god." : "The level the unit runs at when the air is good.")}</Help></label>
+          <label>{lang === "da" ? "Maks. trin ved CO₂ og fugt" : "Maximum level for CO₂ and humidity"}<input type="number" min="1" max={maxLevel} value={n(form.air_quality_max_level, maxLevel)} onChange={num("air_quality_max_level")}/><Help>{lang === "da" ? "Begrænser hvor højt CO₂ og almindelig fugt kan hæve ventilationen i Local Auto og Smart Auto. Normaltrinnet kan stadig være højere. Badeværelsesudtørring og PM2.5 har egne grænser." : "Limits how far CO₂ and ordinary humidity can raise ventilation in Local Auto and Smart Auto. The normal level may still be higher. Bathroom drying and PM2.5 have their own limits."}</Help></label>
           <label>{lang === "da" ? "Fugt (RH) grænse" : "Humidity (RH) limit"}<input type="number" min="25" max="80" value={n(form.rh_setpoint, 50)} onChange={num("rh_setpoint")}/><span>%</span><Help>{lang === "da" ? "Over denne relative fugt skrues der op. Et trin pr. 5 % over grænsen." : "Above this relative humidity the fans step up. One level per 5 % above the limit."}</Help></label>
           <label>{lang === "da" ? "Fugt hysterese" : "Humidity hysteresis"}<input type="number" min="1" max="10" value={n(form.rh_hysteresis, 3)} onChange={num("rh_hysteresis")}/><span>%</span><Help>{lang === "da" ? "Hvor langt under grænsen fugten skal ned, før der skrues ned igen. Forhindrer at trinnet hopper frem og tilbage." : "How far below the limit humidity must fall before stepping down again. Stops the level from flapping."}</Help></label>
           <label>{lang === "da" ? "CO₂ grænse" : "CO₂ limit"}<input type="number" min="500" max="2000" step="50" value={n(form.co2_setpoint, 800)} onChange={num("co2_setpoint")}/><span>ppm</span><Help>{lang === "da" ? "Over denne CO₂ skrues der op. Udeluft er ca. 420 ppm, og over 1000 ppm føles luften tung." : "Above this CO₂ the fans step up. Outdoor air is about 420 ppm; above 1000 ppm the air feels stuffy."}</Help></label>

@@ -6,7 +6,7 @@ Features that depend on Home Assistant, a power meter or extra sensors are marke
 
 ## Ventilation control
 
-- **Local Auto:** adjusts the six configurable fan levels from the unit's own CO₂ and humidity readings.
+- **Local Auto:** adjusts the configurable four or six fan levels from the unit's own CO₂ and humidity readings.
 - **Smart Auto:** combines local readings with fresh Home Assistant room readings. Rooms can have priorities or be monitored without controlling the fans. Stale room data expires, and control falls back to local inputs.
 - **Manual:** holds the selected level from 1 to 6.
 - **Fan profiles:** separate supply and extract percentages for each level, with feedback from actual fan RPM.
@@ -16,7 +16,7 @@ Features that depend on Home Assistant, a power meter or extra sensors are marke
 
 ## Air quality and comfort
 
-- Adjustable CO₂ and humidity limits, step size and hysteresis; a calibration offset for the unit's CO₂ sensor.
+- Adjustable CO₂ and humidity limits, step size, hysteresis and a shared maximum level for their ventilation boost; a calibration offset for the unit's CO₂ sensor. Bathroom drying and PM2.5 have separate maximum levels.
 - Bathroom drying reacts to high or rapidly rising humidity, can reach its own drying level even during night mode, and steps back down as the room dries.
 - Outdoor humidity from an optional Home Assistant room sensor or selected weather entity can prevent a humidity boost when outdoor air would not dry the house. Dry-air protection can limit ventilation when indoor air is already dry and CO₂ is acceptable.
 - Optional **indoor PM2.5** from Home Assistant rooms can raise Smart Auto's level. Its threshold, step size, hysteresis, maximum level and participating rooms are configurable. It does not lower a level requested for CO₂ or humidity.

@@ -37,6 +37,7 @@ class Pm25Tests(unittest.TestCase):
                                   "pm25_ignored_rooms": ["Soveværelse"]})
         self.assertEqual(self.decide(runtime, {"Soveværelse": {"pm25": 300}})[0], runtime.config.normal_level())
         self.assertEqual(self.decide(runtime, {"Køkken": {"pm25": 300}})[0], 3)
+        self.assertEqual(self.decide(runtime, {"Køkken": {"pm25": 300, "priority": "critical"}})[0], 3)
 
     def test_pm25_only_room_is_accepted_and_validated(self):
         runtime = self.make_runtime()

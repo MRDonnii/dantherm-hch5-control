@@ -579,6 +579,7 @@ class ControllerRuntime:
         self.smart_inputs_received_at = now
         self.smart_inputs_valid_for = valid_for
         decision = self._derive_smart_decision(now)
+        self._enforce_air_quality_max(decision)
         self.smart_requested_level = decision[0]
         self.smart_demand = decision[1]
         self.smart_reason = decision[2]
@@ -633,6 +634,7 @@ class ControllerRuntime:
         excluded = self._source_room_names()
         rooms = {n: v for n, v in self._rooms_with_unit_sensors().items() if n not in excluded}
         normal = self.config.normal_level()
+        air_cap = max(normal, int(d["air_quality_max_level"]))
         candidates: list[tuple[int, int, float, str, str, str]] = []
         dry_rooms: set[str] = set()
         for name, values in rooms.items():
@@ -649,7 +651,7 @@ class ControllerRuntime:
                     float(co2), float(d["co2_setpoint"]), float(d["auto_step_co2"]),
                     float(d["co2_hysteresis"]), normal,
                 )
-                adjusted = self._priority_level(raw, priority)
+                adjusted = min(air_cap, self._priority_level(raw, priority))
                 candidates.append((adjusted, raw, float(co2), name, "co2", f"CO2 {name} {float(co2):.0f} ({priority})"))
 
             pm25 = values.get("pm25")
@@ -661,7 +663,7 @@ class ControllerRuntime:
                 # Fine dust may lift the level (cooking, candles) but never lower it
                 # below what CO2/humidity want, and is capped on its own.
                 raw = min(int(d["pm25_max_level"]), raw) if raw > normal else normal
-                adjusted = self._priority_level(raw, priority)
+                adjusted = min(max(normal, int(d["pm25_max_level"])), self._priority_level(raw, priority))
                 candidates.append((adjusted, raw, float(pm25), name, "pm25", f"PM2.5 {name} {float(pm25):.0f} µg/m³ ({priority})"))
 
             humidity = values.get("humidity")
@@ -678,6 +680,8 @@ class ControllerRuntime:
                 adjusted = self._priority_level(raw, priority)
                 if bathroom:
                     adjusted = min(adjusted, int(values.get("max_level") or d["bathroom_max_level"]))
+                else:
+                    adjusted = min(adjusted, air_cap)
                 label = "Badeværelse RH" if bathroom else "RH"
                 candidates.append((adjusted, raw, float(humidity), name, "humidity", f"{label} {name} {float(humidity):.1f}% / {rh_setpoint:.0f}% ({priority})"))
 
@@ -695,7 +699,7 @@ class ControllerRuntime:
                 if rise >= 7.0:
                     raw = min(self.config.max_level(), normal + 3 + int((rise - 7.0) // 5.0))
                     priority = str(values.get("priority", "auto"))
-                    adjusted = self._priority_level(raw, priority)
+                    adjusted = min(air_cap, self._priority_level(raw, priority))
                     if self._is_bathroom(name, values):
                         adjusted = min(adjusted, int(values.get("max_level") or d["bathroom_max_level"]))
                     candidates.append((
@@ -776,9 +780,19 @@ class ControllerRuntime:
         _level, demand, reason, _room, _metric = self._derive_smart_decision(now)
         return demand, reason
 
+    def _enforce_air_quality_max(self, decision: tuple[int, str, str, str | None, str | None]) -> None:
+        """A lowered air-quality ceiling must not wait for boost/downshift hold."""
+        _level, _demand, _reason, room, metric = decision
+        if metric in (None, "co2", "rh_rise") or (metric == "humidity" and room not in self._bathroom_episodes):
+            cap = max(self.config.normal_level(), int(self.config.data["air_quality_max_level"]))
+            current = self.engine.current_auto_level
+            if current is not None and current > cap:
+                self.engine.current_auto_level = cap
+
     def _recalculate_smart_demand(self, now: float | None = None) -> None:
         """Refresh a live Smart Auto lease from the latest room measurements."""
         decision = self._derive_smart_decision(now)
+        self._enforce_air_quality_max(decision)
         self.smart_requested_level = decision[0]
         self.smart_demand = decision[1]
         self.smart_reason = decision[2]
