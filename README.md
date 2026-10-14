@@ -20,6 +20,7 @@ HCH5 Control turns a Raspberry Pi and a USB-RS485 adapter into a local controlle
 - [Complete feature list](docs/FEATURES.md)
 - [How the pieces fit together](#how-the-pieces-fit-together)
 - [Hardware](#hardware)
+- [HCH5 MKII (beta)](#hch5-mkii-beta)
 - [Quick start](#quick-start)
 - [A tour of the WebUI](#a-tour-of-the-webui)
 - [Bringing Home Assistant into the control](#bringing-home-assistant-into-the-control)
@@ -62,7 +63,7 @@ To let weather humidity inform ventilation, also enable humidity smart control a
 
 ## Hardware
 
-- Dantherm HCH5 MK1 with HAC1;
+- Dantherm HCH5 MK1 with HAC1, or an **HCH5 MKII** (beta, see [HCH5 MKII](#hch5-mkii-beta));
 - Raspberry Pi 2B or newer with Raspberry Pi OS Bookworm, Debian 12 or Ubuntu 22.04/24.04;
 - a Linux-supported USB-RS485 adapter (preferably galvanically isolated), bus settings `19200 8E1`;
 - optional DS18B20 1-Wire sensors on the Pi's GPIO4 (T2, afterheat water, loft);
@@ -71,6 +72,34 @@ To let weather humidity inform ventilation, also enable humidity smart control a
 Turn off the ventilation unit and the adapter before changing RS485 wiring. Connect A to A and B to B, do not add termination blindly and never use an M-Bus adapter. The [Danish installation guide](docs/installation.da.md) has the full wiring notes.
 
 For **active control**, disconnect the original HCP4 from the RS485 control path so the Pi can become master. If an HCP4 is connected and writes to the bus, the Pi yields immediately and blocks its own writes.
+
+## HCH5 MKII (beta)
+
+An HCH5 MKII has its own controller and a Modbus interface (the Dantherm Residential register map, the same as the HCV/RCV units and Pluggit iFlow). HCH5 Control can run on top of it: Local Auto, Smart Auto with rooms, the week planner, holidays, quick boost, bathroom drying and the WebUI work as on an MK1. The Pi does not listen to a bus; it polls the unit and sends it commands:
+
+| HCH5 Control asks for | The MKII does |
+|---|---|
+| a fan step (four or six steps) | its own step 1–4 (six steps are spread over the four) |
+| OFF | step 0 |
+| fireplace | its own fireplace mode |
+| bypass open / auto | manual bypass on / off (the unit's own bypass logic otherwise) |
+| afterheat setpoint | not available over Modbus – the afterheat card is hidden |
+
+Add a `unit` block to `/etc/dantherm-passivelink-webui/config.yaml`:
+
+```yaml
+unit:
+  generation: mk2
+  transport: rtu      # the Pi's USB-RS485 adapter (uses the serial: settings), or tcp
+  unit_id: 1          # the unit's Modbus address
+  # host: 192.168.1.50  # transport: tcp
+  # port: 502
+  proxy_port: 5020    # optional: read-only Modbus TCP for Home Assistant
+```
+
+Set `serial:` baudrate and parity to the unit's Modbus settings. With `proxy_port`, add the Home Assistant integration as **HCH5 MKII – Modbus TCP** pointing at the Pi and that port for the readings, and enable the controller API for the controls. An MKII on the network can also be added to Home Assistant directly (no Pi): you then get its readings and its own controls (operation mode, step, bypass, filter and alarm reset).
+
+MKII support is tested against a simulator of the register map, not yet on a real MKII. Please report how it works on yours.
 
 ## Quick start
 
@@ -290,6 +319,10 @@ cd frontend-v2 && npm ci && npm test && npm run build
 bash -n install.sh install-hch5-control.sh update.sh uninstall.sh
 node scripts/capture-preview.mjs   # README screenshots with example data
 ```
+
+## Credits
+
+The HCH5 MKII register map follows [Tvalley71/dantherm](https://github.com/Tvalley71/dantherm) (Apache License 2.0); see [NOTICE](NOTICE).
 
 ## License
 

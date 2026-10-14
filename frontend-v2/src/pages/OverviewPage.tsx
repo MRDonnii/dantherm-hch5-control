@@ -447,7 +447,7 @@ export function OverviewPage() {
               </div>
             </article>
           </aside>
-          {afterheatCard}
+          {unit.unit_generation === "mk2" ? null : afterheatCard}
         </div>
       </div>
       {standbyDialog && createPortal(<div className="sensor-history-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setStandbyDialog(false); }}>

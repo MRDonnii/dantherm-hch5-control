@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.6.0
+
+- **HCH5 MKII (beta):** HCH5 Control can now run an HCH5 MKII. Set `unit: generation: mk2` and the Pi polls the unit over Modbus (the Pi's RS485 adapter or Modbus TCP) instead of listening to an MK1 bus. Smart Auto, rooms, the week planner, holidays, quick boost and the WebUI work as on an MK1; fan steps become the unit's steps 1–4, OFF step 0, fireplace and manual bypass use the unit's own modes. The afterheat card is hidden on an MKII.
+- Optional read-only Modbus TCP proxy on the Pi (`proxy_port`) so Home Assistant can read an MKII that is only wired to the Pi.
+- The WebUI shows the connected model (HCH5 MK1 or MKII).
+- MK1 installations are unchanged.
+- The register map follows Tvalley71/dantherm (Apache 2.0); see NOTICE.
+- Changes by Claude AI.
+
 ## 1.5.3
 
 - **Maximum level for general air quality:** *Settings → Luftkvalitet* now has a separate maximum step for CO₂ and ordinary humidity in Local Auto and Smart Auto. The limit takes effect immediately when lowered, including during an existing boost hold. The normal base level may still be higher; bathroom drying and PM2.5 keep their own maximum settings. Existing installations default to their current top step, preserving prior control.

@@ -746,7 +746,11 @@ class Gateway:
         while not self.controller_hardware_queue.empty():
             action, value, done, result = self.controller_hardware_queue.get()
             try:
-                if action == "fan_pair":
+                bridge = getattr(self, "mk2_bridge", None)
+                if bridge is not None:
+                    # HCH5 MKII: the unit's own controller carries out the action.
+                    result["value"] = bridge.apply(action, value)
+                elif action == "fan_pair":
                     extract, supply = value
                     self.write_pair(ser, int(extract), int(supply))
                     actual = self.read_fan_pair(ser)
@@ -2457,7 +2461,86 @@ class Gateway:
         except Exception:
             LOG.exception("Kunne ikke gendanne værdier ved stop")
 
+    def unit_generation(self) -> str:
+        unit_cfg = self.cfg.get("unit") if isinstance(self.cfg.get("unit"), dict) else {}
+        return str(unit_cfg.get("generation", "mk1")).lower()
+
+    def run_mk2(self):
+        """HCH5 MKII: poll the unit over Modbus (RS485 or TCP) instead of listening to an MK1 bus."""
+        import mk2
+        from mk2_bridge import Mk2Bridge, ReadOnlyModbusProxy
+
+        unit_cfg = self.cfg.get("unit") or {}
+        serial_cfg = self.cfg.get("serial", {})
+        unit_id = int(unit_cfg.get("unit_id", 1))
+        ser = None
+        if str(unit_cfg.get("transport", "rtu")).lower() == "tcp":
+            transport = mk2.ModbusTcp(str(unit_cfg["host"]), int(unit_cfg.get("port", 502)), unit_id)
+        else:
+            ser = serial.Serial(
+                port=serial_cfg["port"], baudrate=int(serial_cfg.get("baudrate", 19200)),
+                bytesize=serial.EIGHTBITS, parity=serial_cfg.get("parity", "E"),
+                stopbits=serial.STOPBITS_ONE, timeout=0.2,
+            )
+            transport = mk2.ModbusRtu(ser, unit_id, timeout=1.0)
+        self.mk2_bridge = Mk2Bridge(
+            mk2.Mk2Unit(transport),
+            self.publish,
+            lambda: (self.controller.config.data.get("profiles") or {}),
+        )
+        proxy = None
+        if int(unit_cfg.get("proxy_port", 0) or 0) > 0:
+            proxy = ReadOnlyModbusProxy(transport, str(unit_cfg.get("proxy_bind", "0.0.0.0")), int(unit_cfg["proxy_port"]))
+            proxy.start()
+        dashboard_cfg = self.cfg.get("dashboard", {})
+        dashboard = None
+        if bool(dashboard_cfg.get("enabled", False)):
+            dashboard = ControllerDashboardHttpServer(
+                str(dashboard_cfg.get("bind", "0.0.0.0")),
+                int(dashboard_cfg.get("port", 8080)),
+                self.state,
+                self.device_name,
+                dashboard_cfg.get("preheater_url", "http://127.0.0.1:4197/temperatures"),
+                controller_runtime=self.controller,
+            )
+            dashboard.start()
+        self.dashboard = dashboard
+        self.connect()
+        self.publish("gateway_mode", "mk2_controller")
+        self.publish("control_status", "idle")
+        self.reader_started_at = time.monotonic()
+        self.mk2_bridge.poll()
+        self.controller.start()
+        last_poll = time.monotonic()
+        try:
+            while self.running:
+                if self.controller_reload_requested:
+                    self.controller_reload_requested = False
+                    with self.controller.config.lock:
+                        self.controller.config.load()
+                    LOG.info("Controller configuration reloaded")
+                self.process_controller_hardware(ser)
+                if time.monotonic() - last_poll >= 3.0:
+                    self.mk2_bridge.poll()
+                    last_poll = time.monotonic()
+                time.sleep(0.2)
+        finally:
+            self.controller.stop()
+            if proxy is not None:
+                proxy.stop()
+            if dashboard is not None:
+                dashboard.stop()
+            transport.close()
+            if ser is not None:
+                ser.close()
+            if self.mqtt_enabled:
+                self.client.publish(f"{self.prefix}/availability", "offline", retain=True)
+                self.client.loop_stop()
+                self.client.disconnect()
+
     def run(self):
+        if self.unit_generation() == "mk2":
+            return self.run_mk2()
         serial_cfg = self.cfg["serial"]
         tcp_cfg = self.cfg.get("raw_tcp", {})
         tcp_mirror = None

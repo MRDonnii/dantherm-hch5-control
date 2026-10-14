@@ -1,0 +1,14 @@
+HCH5 Control
+Copyright MRDonnii
+
+The HCH5 MKII support (gateway/mk2.py) uses the Dantherm Residential Modbus
+register map – register addresses, data types, unit modes and alarm codes –
+as documented by the Tvalley71/dantherm Home Assistant integration:
+
+  Dantherm integration for Home Assistant
+  https://github.com/Tvalley71/dantherm
+  Licensed under the Apache License, Version 2.0
+  http://www.apache.org/licenses/LICENSE-2.0
+
+No source files were copied; the map was re-implemented with the Python
+standard library.

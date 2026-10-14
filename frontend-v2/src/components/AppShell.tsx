@@ -74,6 +74,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<ThemeMode>(readTheme);
   const [now, setNow] = useState(new Date());
   const [unit, setUnit] = useState<UnitState>({});
+  const unitLabel = unit.unit_generation === "mk2" ? String(unit.unit_model ?? "HCH5 MKII") : "HCH5 MK1";
   const [online, reportPoll] = usePollHealth(2);
   const [version, setVersion] = useState("—");
   const [notice, setNotice] = useState("");
@@ -199,10 +200,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           ))}
         </nav>
 
-        {!collapsed && <div className="sidebar-product-note"><strong>HCH5 Control</strong><span>Kompatibel med Dantherm HCH5 MK1</span><small>Lokal styring · ingen cloud nødvendig</small></div>}
+        {!collapsed && <div className="sidebar-product-note"><strong>HCH5 Control</strong><span>Kompatibel med Dantherm HCH5 MK1 og MKII</span><small>Lokal styring · ingen cloud nødvendig</small></div>}
         <div className="sidebar-health">
           <span className={`live-dot${online ? "" : " offline"}`} />
-          {!collapsed && <div><strong>{online ? "Anlæg online" : "Forbindelse afventer"}</strong><span>HCH5 MK1 · {version !== "—" ? `v${version}` : "lokal controller"}</span></div>}
+          {!collapsed && <div><strong>{online ? "Anlæg online" : "Forbindelse afventer"}</strong><span>{unitLabel} · {version !== "—" ? `v${version}` : "lokal controller"}</span></div>}
         </div>
       </aside>
 
